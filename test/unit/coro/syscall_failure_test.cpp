@@ -20,9 +20,12 @@ int write_calls = 0;
 int poll_calls = 0;
 }  // namespace
 
+// NOLINTNEXTLINE(bugprone-reserved-identifier)  // ld --wrap requires this exact symbol name
 extern "C" ssize_t __real_write(int fd, const void* buffer, std::size_t size);
+// NOLINTNEXTLINE(bugprone-reserved-identifier)  // ld --wrap requires this exact symbol name
 extern "C" int __real_poll(pollfd* fds, nfds_t count, int timeout);
 
+// NOLINTNEXTLINE(bugprone-reserved-identifier)  // ld --wrap requires this exact symbol name
 extern "C" ssize_t __wrap_write(int fd, const void* buffer, std::size_t size) {
     ++write_calls;
     if (next_write_error != 0) {
@@ -33,6 +36,7 @@ extern "C" ssize_t __wrap_write(int fd, const void* buffer, std::size_t size) {
     return __real_write(fd, buffer, size);
 }
 
+// NOLINTNEXTLINE(bugprone-reserved-identifier)  // ld --wrap requires this exact symbol name
 extern "C" int __wrap_poll(pollfd* fds, nfds_t count, int timeout) {
     ++poll_calls;
     if (next_poll_error != 0) {

@@ -126,7 +126,7 @@ public:
         std::chrono::seconds hang{0};
     } validation{};
 
-    bool supports_validate(std::string_view) const override { return validation.available; }
+    [[nodiscard]] bool supports_validate(std::string_view) const override { return validation.available; }
 
     coro::Task<std::expected<void, domain::DriverError>> validate_config(std::string, std::string) override {
         ++validation.calls;
@@ -192,7 +192,7 @@ public:
 
     ~ProbeGateway() noexcept override { state_->destroyed = true; }
 
-    bool supports_validate(std::string_view) const override { return state_->validation.available; }
+    [[nodiscard]] bool supports_validate(std::string_view) const override { return state_->validation.available; }
 
     coro::Task<std::expected<void, domain::DriverError>> validate_config(std::string, std::string) override {
         ++state_->validation.calls;
@@ -670,7 +670,7 @@ TEST(MainLoop, MainLoopSupervisesSubdomainsAndStopsOnSigint) {
     FakeResolver resolver;
     resolver.records = {"198.51.100.1"};
     FakeIpSource ip_source;
-    ip_source.fatal_subdomains.push_back("bad");
+    ip_source.fatal_subdomains.emplace_back("bad");
     const auto gateway_state = std::make_shared<ProbeGateway::State>();
     // The second successful cycle asks the process to shut down, which proves
     // the healthy subdomain kept running after its sibling died.
@@ -711,7 +711,7 @@ TEST(MainLoop, SubdomainDefectRetriesTheCycleAfterTheInterval) {
     coro::Loop loop{clock};
     FakeResolver resolver;
     FakeIpSource ip_source;
-    ip_source.fatal_subdomains.push_back("only");
+    ip_source.fatal_subdomains.emplace_back("only");
     const auto gateway_state = std::make_shared<ProbeGateway::State>();
     RecordingLogger logger;
 
@@ -758,7 +758,7 @@ TEST(MainLoop, SubdomainDefectIsReportedAndSiblingsSurvive) {
     coro::Loop loop;
     FakeResolver resolver;
     FakeIpSource ip_source;
-    ip_source.fatal_subdomains.push_back("bad");
+    ip_source.fatal_subdomains.emplace_back("bad");
     const auto gateway_state = std::make_shared<ProbeGateway::State>();
     // The second successful cycle asks the process to shut down, which proves
     // the healthy subdomain kept running after its sibling died.

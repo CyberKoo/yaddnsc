@@ -11,6 +11,7 @@
 // =============================================================================
 
 #include <cstddef>
+#include <cstdlib>
 #include <filesystem>
 #include <initializer_list>
 #include <stdexcept>
@@ -21,7 +22,6 @@
 #include <glaze/glaze.hpp>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include <stdlib.h>
 #include <unistd.h>
 
 #include "infrastructure/config/config.h"
@@ -605,7 +605,7 @@ TEST(ConfigLoaderTest, LoadConfig_UnicodeAndEscapedUnknownKeys_NamesDecodedKeyAn
                           {R"(quo\"te)", "quo\"te"}};
     for (const auto& test_case : cases) {
         SCOPED_TRACE(test_case.key);
-        const std::string content = "{\"drivers\":{\"" + std::string(test_case.key) + "\":1}}";
+        const std::string content = R"({"drivers":{")" + std::string(test_case.key) + "\":1}}";
         Config::AppConfig config;
         const auto error = glz::read_json(config, content);
         ASSERT_TRUE(error);
@@ -635,7 +635,7 @@ TEST(ConfigLoaderTest, DescribeParseError_LargeUnrelatedSuffix_PreservesEarlierD
     const auto expected =
         Config::Diagnostic::describe_parse_error("suffix.json", prefix, offset, glz::error_code::expected_quote);
     ASSERT_NE(expected.find("\"drivers.load[1]\" expects a string"), std::string::npos) << expected;
-    for (const auto* suffix : {"]}}", "\\q\",\"nope\":", "[{"}) {
+    for (const auto* suffix : {"]}}", R"(\q","nope":)", "[{"}) {
         std::string content = prefix;
         content.append(1024 * 1024, ' ');
         content += suffix;

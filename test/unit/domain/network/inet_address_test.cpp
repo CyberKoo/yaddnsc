@@ -10,6 +10,8 @@
 #include "domain/network/inet_address.h"
 
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
@@ -17,7 +19,6 @@
 #include <type_traits>
 
 #include <gtest/gtest.h>
-#include <stddef.h>
 
 #include "domain/network/address_family.h"
 
@@ -393,7 +394,7 @@ TEST(InetAddressTest, GetAddress_V4_ZeroPaddedTo16) {
     EXPECT_EQ(bytes[2], 3);
     EXPECT_EQ(bytes[3], 4);
     // Remaining bytes are zero-padded
-    for (size_t i = 4; i < 16; ++i) {
+    for (std::size_t i = 4; i < 16; ++i) {
         EXPECT_EQ(bytes[i], 0);
     }
 }
@@ -420,24 +421,24 @@ TEST(InetAddressTest, Equality_CrossFamily) {
 }
 
 TEST(InetAddressTest, FromBytes_V4) {
-    std::array<uint8_t, 4> bytes = {8, 8, 8, 8};
-    auto addr = domain::InetAddress::from_bytes(std::span<const uint8_t>(bytes));
+    std::array<std::uint8_t, 4> bytes = {8, 8, 8, 8};
+    auto addr = domain::InetAddress::from_bytes(std::span<const std::uint8_t>(bytes));
     ASSERT_TRUE(addr.has_value());
     EXPECT_EQ(addr->get_family(), domain::AddressFamily::IPV4);
     EXPECT_EQ(addr->to_string(), "8.8.8.8");
 }
 
 TEST(InetAddressTest, FromBytes_V6) {
-    std::array<uint8_t, 16> bytes = {};
+    std::array<std::uint8_t, 16> bytes = {};
     bytes[15] = 1;  // ::1
-    auto addr = domain::InetAddress::from_bytes(std::span<const uint8_t>(bytes));
+    auto addr = domain::InetAddress::from_bytes(std::span<const std::uint8_t>(bytes));
     ASSERT_TRUE(addr.has_value());
     EXPECT_EQ(addr->get_family(), domain::AddressFamily::IPV6);
 }
 
 TEST(InetAddressTest, FromBytes_InvalidLength) {
-    std::array<uint8_t, 7> bytes = {};  // neither 4 nor 16
-    auto addr = domain::InetAddress::from_bytes(std::span<const uint8_t>(bytes));
+    std::array<std::uint8_t, 7> bytes = {};  // neither 4 nor 16
+    auto addr = domain::InetAddress::from_bytes(std::span<const std::uint8_t>(bytes));
     EXPECT_FALSE(addr.has_value());
 }
 

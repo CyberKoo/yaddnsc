@@ -270,7 +270,7 @@ TEST(ScopeGroupPaths, TaskGroup_BodyCancelled_PropagatesCancellation) {
             // Cancel from a sibling child while the group body is parked on the drain.
             struct CancelOnFirstTurn {
                 coro::CancelScope* scope;
-                coro::Task<void> run() const {
+                [[nodiscard]] coro::Task<void> run() const {
                     co_await coro::sleep_for(1ms);
                     scope->cancel();
                     co_return;
@@ -338,7 +338,7 @@ TEST(ScopeGroupPaths, SupervisorGroup_CancelledBodyWithChildFailure_ReportsChild
 
     struct CancelSoon {
         coro::TaskGroup* group;
-        coro::Task<void> run() const {
+        [[nodiscard]] coro::Task<void> run() const {
             co_await coro::sleep_for(2ms);
             group->cancel();
             co_return;

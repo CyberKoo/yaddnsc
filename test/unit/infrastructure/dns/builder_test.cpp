@@ -13,6 +13,7 @@
 #include "infrastructure/dns/wire/builder.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -20,7 +21,6 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-#include <stddef.h>
 
 #include "infrastructure/dns/dns_packet_exception.h"
 #include "infrastructure/dns/parser.h"
@@ -32,11 +32,11 @@
 
 namespace {
 
-[[nodiscard]] std::uint16_t read_u16(const std::vector<std::uint8_t>& buf, size_t offset) {
+[[nodiscard]] std::uint16_t read_u16(const std::vector<std::uint8_t>& buf, std::size_t offset) {
     return static_cast<std::uint16_t>((buf[offset] << 8) | buf[offset + 1]);
 }
 
-[[nodiscard]] std::uint32_t read_u32(const std::vector<std::uint8_t>& buf, size_t offset) {
+[[nodiscard]] std::uint32_t read_u32(const std::vector<std::uint8_t>& buf, std::size_t offset) {
     return (static_cast<std::uint32_t>(buf[offset]) << 24) | (static_cast<std::uint32_t>(buf[offset + 1]) << 16) |
            (static_cast<std::uint32_t>(buf[offset + 2]) << 8) | static_cast<std::uint32_t>(buf[offset + 3]);
 }
@@ -55,7 +55,7 @@ void expect_header(const std::vector<std::uint8_t>& packet, std::uint16_t expect
 }
 
 /// Verify "example.com" QNAME at the given offset.
-void expect_qname_example_com(const std::vector<std::uint8_t>& packet, size_t offset) {
+void expect_qname_example_com(const std::vector<std::uint8_t>& packet, std::size_t offset) {
     ASSERT_GE(packet.size(), offset + 13);
     EXPECT_EQ(packet[offset + 0], 7);
     EXPECT_EQ(packet[offset + 1], 'e');
@@ -248,7 +248,7 @@ TEST(QueryBuilderTest, MultipleQuestions) {
     EXPECT_EQ(read_u16(packet, 25), 1);  // QTYPE = A
 
     // Second question: AAAA record, after first QNAME(13) + QTYPE(2) + QCLASS(2) = 17 bytes
-    size_t q2_offset = 12 + 13 + 2 + 2;  // = 29
+    std::size_t q2_offset = 12 + 13 + 2 + 2;  // = 29
     expect_qname_example_com(packet, q2_offset);
     EXPECT_EQ(read_u16(packet, q2_offset + 13), 28);  // QTYPE = AAAA
 }
@@ -265,8 +265,8 @@ TEST(QueryBuilderTest, MultipleDifferentNames) {
     // First question size: 13 + QTYPE(2) + QCLASS(2) = 17 bytes
     // Second QNAME starts at offset 12 + 17 = 29
     // Second QNAME: \x06google\x03com\x00 (12 bytes: 6+1 + 3+1 + 1 root)
-    size_t q2_qname_offset = 29;
-    size_t q2_qname_len = 12;
+    std::size_t q2_qname_offset = 29;
+    std::size_t q2_qname_len = 12;
     ASSERT_GE(packet.size(), q2_qname_offset + q2_qname_len + 4);
     EXPECT_EQ(packet[q2_qname_offset], 6);
     EXPECT_EQ(packet[q2_qname_offset + 1], 'g');
@@ -357,7 +357,7 @@ TEST(QueryBuilderTest, EdnsOptRecordFields) {
     auto packet = dns::QueryBuilder{}.add_question("example.com", dns::RecordType::A).add_edns(1232, 0, true).build();
 
     // After the question section: header(12) + qname(13) + qtype(2) + qclass(2) = 29
-    size_t opt_offset = 29;
+    std::size_t opt_offset = 29;
 
     // OPT name: root label (1 byte: 0x00)
     EXPECT_EQ(packet[opt_offset], 0);
@@ -378,7 +378,7 @@ TEST(QueryBuilderTest, EdnsOptRecordFields) {
 TEST(QueryBuilderTest, EdnsWithoutDnssec) {
     auto packet = dns::QueryBuilder{}.add_question("example.com", dns::RecordType::A).add_edns(4096, 0, false).build();
 
-    size_t opt_offset = 29;
+    std::size_t opt_offset = 29;
 
     // TTL: version=0, DO=0 → 0x00000000
     EXPECT_EQ(read_u16(packet, opt_offset + 5), 0);
@@ -394,7 +394,7 @@ TEST(QueryBuilderTest, EdnsWithOptions) {
     auto packet =
         dns::QueryBuilder{}.add_question("example.com", dns::RecordType::A).add_edns(4096, 0, false, opts).build();
 
-    size_t opt_offset = 29;
+    std::size_t opt_offset = 29;
 
     // RDLENGTH = (2+2+2) + (2+2+3) = 6 + 7 = 13
     EXPECT_EQ(read_u16(packet, opt_offset + 9), 13);
@@ -618,7 +618,7 @@ TEST(QueryBuilderTest, EdnsDefaultOptions) {
     // add_edns with no options argument uses the default std::span{}
     auto packet = dns::QueryBuilder{}.add_question("example.com", dns::RecordType::A).add_edns(4096).build();
 
-    size_t opt_offset = 29;
+    std::size_t opt_offset = 29;
     // RDLENGTH should be 0 (no options)
     EXPECT_EQ(read_u16(packet, opt_offset + 9), 0);
 }
@@ -630,6 +630,6 @@ TEST(QueryBuilderTest, EdnsEmptyExplicitOptions) {
                       .add_edns(4096, 0, false, empty_opts)
                       .build();
 
-    size_t opt_offset = 29;
+    std::size_t opt_offset = 29;
     EXPECT_EQ(read_u16(packet, opt_offset + 9), 0);
 }

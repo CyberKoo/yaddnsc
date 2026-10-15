@@ -55,8 +55,10 @@ TEST(UniqueFdTest, MoveConstructor_TransfersOwnership) {
 
     EXPECT_TRUE(fd2);
     EXPECT_EQ(fd2.get(), raw);
+    // NOLINTBEGIN(bugprone-use-after-move)  // verifies the moved-from state guarantee
     EXPECT_FALSE(fd1);
     EXPECT_EQ(fd1.get(), -1);
+    // NOLINTEND(bugprone-use-after-move)
 }
 
 // ── Move assignment ───────────────────────────────────────────────────────────
@@ -75,6 +77,7 @@ TEST(UniqueFdTest, MoveAssignment_TransfersOwnership) {
     // fd2 now owns raw1; the old fd2 (raw2) should have been closed.
     EXPECT_TRUE(fd2);
     EXPECT_EQ(fd2.get(), raw1);
+    // NOLINTNEXTLINE(bugprone-use-after-move)  // verifies the moved-from state guarantee
     EXPECT_FALSE(fd1);
 }
 

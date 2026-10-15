@@ -7,13 +7,13 @@
 //   - QueryBuilder for custom query construction.
 // =============================================================================
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <gtest/gtest.h>
-#include <stddef.h>
 
 #include "infrastructure/dns/types.h"
 #include "infrastructure/dns/wire/builder.h"
@@ -55,7 +55,7 @@ void expect_standard_query_header(const std::vector<std::uint8_t>& packet) {
 }
 
 /// Verify that the QNAME at offset 12 encodes "example.com" correctly.
-void expect_qname_example_com(const std::vector<std::uint8_t>& packet, size_t offset = 12) {
+void expect_qname_example_com(const std::vector<std::uint8_t>& packet, std::size_t offset = 12) {
     // \x07example\x03com\x00
     ASSERT_GE(packet.size(), offset + 13);
     EXPECT_EQ(packet[offset + 0], 7);
@@ -74,8 +74,8 @@ void expect_qname_example_com(const std::vector<std::uint8_t>& packet, size_t of
 }
 
 /// Compute QNAME length from the encoded form (sum of label lengths + labels + root).
-size_t encoded_qname_length(const std::vector<std::uint8_t>& packet, size_t offset = 12) {
-    size_t len = 0;
+size_t encoded_qname_length(const std::vector<std::uint8_t>& packet, std::size_t offset = 12) {
+    std::size_t len = 0;
     while (offset + len < packet.size()) {
         auto label_len = packet[offset + len];
         ++len;  // length byte
@@ -99,8 +99,8 @@ TEST(BuildQueryTest, BuildsExampleCom_A) {
     expect_qname_example_com(packet, 12);
 
     // QTYPE (after QNAME end): ns_t_a = 1 → 0x0001
-    size_t qname_len = encoded_qname_length(packet, 12);
-    size_t qtype_offset = 12 + qname_len;
+    std::size_t qname_len = encoded_qname_length(packet, 12);
+    std::size_t qtype_offset = 12 + qname_len;
     ASSERT_GE(packet.size(), qtype_offset + 4);
     EXPECT_EQ(packet[qtype_offset], 0x00);
     EXPECT_EQ(packet[qtype_offset + 1], 0x01);  // A record

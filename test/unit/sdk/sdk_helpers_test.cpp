@@ -150,7 +150,7 @@ struct ThrowingFormatArg {};
 
 template<>
 struct std::formatter<ThrowingFormatArg, char> {
-    constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
+    static constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
 
     template<class FormatContext>
     auto format(const ThrowingFormatArg&, FormatContext& ctx) const {
@@ -161,7 +161,7 @@ struct std::formatter<ThrowingFormatArg, char> {
 
 class LongMessageDriver final : public yaddnsc::sdk::Driver {
 public:
-    yaddnsc::sdk::Result validate(std::string_view) const override { return {}; }
+    [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view) const override { return {}; }
 
     LongMessageDriver() { throw std::runtime_error(std::string(800, 'x')); }
 
@@ -170,7 +170,7 @@ public:
 
 class UpdateThrowDriver final : public yaddnsc::sdk::Driver {
 public:
-    yaddnsc::sdk::Result validate(std::string_view) const override { return {}; }
+    [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view) const override { return {}; }
 
     yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext&) override {
         throw std::runtime_error(std::string(800, 'y'));
@@ -179,7 +179,7 @@ public:
 
 class LogThrowDriver final : public yaddnsc::sdk::Driver {
 public:
-    yaddnsc::sdk::Result validate(std::string_view) const override { return {}; }
+    [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view) const override { return {}; }
 
     yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override {
         YADDNSC_SDK_LOG_INFO(context, "{}", ThrowingFormatArg{});
@@ -701,7 +701,7 @@ public:
         YADDNSC_SDK_LOG_INFO(services, "Constructing driver");
     }
 
-    yaddnsc::sdk::Result validate(std::string_view) const override { return {}; }
+    [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view) const override { return {}; }
 
     yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext&) override { return {}; }
 };

@@ -10,10 +10,11 @@
 /// Never retarget this file at the live header. See
 /// docs/development.md#plugin-abi-changes.
 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
 #include <new>
 
-#include <stddef.h>
-#include <stdint.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
 #define FROZEN_EXPORT __attribute__((visibility("default")))
@@ -36,7 +37,7 @@ struct FrozenInstance {
     yaddnsc_host_services services;
 };
 
-yaddnsc_string make_view(const char* text, size_t size) {
+yaddnsc_string make_view(const char* text, std::size_t size) {
     return yaddnsc_string{text, size};
 }
 
@@ -47,9 +48,9 @@ void write_error(yaddnsc_error* out_error, yaddnsc_status status, yaddnsc_string
     out_error->status = status;
     out_error->retry_after_seconds = 0;
     out_error->message = message;
-    out_error->struct_size = out_error->struct_size < static_cast<uint32_t>(sizeof(yaddnsc_error))
+    out_error->struct_size = out_error->struct_size < static_cast<std::uint32_t>(sizeof(yaddnsc_error))
                                  ? out_error->struct_size
-                                 : static_cast<uint32_t>(sizeof(yaddnsc_error));
+                                 : static_cast<std::uint32_t>(sizeof(yaddnsc_error));
 }
 
 }  // namespace
@@ -84,14 +85,17 @@ extern "C" FROZEN_EXPORT yaddnsc_status yaddnsc_driver_create(const yaddnsc_host
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
 
-    auto* instance = new (std::nothrow) FrozenInstance{};
-    if (instance == nullptr) {
+    // Ownership crosses the C ABI boundary: holder keeps the raw pointer owned
+    // until it is released into *out_driver, which the host destroys via
+    // yaddnsc_driver_destroy.
+    std::unique_ptr<FrozenInstance> holder(new (std::nothrow) FrozenInstance{});
+    if (holder == nullptr) {
         constexpr char MESSAGE[] = "out of memory";
         write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, make_view(MESSAGE, sizeof(MESSAGE) - 1));
         return YADDNSC_STATUS_INTERNAL_ERROR;
     }
-    instance->services = *services;
-    *out_driver = reinterpret_cast<yaddnsc_driver*>(instance);  // NOLINT
+    holder->services = *services;
+    *out_driver = reinterpret_cast<yaddnsc_driver*>(holder.release());  // NOLINT
     return YADDNSC_STATUS_OK;
 }
 
@@ -140,14 +144,14 @@ extern "C" FROZEN_EXPORT yaddnsc_status yaddnsc_driver_update(yaddnsc_driver* dr
     // One GET exchange through host services; no body.
     constexpr char URL[] = "https://frozen-v1-0.example.com/nic/update";
     yaddnsc_http_request http_request{};
-    http_request.struct_size = static_cast<uint32_t>(sizeof(http_request));
+    http_request.struct_size = static_cast<std::uint32_t>(sizeof(http_request));
     http_request.url = make_view(URL, sizeof(URL) - 1);
     http_request.method = YADDNSC_HTTP_GET;
 
     yaddnsc_http_response response{};
-    response.struct_size = static_cast<uint32_t>(sizeof(response));
+    response.struct_size = static_cast<std::uint32_t>(sizeof(response));
     yaddnsc_error exchange_error{};
-    exchange_error.struct_size = static_cast<uint32_t>(sizeof(exchange_error));
+    exchange_error.struct_size = static_cast<std::uint32_t>(sizeof(exchange_error));
 
     const yaddnsc_status exchange_status =
         services.http_exchange(services.context, &http_request, &response, &exchange_error);

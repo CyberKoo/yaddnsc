@@ -64,7 +64,7 @@ const Request NO_REQUEST;
 }
 
 const std::string OK = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
-const std::string EMPTY = "";  ///< an immediate EOF: the peer closed
+const std::string EMPTY;  ///< an immediate EOF: the peer closed
 
 /// What one scripted connection does.
 struct Behaviour {
@@ -336,7 +336,7 @@ TEST(HttpSessionQueue, secondExchange_ExpiresItsQueueBudget) {
             auto holder = group.spawn(session.exchange("/first", NO_REQUEST));
             auto waiter = group.spawn(session.exchange("/second", NO_REQUEST));
             if (const auto held = co_await holder; held) {
-                first.emplace(std::move(*held));
+                first.emplace(*held);
             }
             if (const auto waited = co_await waiter; !waited) {
                 second = waited.error();

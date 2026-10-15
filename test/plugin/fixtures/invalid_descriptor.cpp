@@ -3,7 +3,8 @@
 // invalid field so PluginModule::load is exercised through a real .so.
 //
 
-#include <stdint.h>
+#include <cstdint>
+
 #include <yaddnsc/sdk/driver_abi.h>
 
 #define FIXTURE_EXPORT __attribute__((visibility("default")))
@@ -14,31 +15,31 @@ constexpr yaddnsc_string NAME{nullptr, 1};
 constexpr yaddnsc_string VERSION{"0.0.0", sizeof("0.0.0") - 1};
 constexpr yaddnsc_string AUTHOR{"yaddnsc", sizeof("yaddnsc") - 1};
 constexpr yaddnsc_string DESCRIPTION{"invalid name view", sizeof("invalid name view") - 1};
-constexpr uint64_t CAPABILITIES = YADDNSC_DRIVER_CAPABILITY_A;
+constexpr std::uint64_t CAPABILITIES = YADDNSC_DRIVER_CAPABILITY_A;
 #elif defined(YADDNSC_FIXTURE_INVALID_VERSION)
 constexpr yaddnsc_string NAME{"invalid_descriptor", sizeof("invalid_descriptor") - 1};
 constexpr yaddnsc_string VERSION{nullptr, 1};
 constexpr yaddnsc_string AUTHOR{"yaddnsc", sizeof("yaddnsc") - 1};
 constexpr yaddnsc_string DESCRIPTION{"invalid version view", sizeof("invalid version view") - 1};
-constexpr uint64_t CAPABILITIES = YADDNSC_DRIVER_CAPABILITY_A;
+constexpr std::uint64_t CAPABILITIES = YADDNSC_DRIVER_CAPABILITY_A;
 #elif defined(YADDNSC_FIXTURE_INVALID_AUTHOR)
 constexpr yaddnsc_string NAME{"invalid_descriptor", sizeof("invalid_descriptor") - 1};
 constexpr yaddnsc_string VERSION{"0.0.0", sizeof("0.0.0") - 1};
 constexpr yaddnsc_string AUTHOR{nullptr, 1};
 constexpr yaddnsc_string DESCRIPTION{"invalid author view", sizeof("invalid author view") - 1};
-constexpr uint64_t CAPABILITIES = YADDNSC_DRIVER_CAPABILITY_A;
+constexpr std::uint64_t CAPABILITIES = YADDNSC_DRIVER_CAPABILITY_A;
 #elif defined(YADDNSC_FIXTURE_INVALID_DESCRIPTION)
 constexpr yaddnsc_string NAME{"invalid_descriptor", sizeof("invalid_descriptor") - 1};
 constexpr yaddnsc_string VERSION{"0.0.0", sizeof("0.0.0") - 1};
 constexpr yaddnsc_string AUTHOR{"yaddnsc", sizeof("yaddnsc") - 1};
 constexpr yaddnsc_string DESCRIPTION{nullptr, 1};
-constexpr uint64_t CAPABILITIES = YADDNSC_DRIVER_CAPABILITY_A;
+constexpr std::uint64_t CAPABILITIES = YADDNSC_DRIVER_CAPABILITY_A;
 #elif defined(YADDNSC_FIXTURE_INVALID_CAPABILITIES)
 constexpr yaddnsc_string NAME{"invalid_descriptor", sizeof("invalid_descriptor") - 1};
 constexpr yaddnsc_string VERSION{"0.0.0", sizeof("0.0.0") - 1};
 constexpr yaddnsc_string AUTHOR{"yaddnsc", sizeof("yaddnsc") - 1};
 constexpr yaddnsc_string DESCRIPTION{"invalid capabilities", sizeof("invalid capabilities") - 1};
-constexpr uint64_t CAPABILITIES = UINT64_C(1) << 63;
+constexpr std::uint64_t CAPABILITIES = UINT64_C(1) << 63;
 #else
 #error "select one invalid descriptor fixture field"
 #endif

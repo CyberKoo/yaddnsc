@@ -390,7 +390,7 @@ TEST(HttpExchangeResponseBody, oneShotOverloadCarriesNothingForward) {
 
 TEST(HttpExchangeChunkCoding, sizeLineAcceptsWellFormedExtensions) {
     for (const auto& size_line :
-         {"5", "5;ext", "5;a;b=c", "5;ext=value", "5;ext=\"v\"", "5;e=\"a\\\"b\"", "5;ext=\"v\";other=1"}) {
+         {"5", "5;ext", "5;a;b=c", "5;ext=value", "5;ext=\"v\"", R"(5;e="a\"b")", "5;ext=\"v\";other=1"}) {
         SCOPED_TRACE(size_line);
         const auto response = run_exchange(chunked(size_line), get_to());
         ASSERT_TRUE(response.has_value());

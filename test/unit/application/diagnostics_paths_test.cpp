@@ -113,6 +113,7 @@ public:
 
     [[nodiscard]] std::vector<std::string> names() const override {
         std::vector<std::string> out;
+        out.reserve(rows.size());
         for (const auto& row : rows) {
             out.push_back(row.name);
         }

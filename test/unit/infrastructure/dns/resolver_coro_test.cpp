@@ -710,7 +710,7 @@ public:
         connected_ = false;
     }
 
-    bool connected() const noexcept override { return connected_; }
+    [[nodiscard]] bool connected() const noexcept override { return connected_; }
 
 private:
     int& closed_;
@@ -782,7 +782,7 @@ public:
 
     void close() noexcept override { connected_ = false; }
 
-    bool connected() const noexcept override { return connected_; }
+    [[nodiscard]] bool connected() const noexcept override { return connected_; }
 
 private:
     bool dot_;
@@ -968,7 +968,7 @@ public:
 
     void close() noexcept override { inner_.close(); }
 
-    bool connected() const noexcept override { return inner_.connected(); }
+    [[nodiscard]] bool connected() const noexcept override { return inner_.connected(); }
 
 private:
     StaleEchoStream inner_;

@@ -105,12 +105,12 @@ public:
     }
 
     /// Every server asked for `qtype` gets `reply`, unless its address is scripted.
-    void by_type(const RecordType qtype, ScriptedReply reply) {
+    static void by_type(const RecordType qtype, ScriptedReply reply) {
         script().by_type[static_cast<std::uint16_t>(qtype)] = std::move(reply);
     }
 
     /// `server` gets `reply` for every query type.
-    void by_address(std::string server, ScriptedReply reply) {
+    static void by_address(std::string server, ScriptedReply reply) {
         script().by_address[std::move(server)] = std::move(reply);
     }
 
@@ -326,7 +326,7 @@ TEST(BootstrapPaths, literalHostOfTheOtherFamilyIsALocalMismatch) {
 
 TEST(BootstrapPaths, addressAnswerIsReturnedAsAnAddress) {
     Wire wire;
-    wire.by_type(RecordType::A, ScriptedReply{.answers = {address_answer(RecordType::A, v4(198, 51, 100, 7))}});
+    Wire::by_type(RecordType::A, ScriptedReply{.answers = {address_answer(RecordType::A, v4(198, 51, 100, 7))}});
 
     const auto result = resolve("yaddnsc.test", domain::AddressFamily::IPV4, {{"192.0.2.1", 53}}, bootstrap_policy());
 
@@ -341,7 +341,7 @@ TEST(BootstrapPaths, malformedResponseIsAParseFailure) {
     // A response the parser rejects must surface as PARSE — the endpoint's
     // verdict — not as NODATA, which would claim the name simply has no record.
     Wire wire;
-    wire.by_type(RecordType::A, ScriptedReply{.raw = truncated_header()});
+    Wire::by_type(RecordType::A, ScriptedReply{.raw = truncated_header()});
 
     const auto result = resolve("yaddnsc.test", domain::AddressFamily::IPV4, {{"192.0.2.1", 53}}, bootstrap_policy());
 
@@ -352,7 +352,7 @@ TEST(BootstrapPaths, malformedResponseIsAParseFailure) {
 
 TEST(BootstrapPaths, answerWhoseRdataLengthContradictsItsTypeIsAParseError) {
     Wire wire;
-    wire.by_type(RecordType::A, ScriptedReply{.answers = {short_address_answer()}});
+    Wire::by_type(RecordType::A, ScriptedReply{.answers = {short_address_answer()}});
 
     const auto result = resolve("yaddnsc.test", domain::AddressFamily::IPV4, {{"192.0.2.1", 53}}, bootstrap_policy());
 
@@ -363,7 +363,7 @@ TEST(BootstrapPaths, answerWhoseRdataLengthContradictsItsTypeIsAParseError) {
 
 TEST(BootstrapPaths, emptyAnswerSectionIsReportedAsNodataNamingTheHost) {
     Wire wire;
-    wire.by_type(RecordType::A, ScriptedReply{});
+    Wire::by_type(RecordType::A, ScriptedReply{});
 
     const auto result = resolve("yaddnsc.test", domain::AddressFamily::IPV4, {{"192.0.2.1", 53}}, bootstrap_policy());
 
@@ -376,7 +376,7 @@ TEST(BootstrapPaths, emptyAnswerSectionIsReportedAsNodataNamingTheHost) {
 
 TEST(BootstrapPaths, nxdomainNamesTheHostOnce) {
     Wire wire;
-    wire.by_type(RecordType::A, ScriptedReply{.rcode = Rcode::NXDOMAIN});
+    Wire::by_type(RecordType::A, ScriptedReply{.rcode = Rcode::NXDOMAIN});
 
     const auto result = resolve("yaddnsc.test", domain::AddressFamily::IPV4, {{"192.0.2.1", 53}}, bootstrap_policy());
 
@@ -388,8 +388,8 @@ TEST(BootstrapPaths, nxdomainNamesTheHostOnce) {
 
 TEST(BootstrapPaths, transportFailureIsReportedAsTheHostThatCouldNotBeResolved) {
     Wire wire;
-    wire.by_type(RecordType::A,
-                 ScriptedReply{.failure = domain::DnsErrorInfo{domain::DnsError::RETRY, "wire budget exhausted"}});
+    Wire::by_type(RecordType::A,
+                  ScriptedReply{.failure = domain::DnsErrorInfo{domain::DnsError::RETRY, "wire budget exhausted"}});
 
     const auto result = resolve("yaddnsc.test", domain::AddressFamily::IPV4, {{"192.0.2.1", 53}}, bootstrap_policy());
 
@@ -405,8 +405,8 @@ TEST(BootstrapPaths, transportFailureIsReportedAsTheHostThatCouldNotBeResolved) 
 
 TEST(BootstrapPaths, negativeAnswerFromTheFirstServerLetsTheSecondAnswer) {
     Wire wire;
-    wire.by_address("192.0.2.1", ScriptedReply{.rcode = Rcode::NXDOMAIN});
-    wire.by_address("192.0.2.2", ScriptedReply{.answers = {address_answer(RecordType::A, v4(198, 51, 100, 7))}});
+    Wire::by_address("192.0.2.1", ScriptedReply{.rcode = Rcode::NXDOMAIN});
+    Wire::by_address("192.0.2.2", ScriptedReply{.answers = {address_answer(RecordType::A, v4(198, 51, 100, 7))}});
 
     const auto result = resolve("yaddnsc.test", domain::AddressFamily::IPV4, {{"192.0.2.1", 53}, {"192.0.2.2", 53}},
                                 bootstrap_policy(1));
@@ -418,9 +418,9 @@ TEST(BootstrapPaths, negativeAnswerFromTheFirstServerLetsTheSecondAnswer) {
 
 TEST(BootstrapPaths, transientFailureFreesTheSlotForTheNextServer) {
     Wire wire;
-    wire.by_address("192.0.2.1",
-                    ScriptedReply{.failure = domain::DnsErrorInfo{domain::DnsError::RETRY, "wire budget exhausted"}});
-    wire.by_address("192.0.2.2", ScriptedReply{.answers = {address_answer(RecordType::A, v4(198, 51, 100, 7))}});
+    Wire::by_address("192.0.2.1",
+                     ScriptedReply{.failure = domain::DnsErrorInfo{domain::DnsError::RETRY, "wire budget exhausted"}});
+    Wire::by_address("192.0.2.2", ScriptedReply{.answers = {address_answer(RecordType::A, v4(198, 51, 100, 7))}});
 
     const auto result = resolve("yaddnsc.test", domain::AddressFamily::IPV4, {{"192.0.2.1", 53}, {"192.0.2.2", 53}},
                                 bootstrap_policy(1));
@@ -433,7 +433,7 @@ TEST(BootstrapPaths, transientFailureFreesTheSlotForTheNextServer) {
 
 TEST(BootstrapPaths, invalidHostIsInvalidQueryBeforeAnyServerIsAsked) {
     Wire wire;
-    wire.by_type(RecordType::A, ScriptedReply{.answers = {address_answer(RecordType::A, v4(198, 51, 100, 7))}});
+    Wire::by_type(RecordType::A, ScriptedReply{.answers = {address_answer(RecordType::A, v4(198, 51, 100, 7))}});
 
     // The name cannot be encoded, so no query exists to send: the local defect
     // is INVALID_QUERY and it ends the search instead of failing over.
@@ -451,8 +451,8 @@ TEST(BootstrapPaths, invalidHostIsInvalidQueryBeforeAnyServerIsAsked) {
 
 TEST(BootstrapPaths, bothFamiliesAreCollected) {
     Wire wire;
-    wire.by_type(RecordType::A, ScriptedReply{.answers = {address_answer(RecordType::A, v4(198, 51, 100, 7))}});
-    wire.by_type(RecordType::AAAA, ScriptedReply{.answers = {address_answer(RecordType::AAAA, v6(7))}});
+    Wire::by_type(RecordType::A, ScriptedReply{.answers = {address_answer(RecordType::A, v4(198, 51, 100, 7))}});
+    Wire::by_type(RecordType::AAAA, ScriptedReply{.answers = {address_answer(RecordType::AAAA, v6(7))}});
 
     const auto result = resolve("yaddnsc.test", std::nullopt, {{"192.0.2.1", 53}}, bootstrap_policy());
 
@@ -464,8 +464,8 @@ TEST(BootstrapPaths, bothFamiliesAreCollected) {
 
 TEST(BootstrapPaths, aSilentFamilyDoesNotDiscardTheAnsweredOne) {
     Wire wire;
-    wire.by_type(RecordType::A, ScriptedReply{.answers = {address_answer(RecordType::A, v4(198, 51, 100, 7))}});
-    wire.by_type(RecordType::AAAA, ScriptedReply{.rcode = Rcode::NXDOMAIN});
+    Wire::by_type(RecordType::A, ScriptedReply{.answers = {address_answer(RecordType::A, v4(198, 51, 100, 7))}});
+    Wire::by_type(RecordType::AAAA, ScriptedReply{.rcode = Rcode::NXDOMAIN});
 
     const auto result = resolve("yaddnsc.test", std::nullopt, {{"192.0.2.1", 53}}, bootstrap_policy());
 
@@ -476,8 +476,8 @@ TEST(BootstrapPaths, aSilentFamilyDoesNotDiscardTheAnsweredOne) {
 
 TEST(BootstrapPaths, theHigherPriorityFamilyFailureIsTheOneReported) {
     Wire wire;
-    wire.by_type(RecordType::A, ScriptedReply{.rcode = Rcode::NXDOMAIN});     // the weakest verdict
-    wire.by_type(RecordType::AAAA, ScriptedReply{.rcode = Rcode::SERVFAIL});  // outranks it
+    Wire::by_type(RecordType::A, ScriptedReply{.rcode = Rcode::NXDOMAIN});     // the weakest verdict
+    Wire::by_type(RecordType::AAAA, ScriptedReply{.rcode = Rcode::SERVFAIL});  // outranks it
 
     const auto result = resolve("yaddnsc.test", std::nullopt, {{"192.0.2.1", 53}}, bootstrap_policy());
 
@@ -492,7 +492,7 @@ TEST(BootstrapPaths, theHigherPriorityFamilyFailureIsTheOneReported) {
 
 TEST(BootstrapPaths, injectedResolverRunsTheSamePolicy) {
     Wire wire;
-    wire.by_type(RecordType::A, ScriptedReply{.answers = {address_answer(RecordType::A, v4(198, 51, 100, 42))}});
+    Wire::by_type(RecordType::A, ScriptedReply{.answers = {address_answer(RecordType::A, v4(198, 51, 100, 42))}});
     const auto resolver = dns::make_bootstrap_resolver({{"192.0.2.1", 53}}, bootstrap_policy());
 
     const auto literal = coro::run(resolver("198.51.100.9", std::nullopt));

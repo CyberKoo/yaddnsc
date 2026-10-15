@@ -25,8 +25,10 @@ namespace {
 int failing_signal = 0;
 }  // namespace
 
+// NOLINTNEXTLINE(bugprone-reserved-identifier)  // ld --wrap requires this exact symbol name
 extern "C" int __real_sigaction(int signal, const struct sigaction* action, struct sigaction* previous) noexcept;
 
+// NOLINTNEXTLINE(bugprone-reserved-identifier)  // ld --wrap requires this exact symbol name
 extern "C" int __wrap_sigaction(int signal, const struct sigaction* action, struct sigaction* previous) noexcept {
     if (action != nullptr && signal == failing_signal) {
         failing_signal = 0;

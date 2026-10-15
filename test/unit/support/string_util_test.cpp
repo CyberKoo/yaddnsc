@@ -12,6 +12,7 @@
 // =============================================================================
 
 #include <array>
+#include <cstddef>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -20,7 +21,6 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-#include <stddef.h>
 #include "support/string_util.hpp"  // IWYU pragma: keep — the StringUtil namespace alias lives here
 #include <yaddnsc/util/string_util.hpp>
 
@@ -478,7 +478,7 @@ TEST(StringUtilConstexprTest, Contains_Constexpr) {
 }
 
 TEST(StringUtilConstexprTest, Count_Constexpr) {
-    constexpr size_t result = StringUtil::count("ababab", "ab");
+    constexpr std::size_t result = StringUtil::count("ababab", "ab");
     EXPECT_EQ(result, 3U);
 }
 

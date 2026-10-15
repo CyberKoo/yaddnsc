@@ -50,8 +50,10 @@ std::vector<std::pair<int, int>> attempted_options;
 
 }  // namespace
 
+// NOLINTNEXTLINE(bugprone-reserved-identifier)  // ld --wrap requires this exact symbol name
 extern "C" int __real_setsockopt(int fd, int level, int option, const void* value, socklen_t length);
 
+// NOLINTNEXTLINE(bugprone-reserved-identifier)  // ld --wrap requires this exact symbol name
 extern "C" int __wrap_setsockopt(const int fd, const int level, const int option, const void* const value,
                                  const socklen_t length) {
     attempted_options.emplace_back(level, option);

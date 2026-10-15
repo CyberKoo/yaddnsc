@@ -197,7 +197,7 @@ public:
     /// OPTIONAL ABI entry backing: the test plugin explicitly accepts its
     /// control schema; "reject_validate" lets host-side tests exercise the
     /// INVALID_CONFIG mapping and message pass-through.
-    Result validate(std::string_view driver_param_json) const override {
+    [[nodiscard]] Result validate(std::string_view driver_param_json) const override {
         check_thread();
         const auto config = parse_config<TestDriverConfig>(driver_param_json);
         if (config.op.value_or("success") == "wait_validate") {

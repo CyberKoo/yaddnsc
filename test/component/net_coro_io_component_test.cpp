@@ -14,6 +14,7 @@
 #include <chrono>
 #include <compare>
 #include <coroutine>
+#include <csignal>
 #include <cstdint>
 #include <cstdlib>
 #include <initializer_list>
@@ -30,7 +31,6 @@
 #include <expected>
 #include <gtest/gtest.h>
 #include <netinet/in.h>
-#include <signal.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -113,7 +113,8 @@ public:
         address.sin_family = AF_INET;
         address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         address.sin_port = 0;
-        ::bind(listener_.get(), reinterpret_cast<sockaddr*>(&address), sizeof(address));
+        EXPECT_EQ(::bind(listener_.get(), reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0)
+            << "cannot bind the loopback listener";
 
         socklen_t length = sizeof(address);
         ::getsockname(listener_.get(), reinterpret_cast<sockaddr*>(&address), &length);
@@ -130,7 +131,7 @@ public:
                 address.sin_family = AF_INET;
                 address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
                 address.sin_port = htons(port_);
-                ::connect(wake, reinterpret_cast<sockaddr*>(&address), sizeof(address));
+                EXPECT_EQ(::connect(wake, reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0);
                 ::close(wake);
             }
             listener_.reset();
@@ -233,7 +234,7 @@ public:
     PythonServer& operator=(const PythonServer&) = delete;
 
     /// Probe a TCP listener until it accepts or the budget runs out.
-    [[nodiscard]] bool wait_for_tcp(const std::uint16_t port, const std::chrono::milliseconds budget = 10s) {
+    [[nodiscard]] static bool wait_for_tcp(const std::uint16_t port, const std::chrono::milliseconds budget = 10s) {
         const auto deadline = std::chrono::steady_clock::now() + budget;
         while (std::chrono::steady_clock::now() < deadline) {
             const int probe = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -266,7 +267,7 @@ private:
         return std::nullopt;
     }
     directory = created;
-    const std::string cert = directory + "/cert.pem";
+    std::string cert = directory + "/cert.pem";
     const std::string key = directory + "/key.pem";
     const std::string command = "openssl req -x509 -newkey rsa:2048 -keyout " + key + " -out " + cert +
                                 " -days 1 -nodes -subj /CN=127.0.0.1 "
@@ -309,7 +310,7 @@ TEST(NetCoroDns, classic_resolvesOverUdpAndOverTcpOnTruncation) {
     if (!server.start("dns_server.py", {std::to_string(CLASSIC_PORT)})) {
         GTEST_SKIP() << "dns_server.py could not be started";
     }
-    if (!server.wait_for_tcp(CLASSIC_PORT)) {
+    if (!PythonServer::wait_for_tcp(CLASSIC_PORT)) {
         GTEST_SKIP() << "dns_server.py did not start";
     }
 
@@ -334,7 +335,7 @@ TEST(NetCoroDns, classic_acceptsTcpAnswersBeyondTheLegacyCap) {
     if (!server.start("dns_server.py", {std::to_string(CLASSIC_PORT)})) {
         GTEST_SKIP() << "dns_server.py could not be started";
     }
-    if (!server.wait_for_tcp(CLASSIC_PORT)) {
+    if (!PythonServer::wait_for_tcp(CLASSIC_PORT)) {
         GTEST_SKIP() << "dns_server.py did not start";
     }
 
@@ -357,7 +358,7 @@ TEST(NetCoroDns, classic_rejectsTcpAnswersBeyondTheAcceptedBound) {
     if (!server.start("dns_server.py", {std::to_string(CLASSIC_PORT)})) {
         GTEST_SKIP() << "dns_server.py could not be started";
     }
-    if (!server.wait_for_tcp(CLASSIC_PORT)) {
+    if (!PythonServer::wait_for_tcp(CLASSIC_PORT)) {
         GTEST_SKIP() << "dns_server.py did not start";
     }
 
@@ -379,7 +380,7 @@ TEST(NetCoroDns, classic_oversizedUdpDatagramWithoutTc_FallsBackToTcp) {
     if (!server.start("dns_server.py", {std::to_string(CLASSIC_PORT)})) {
         GTEST_SKIP() << "dns_server.py could not be started";
     }
-    if (!server.wait_for_tcp(CLASSIC_PORT)) {
+    if (!PythonServer::wait_for_tcp(CLASSIC_PORT)) {
         GTEST_SKIP() << "dns_server.py did not start";
     }
 
@@ -407,7 +408,7 @@ TEST(NetCoroDns, doh_resolvesThroughThePersistentHttpSession) {
     if (!server.start("doh_server.py", {std::to_string(DOH_PORT), *cert, directory + "/key.pem"})) {
         GTEST_SKIP() << "doh_server.py could not be started";
     }
-    if (!server.wait_for_tcp(DOH_PORT)) {
+    if (!PythonServer::wait_for_tcp(DOH_PORT)) {
         GTEST_SKIP() << "doh_server.py did not start";
     }
 
@@ -436,7 +437,7 @@ TEST(NetCoroDns, doh_enforcesResponseSemantics) {
     if (!server.start("doh_server.py", {std::to_string(DOH_PORT), *cert, directory + "/key.pem"})) {
         GTEST_SKIP() << "doh_server.py could not be started";
     }
-    if (!server.wait_for_tcp(DOH_PORT)) {
+    if (!PythonServer::wait_for_tcp(DOH_PORT)) {
         GTEST_SKIP() << "doh_server.py did not start";
     }
 
@@ -470,7 +471,7 @@ TEST(NetCoroDns, doh_enforcesResponseSemantics) {
     EXPECT_EQ(results[3].error().code, domain::DnsError::PARSE);
 
     PythonServer classic;
-    if (!classic.start("dns_server.py", {std::to_string(CLASSIC_PORT)}) || !classic.wait_for_tcp(CLASSIC_PORT)) {
+    if (!classic.start("dns_server.py", {std::to_string(CLASSIC_PORT)}) || !PythonServer::wait_for_tcp(CLASSIC_PORT)) {
         GTEST_SKIP() << "dns_server.py did not start";
     }
     std::vector<std::unique_ptr<dns::Resolver>> resolvers;
@@ -493,7 +494,7 @@ TEST(NetCoroDns, dot_resolvesOverTlsWithPadding) {
     if (!server.start("dot_server.py", {std::to_string(DOT_PORT), *cert, directory + "/key.pem"})) {
         GTEST_SKIP() << "dot_server.py could not be started";
     }
-    if (!server.wait_for_tcp(DOT_PORT)) {
+    if (!PythonServer::wait_for_tcp(DOT_PORT)) {
         GTEST_SKIP() << "dot_server.py did not start";
     }
 
@@ -529,7 +530,7 @@ TEST(NetCoroDns, dot_peerClosesWithoutAnswering_FailsCleanly) {
     if (!server.start("dot_server.py", {std::to_string(DOT_TIMEOUT_PORT), *cert, directory + "/key.pem"})) {
         GTEST_SKIP() << "dot_server.py could not be started";
     }
-    if (!server.wait_for_tcp(DOT_TIMEOUT_PORT)) {
+    if (!PythonServer::wait_for_tcp(DOT_TIMEOUT_PORT)) {
         GTEST_SKIP() << "dot_server.py did not start";
     }
 
@@ -555,7 +556,7 @@ TEST(NetCoroDns, doh_scopeTimeout_abortsTheQuery) {
     if (!server.start("doh_server.py", {std::to_string(DOH_PORT), *cert, directory + "/key.pem"})) {
         GTEST_SKIP() << "doh_server.py could not be started";
     }
-    if (!server.wait_for_tcp(DOH_PORT)) {
+    if (!PythonServer::wait_for_tcp(DOH_PORT)) {
         GTEST_SKIP() << "doh_server.py did not start";
     }
 
@@ -592,7 +593,7 @@ TEST(NetCoroDns, dispatcher_concurrentRaceAgainstRealBackends) {
     if (!server.start("dns_server.py", {std::to_string(CLASSIC_PORT)})) {
         GTEST_SKIP() << "dns_server.py could not be started";
     }
-    if (!server.wait_for_tcp(CLASSIC_PORT)) {
+    if (!PythonServer::wait_for_tcp(CLASSIC_PORT)) {
         GTEST_SKIP() << "dns_server.py did not start";
     }
 
@@ -627,7 +628,7 @@ TEST(NetCoroDns, bootstrap_nodataAnswerFallsThroughToTheNextServer) {
                                         R"(--records={"nodata.yaddnsc.test":{"A":"198.51.100.77"}})"})) {
         GTEST_SKIP() << "dns_server.py could not be started";
     }
-    if (!first.wait_for_tcp(BOOTSTRAP_FIRST_PORT) || !second.wait_for_tcp(BOOTSTRAP_SECOND_PORT)) {
+    if (!PythonServer::wait_for_tcp(BOOTSTRAP_FIRST_PORT) || !PythonServer::wait_for_tcp(BOOTSTRAP_SECOND_PORT)) {
         GTEST_SKIP() << "dns_server.py did not start";
     }
 
@@ -645,7 +646,7 @@ TEST(NetCoroDns, bootstrap_nodataAnswerFallsThroughToTheNextServer) {
 TEST(NetCoroDns, bootstrap_configErrorSurvivesNxdomainButDoesNotHideSuccess) {
     PythonServer server;
     if (!server.start("dns_server.py", {std::to_string(BOOTSTRAP_FIRST_PORT)}) ||
-        !server.wait_for_tcp(BOOTSTRAP_FIRST_PORT)) {
+        !PythonServer::wait_for_tcp(BOOTSTRAP_FIRST_PORT)) {
         GTEST_SKIP() << "dns_server.py did not start";
     }
 
@@ -680,7 +681,7 @@ TEST(NetCoroDns, bootstrap_nxdomainFromOneServerStillTriesTheNext) {
                                         R"(--records={"v6fallback.yaddnsc.test":{"AAAA":"2001:db8::77"}})"})) {
         GTEST_SKIP() << "dns_server.py could not be started";
     }
-    if (!first.wait_for_tcp(BOOTSTRAP_FIRST_PORT) || !second.wait_for_tcp(BOOTSTRAP_SECOND_PORT)) {
+    if (!PythonServer::wait_for_tcp(BOOTSTRAP_FIRST_PORT) || !PythonServer::wait_for_tcp(BOOTSTRAP_SECOND_PORT)) {
         GTEST_SKIP() << "dns_server.py did not start";
     }
 

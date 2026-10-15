@@ -7,14 +7,14 @@
 // `architecture_guard`, which runs the same script once over the real source
 // tree as a gate.
 #include <cerrno>
-#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
 
+#include <fcntl.h>
 #include <gtest/gtest.h>
-#include <stdlib.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -22,6 +22,19 @@
 #include "component/process_test_support.h"
 
 namespace {
+
+/// Point stdout and stderr at @p path for the forked guard run. Used only
+/// between fork() and exec(), so the raw descriptor is closed by hand rather
+/// than through a smart pointer.
+bool redirect_stdout_and_stderr_to(const char* path) {
+    const int fd = ::open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd == -1) {
+        return false;
+    }
+    const bool ok = ::dup2(fd, STDOUT_FILENO) != -1 && ::dup2(STDOUT_FILENO, STDERR_FILENO) != -1;
+    ::close(fd);
+    return ok;
+}
 
 struct GuardCase {
     const char* name;
@@ -60,7 +73,7 @@ namespace Config { struct SubdomainConfig {}; }
     const pid_t pid = ::fork();
     ASSERT_NE(pid, -1);
     if (pid == 0) {
-        if (std::freopen(output.c_str(), "w", stdout) == nullptr || ::dup2(STDOUT_FILENO, STDERR_FILENO) == -1) {
+        if (!redirect_stdout_and_stderr_to(output.c_str())) {
             ::_exit(126);
         }
         ::execl(YADDNSC_TEST_CMAKE, YADDNSC_TEST_CMAKE, root_argument.c_str(), "-P", YADDNSC_TEST_GUARD, nullptr);
@@ -354,7 +367,7 @@ TEST_P(RulesFactGuard, Check_RuleStatesPrincipleNotProjectFact) {
     const pid_t pid = ::fork();
     ASSERT_NE(pid, -1);
     if (pid == 0) {
-        if (std::freopen(output.c_str(), "w", stdout) == nullptr || ::dup2(STDOUT_FILENO, STDERR_FILENO) == -1) {
+        if (!redirect_stdout_and_stderr_to(output.c_str())) {
             ::_exit(126);
         }
         ::execl(YADDNSC_TEST_CMAKE, YADDNSC_TEST_CMAKE, root_argument.c_str(), "-P", YADDNSC_TEST_GUARD, nullptr);

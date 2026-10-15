@@ -2,7 +2,8 @@
 /// carries the wrong magic number — the loader must reject it as "not a valid
 /// yaddnsc driver" before ever looking at the revision.
 
-#include <stdint.h>
+#include <cstdint>
+
 #include <yaddnsc/sdk/driver_abi.h>
 
 #define FIXTURE_EXPORT __attribute__((visibility("default")))

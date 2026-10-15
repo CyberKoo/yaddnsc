@@ -191,7 +191,7 @@ private:
 }
 
 /// Run one transient exchange on the default (real) clock.
-[[nodiscard]] std::expected<http::Response, Error> exchange(const Options& options, const std::string url,
+[[nodiscard]] std::expected<http::Response, Error> exchange(const Options& options, const std::string& url,
                                                             const Request& request = NO_REQUEST) {
     http::Client client{options};
     return coro::run(client.exchange(url, request));

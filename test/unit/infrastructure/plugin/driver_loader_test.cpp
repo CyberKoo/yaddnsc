@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -40,7 +41,7 @@
     domain::DriverSettings settings;
     settings.auto_discover = false;
     settings.driver_dir = std::filesystem::path(TEST_DRIVER_DIR);
-    settings.load.push_back(std::string(driver_name));
+    settings.load.emplace_back(driver_name);
     return settings;
 }
 
@@ -71,7 +72,7 @@ TEST(DriverLoaderTest, LoadDriver_NotFound_Throws) {
     DriverCatalog catalog;
     domain::DriverSettings settings;
     settings.auto_discover = false;
-    settings.load.push_back("nonexistent_driver.so");
+    settings.load.emplace_back("nonexistent_driver.so");
 
     // The file doesn't exist — should throw PluginLoadException.
     EXPECT_THROW({ DriverLoader::load(catalog, settings); }, PluginLoadException);
@@ -83,7 +84,7 @@ TEST(DriverLoaderTest, EmptyDriverDir_Throws) {
     settings.auto_discover = false;
     // driver_dir is set but empty — a configuration error, not a driver error.
     settings.driver_dir = "";
-    settings.load.push_back("simple/simple.so");
+    settings.load.emplace_back("simple/simple.so");
 
     EXPECT_THROW({ DriverLoader::load(catalog, settings); }, ConfigException);
 }
@@ -178,10 +179,9 @@ TEST(DriverLoaderTest, AutoDiscover_SkipsBadLibraries) {
 
     std::filesystem::copy_file(std::string(TEST_DRIVER_DIR) + "/simple/simple.so", std::string(dir) + "/simple.so");
     {
-        FILE* f = std::fopen((std::string(dir) + "/not_elf.so").c_str(), "w");
-        ASSERT_NE(f, nullptr);
-        std::fputs("this is not a shared library", f);
-        std::fclose(f);
+        std::ofstream out(std::string(dir) + "/not_elf.so");
+        ASSERT_TRUE(out.is_open());
+        out << "this is not a shared library";
     }
     std::filesystem::copy_file(BAD_DRIVER_FIXTURE, std::string(dir) + "/foreign.so");
 
@@ -207,10 +207,9 @@ TEST(DriverLoaderTest, AutoDiscover_IgnoresNonSharedFiles) {
 
     std::filesystem::copy_file(std::string(TEST_DRIVER_DIR) + "/simple/simple.so", std::string(dir) + "/simple.so");
     {
-        FILE* f = std::fopen((std::string(dir) + "/README.txt").c_str(), "w");
-        ASSERT_NE(f, nullptr);
-        std::fputs("not a driver", f);
-        std::fclose(f);
+        std::ofstream out(std::string(dir) + "/README.txt");
+        ASSERT_TRUE(out.is_open());
+        out << "not a driver";
     }
     std::filesystem::create_directory(std::string(dir) + "/nested.so");
 

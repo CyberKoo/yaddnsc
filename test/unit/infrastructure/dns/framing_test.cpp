@@ -19,7 +19,8 @@ namespace {
 
 /// Frame a message of @p payload_size zero octets.
 [[nodiscard]] std::vector<std::uint8_t> zeros(const std::size_t payload_size) {
-    return std::vector<std::uint8_t>(payload_size, 0);
+    std::vector<std::uint8_t> zeros(payload_size, 0);
+    return zeros;
 }
 
 // ===========================================================================

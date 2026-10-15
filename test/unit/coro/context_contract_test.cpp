@@ -37,12 +37,18 @@ struct UnboundTask {
             return UnboundTask{std::coroutine_handle<promise_type>::from_promise(*this)};
         }
 
+        // The coroutine promise protocol requires instance methods here.
+        // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
         std::suspend_always initial_suspend() noexcept { return {}; }
 
+        // The coroutine promise protocol requires instance methods here.
+        // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
         std::suspend_always final_suspend() noexcept { return {}; }
 
         void return_void() noexcept {}
 
+        // The coroutine promise protocol requires instance methods here.
+        // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
         void unhandled_exception() { std::terminate(); }
     };
 

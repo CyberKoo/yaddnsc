@@ -28,7 +28,7 @@ public:
         }
     }
 
-    yaddnsc::sdk::Result validate(std::string_view) const override {
+    [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view) const override {
         if (probe() != YADDNSC_STATUS_INVALID_ARGUMENT)
             return std::unexpected(yaddnsc::sdk::Error{YADDNSC_STATUS_INTERNAL_ERROR, "validate permitted HTTP", 0});
         return {};
@@ -66,7 +66,7 @@ public:
 private:
     yaddnsc::sdk::Services services_;
 
-    yaddnsc_status probe() const {
+    [[nodiscard]] yaddnsc_status probe() const {
         yaddnsc::sdk::HttpRequest request;
         request.url = "http://127.0.0.1:1/phase-probe";
         const auto result = services_.exchange(request);

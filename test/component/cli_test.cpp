@@ -321,7 +321,7 @@ TEST(CliConfigTest, RunTest_DriverNotLoaded_ReturnsFailure) {
     // failure (after drivers load successfully). update_interval is set so
     // static validation passes and the environment check is what fails.
     const std::string invalid_domain_config =
-        std::string("{\"drivers\":{\"auto_discover\":false,\"driver_dir\":\"") + TEST_DRIVER_DIR +
+        std::string(R"({"drivers":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
         "\",\"load\":[\"simple/"
         "simple.so\"]},\"resolver\":{\"use_custom_servers\":false},\"domains\":[{\"name\":\"example.com\",\"update_"
         "interval\":300,\"driver\":\"cloudflare\",\"subdomains\":[{\"name\":\"www\",\"type\":\"a\",\"ip_source\":"

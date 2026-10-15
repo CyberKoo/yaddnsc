@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -18,7 +19,6 @@
 #include <expected>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include <stdlib.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "domain/config/runtime_config.h"
@@ -572,7 +572,7 @@ TEST(PluginLifecycle, ManualLoadFailsFastOnAbiMismatch) {
     DriverCatalog catalog;
     domain::DriverSettings settings;
     settings.auto_discover = false;
-    settings.load.push_back(BAD_REVISION_FIXTURE);  // absolute path is used as-is
+    settings.load.emplace_back(BAD_REVISION_FIXTURE);  // absolute path is used as-is
 
     EXPECT_THROW({ DriverLoader::load(catalog, settings); }, PluginLoadException);
     EXPECT_TRUE(catalog.get_loaded_drivers().empty());

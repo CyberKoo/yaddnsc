@@ -58,8 +58,10 @@ public:
 
 }  // namespace
 
+// NOLINTNEXTLINE(bugprone-reserved-identifier)  // ld --wrap requires this exact symbol name
 extern "C" int __real_socket(int domain, int type, int protocol);
 
+// NOLINTNEXTLINE(bugprone-reserved-identifier)  // ld --wrap requires this exact symbol name
 extern "C" int __wrap_socket(int domain, int type, int protocol) {
     if (forced_socket_errno.has_value()) {
         // EMFILE, not EINVAL: EINVAL is the SOCK_CLOEXEC probe that

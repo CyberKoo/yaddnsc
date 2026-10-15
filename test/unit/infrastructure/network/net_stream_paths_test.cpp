@@ -341,7 +341,7 @@ private:
         }
         sockaddr_storage storage{};
         const socklen_t length = encode_loopback(family_ == AF_INET6 ? loopback_v6() : loopback_v4(), port_, storage);
-        (void) ::connect(wake, reinterpret_cast<sockaddr*>(&storage), length);
+        EXPECT_EQ(::connect(wake, reinterpret_cast<sockaddr*>(&storage), length), 0);
         ::close(wake);
     }
 

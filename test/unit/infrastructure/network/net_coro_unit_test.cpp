@@ -98,7 +98,8 @@ public:
         address.sin_family = AF_INET;
         address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         address.sin_port = 0;
-        ::bind(listener_.get(), reinterpret_cast<sockaddr*>(&address), sizeof(address));
+        EXPECT_EQ(::bind(listener_.get(), reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0)
+            << "cannot bind the loopback listener";
 
         socklen_t length = sizeof(address);
         ::getsockname(listener_.get(), reinterpret_cast<sockaddr*>(&address), &length);
@@ -158,7 +159,7 @@ private:
                 address.sin_family = AF_INET;
                 address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
                 address.sin_port = htons(port_);
-                ::connect(wake, reinterpret_cast<sockaddr*>(&address), sizeof(address));
+                EXPECT_EQ(::connect(wake, reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0);
                 ::close(wake);
             }
             listener_.reset();

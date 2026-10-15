@@ -17,6 +17,7 @@
 #include <chrono>
 #include <compare>
 #include <coroutine>
+#include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -41,7 +42,6 @@
 #include <openssl/ssl.h>
 #include <openssl/types.h>
 #include <openssl/x509.h>
-#include <signal.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -93,7 +93,8 @@ public:
         address.sin_family = AF_INET;
         address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         address.sin_port = 0;
-        ::bind(listener_.get(), reinterpret_cast<sockaddr*>(&address), sizeof(address));
+        EXPECT_EQ(::bind(listener_.get(), reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0)
+            << "cannot bind the loopback listener";
 
         socklen_t length = sizeof(address);
         ::getsockname(listener_.get(), reinterpret_cast<sockaddr*>(&address), &length);
@@ -147,7 +148,7 @@ private:
                 address.sin_family = AF_INET;
                 address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
                 address.sin_port = htons(port_);
-                ::connect(wake, reinterpret_cast<sockaddr*>(&address), sizeof(address));
+                EXPECT_EQ(::connect(wake, reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0);
                 ::close(wake);
             }
             listener_.reset();
@@ -195,7 +196,7 @@ protected:
             ::_exit(127);
         }
 
-        if (!wait_until_accepting()) {
+        if (!TlsEchoServerTest::wait_until_accepting()) {
             stop();
             GTEST_SKIP() << "TLS echo server did not start";
         }
@@ -214,14 +215,14 @@ protected:
     /// Build the trust context the stream under test needs from @p options. The
     /// test fails (rather than silently skipping) when the requested policy
     /// cannot produce a context.
-    [[nodiscard]] std::shared_ptr<const net::TlsContext> client_context(const net::TlsTrustOptions& options) {
+    [[nodiscard]] static std::shared_ptr<const net::TlsContext> client_context(const net::TlsTrustOptions& options) {
         auto context = net::TlsContext::create(options);
         EXPECT_TRUE(context.has_value()) << "TlsContext::create failed";
         return context.value_or(nullptr);
     }
 
 private:
-    [[nodiscard]] bool wait_until_accepting() const {
+    [[nodiscard]] static bool wait_until_accepting() {
         const auto deadline = std::chrono::steady_clock::now() + 10s;
         while (std::chrono::steady_clock::now() < deadline) {
             const int probe = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -345,7 +346,7 @@ TEST(NetCoroTcpStream, read_some_SilentPeerWithTimeout_TimesOutWithoutKillingThe
 TEST_F(TlsEchoServerTest, ensure_connected_VerifiedSelfSignedBundle_RoundTrips) {
     // The throwaway certificate carries SAN IP:127.0.0.1, so handing it in as
     // the CA bundle exercises the real verification path (IP identity, no SNI).
-    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT, client_context({.ca_bundle = cert_path()})};
+    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT, TlsEchoServerTest::client_context({.ca_bundle = cert_path()})};
 
     const std::vector<std::uint8_t> payload{1, 2, 3, 4, 5, 6, 7, 8};
     const std::vector<std::uint8_t> message = framed(payload);
@@ -398,8 +399,11 @@ TEST_F(TlsEchoServerTest, ensure_connected_SniHostnameWithVerificationDisabled_C
     // on the SSL verify parameter. The server certificate is for 127.0.0.1, so
     // verification stays off; this proves the branch itself does not fail. The
     // SNI name goes to the stream — the trust context never carried it.
-    net::TlsStream stream{
-        loopback_v4(), TLS_ECHO_PORT, client_context({.verify_peer = false}), {}, {.sni_hostname = "dns.example.com"}};
+    net::TlsStream stream{loopback_v4(),
+                          TLS_ECHO_PORT,
+                          TlsEchoServerTest::client_context({.verify_peer = false}),
+                          {},
+                          {.sni_hostname = "dns.example.com"}};
 
     const std::vector<std::uint8_t> payload{7, 7};
     const std::vector<std::uint8_t> message = framed(payload);
@@ -423,7 +427,7 @@ TEST_F(TlsEchoServerTest, ensure_connected_SniHostnameWithVerificationDisabled_C
 }
 
 TEST_F(TlsEchoServerTest, ensure_connected_VerificationDisabled_RoundTrips) {
-    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT, client_context({.verify_peer = false})};
+    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT, TlsEchoServerTest::client_context({.verify_peer = false})};
 
     const std::vector<std::uint8_t> payload{42};
     const std::vector<std::uint8_t> message = framed(payload);
@@ -449,7 +453,7 @@ TEST_F(TlsEchoServerTest, ensure_connected_VerificationDisabled_RoundTrips) {
 TEST_F(TlsEchoServerTest, read_some_SilentPeerWithTimeout_TimesOut) {
     // A TLS peer that never answers the application request: the handshake
     // succeeds (the server is a real TLS endpoint), then the read times out.
-    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT, client_context({.verify_peer = false})};
+    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT, TlsEchoServerTest::client_context({.verify_peer = false})};
 
     bool timed_out = false;
     std::optional<IoError> error;
@@ -515,7 +519,7 @@ TEST(NetCoroUdpSocket, send_to_ManyDatagrams_KeepsBoundariesAndSenders) {
             }
             buffer.resize(datagram->size);
             raw.push_back(std::move(buffer));
-            received.push_back(*datagram);
+            received.emplace_back(*datagram);
         }
         co_return;
     };
@@ -688,7 +692,7 @@ TEST(NetCoroDnsExchange, strayRepliesDoNotPreventTheMatchingAnswer) {
 }  // namespace
 
 TEST_F(TlsEchoServerTest, ensure_connected_DirectorySnapshotWithSourcesRemoved_VerifiesPeer) {
-    const auto context = client_context({.ca_bundle = cert_path()});
+    const auto context = TlsEchoServerTest::client_context({.ca_bundle = cert_path()});
     ASSERT_TRUE(context);
     const std::filesystem::path dir = std::filesystem::path(cert_path()).parent_path() / "hashed";
     std::filesystem::create_directory(dir);

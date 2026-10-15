@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <initializer_list>
 #include <map>
@@ -26,7 +27,6 @@
 
 #include <expected>
 #include <gtest/gtest.h>
-#include <stdint.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "application/ports/log.h"
@@ -42,14 +42,14 @@ constexpr std::string_view PLUGIN_PATH = TEST_PLUGIN_PATH;
 
 /// Output buffer with a canary tail: the host may write at most the declared
 /// struct_size bytes and must never touch the unknown tail.
-template<typename T, size_t Tail = 64>
+template<typename T, std::size_t Tail = 64>
 struct Canary {
     T value{};
     std::array<std::byte, Tail> tail{};
 
     Canary() { tail.fill(std::byte{0xAA}); }
 
-    void oversize() { value.struct_size = static_cast<uint32_t>(sizeof(T) + Tail); }
+    void oversize() { value.struct_size = static_cast<std::uint32_t>(sizeof(T) + Tail); }
 
     [[nodiscard]] bool tail_intact() const {
         return std::ranges::all_of(tail, [](std::byte b) { return b == std::byte{0xAA}; });
@@ -59,7 +59,7 @@ struct Canary {
 [[nodiscard]] yaddnsc_http_request make_http_request(std::string_view url,
                                                      yaddnsc_http_method method = YADDNSC_HTTP_GET) {
     yaddnsc_http_request request{};
-    request.struct_size = static_cast<uint32_t>(sizeof(request));
+    request.struct_size = static_cast<std::uint32_t>(sizeof(request));
     request.url = {url.data(), url.size()};
     request.method = method;
     return request;
@@ -67,8 +67,22 @@ struct Canary {
 
 [[nodiscard]] yaddnsc_error make_error_buffer() {
     yaddnsc_error error{};
-    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    error.struct_size = static_cast<std::uint32_t>(sizeof(error));
     return error;
+}
+
+/// Proves the callee wrote nothing into `actual` beyond what the test itself
+/// pre-seeded, by comparing every member against `reference` — a pristine
+/// struct memset to 0x55 carrying the same struct_size. Compared member-wise
+/// because yaddnsc_error has no unique object representation: its enum and
+/// pointer members may carry padding that memcmp would read but the ABI does
+/// not promise.
+void expect_error_untouched(const yaddnsc_error& actual, const yaddnsc_error& reference) {
+    EXPECT_EQ(actual.struct_size, reference.struct_size);
+    EXPECT_EQ(actual.status, reference.status);
+    EXPECT_EQ(actual.retry_after_seconds, reference.retry_after_seconds);
+    EXPECT_EQ(static_cast<const void*>(actual.message.data), static_cast<const void*>(reference.message.data));
+    EXPECT_EQ(actual.message.size, reference.message.size);
 }
 
 /// The four raw entry points, resolved by hand so NULL arguments can be
@@ -168,12 +182,12 @@ TEST(DriverAbiContract, CreateValidatesItsArguments) {
     EXPECT_EQ(raw.create(&below_prefix, &handle, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
     // a different major is rejected
     auto wrong_major = services;
-    wrong_major.abi_major = static_cast<uint16_t>(YADDNSC_DRIVER_ABI_MAJOR + 1);
+    wrong_major.abi_major = static_cast<std::uint16_t>(YADDNSC_DRIVER_ABI_MAJOR + 1);
     EXPECT_EQ(raw.create(&wrong_major, &handle, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(handle, nullptr);
     // a newer host minor still provides ABI 1.0
     auto newer_minor = services;
-    newer_minor.abi_minor = static_cast<uint16_t>(YADDNSC_DRIVER_ABI_MINOR + 1);
+    newer_minor.abi_minor = static_cast<std::uint16_t>(YADDNSC_DRIVER_ABI_MINOR + 1);
     ASSERT_EQ(raw.create(&newer_minor, &handle, &error), YADDNSC_STATUS_OK);
     ASSERT_NE(handle, nullptr);
     raw.destroy(handle);
@@ -290,7 +304,7 @@ TEST(DriverAbiContract, HttpExchangeRejectsNullPointers) {
 
     const auto request = make_http_request("http://localhost/x");
     yaddnsc_http_response response{};
-    response.struct_size = static_cast<uint32_t>(sizeof(response));
+    response.struct_size = static_cast<std::uint32_t>(sizeof(response));
     yaddnsc_error error = make_error_buffer();
 
     EXPECT_EQ(services.http_exchange(nullptr, &request, &response, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
@@ -310,7 +324,7 @@ TEST(DriverAbiContract, HttpExchangeRequestStructSizeMatrix) {
     // struct_size == 0 → rejected
     auto request = make_http_request("http://localhost/x");
     request.struct_size = 0;
-    response.struct_size = static_cast<uint32_t>(sizeof(response));
+    response.struct_size = static_cast<std::uint32_t>(sizeof(response));
     EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
 
     // one below the minimum → rejected
@@ -329,7 +343,7 @@ TEST(DriverAbiContract, HttpExchangeRequestStructSizeMatrix) {
     big.value = make_http_request("http://localhost/x");
     big.oversize();
     host.client.queue_response(200, "big");
-    response.struct_size = static_cast<uint32_t>(sizeof(response));
+    response.struct_size = static_cast<std::uint32_t>(sizeof(response));
     EXPECT_EQ(services.http_exchange(services.context, &big.value, &response, &error), YADDNSC_STATUS_OK);
     EXPECT_EQ(response.status_code, 200u);
     EXPECT_TRUE(big.tail_intact());
@@ -376,7 +390,7 @@ TEST(DriverAbiContract, HttpExchangeErrorStructSizeMatrix) {
     const auto services = host.context.make_services();
     const auto request = make_http_request("http://localhost/x");
     yaddnsc_http_response response{};
-    response.struct_size = static_cast<uint32_t>(sizeof(response));
+    response.struct_size = static_cast<std::uint32_t>(sizeof(response));
 
     // struct_size == 0 → rejected before the transport is entered.
     yaddnsc_error zero_error{};
@@ -387,7 +401,7 @@ TEST(DriverAbiContract, HttpExchangeErrorStructSizeMatrix) {
     yaddnsc_error untouched{};
     std::memset(&untouched, 0x55, sizeof(untouched));
     untouched.struct_size = 0;
-    EXPECT_EQ(std::memcmp(&zero_error, &untouched, sizeof(zero_error)), 0);
+    expect_error_untouched(zero_error, untouched);
 
     // one below the minimum → also rejected before the transport is entered.
     yaddnsc_error below_min{};
@@ -398,7 +412,7 @@ TEST(DriverAbiContract, HttpExchangeErrorStructSizeMatrix) {
     yaddnsc_error untouched2{};
     std::memset(&untouched2, 0x55, sizeof(untouched2));
     untouched2.struct_size = YADDNSC_ERROR_MIN_SIZE - 1;
-    EXPECT_EQ(std::memcmp(&below_min, &untouched2, sizeof(below_min)), 0);
+    expect_error_untouched(below_min, untouched2);
     EXPECT_EQ(host.client.request_count(), 0u);
 
     // oversized with a canary tail → status/message written, struct_size
@@ -422,7 +436,7 @@ TEST(DriverAbiContract, HttpExchangeRejectsMalformedLeafViews) {
 
     // empty / null url
     auto request = make_http_request("");
-    response.struct_size = static_cast<uint32_t>(sizeof(response));
+    response.struct_size = static_cast<std::uint32_t>(sizeof(response));
     EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(error.status, YADDNSC_STATUS_INVALID_ARGUMENT);
 
@@ -487,7 +501,7 @@ TEST(DriverAbiContract, HttpMethodMapping) {
     for (const auto& [abi_method, expected] : mapping) {
         const auto request = make_http_request("http://localhost/x", abi_method);
         yaddnsc_http_response response{};
-        response.struct_size = static_cast<uint32_t>(sizeof(response));
+        response.struct_size = static_cast<std::uint32_t>(sizeof(response));
         yaddnsc_error error = make_error_buffer();
 
         host.client.queue_response(200, "ok");
@@ -497,7 +511,7 @@ TEST(DriverAbiContract, HttpMethodMapping) {
 
     const auto captured = host.client.requests();
     ASSERT_EQ(captured.size(), mapping.size());
-    for (size_t i = 0; i < mapping.size(); ++i) {
+    for (std::size_t i = 0; i < mapping.size(); ++i) {
         EXPECT_EQ(captured[i].method, mapping[i].second);
     }
 }
@@ -514,13 +528,13 @@ TEST(DriverAbiContract, TransportErrorMapping) {
     // CANCELLED maps to CANCELLED…
     host.client.queue_error(true, "aborted");
     yaddnsc_http_response response{};
-    response.struct_size = static_cast<uint32_t>(sizeof(response));
+    response.struct_size = static_cast<std::uint32_t>(sizeof(response));
     yaddnsc_error error = make_error_buffer();
     EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_CANCELLED);
     EXPECT_EQ(std::string_view(error.message.data, error.message.size), "aborted");
 
     host.client.queue_error(false, "back off", 45);
-    response.struct_size = static_cast<uint32_t>(sizeof(response));
+    response.struct_size = static_cast<std::uint32_t>(sizeof(response));
     error = make_error_buffer();
     EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_NETWORK_ERROR);
     EXPECT_EQ(error.retry_after_seconds, 45u);
@@ -528,7 +542,7 @@ TEST(DriverAbiContract, TransportErrorMapping) {
     // …every other transport failure maps to NETWORK_ERROR.
     for (int i = 0; i < 3; ++i) {
         host.client.queue_error(false, "boom");
-        response.struct_size = static_cast<uint32_t>(sizeof(response));
+        response.struct_size = static_cast<std::uint32_t>(sizeof(response));
         error = make_error_buffer();
         EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_NETWORK_ERROR);
         EXPECT_EQ(std::string_view(error.message.data, error.message.size), "boom");
@@ -541,7 +555,7 @@ TEST(DriverAbiContract, OperationCancellationBlocksHttpAndMatchesPluginPredicate
     const auto services = host.context.make_services();
     const auto request = make_http_request("http://localhost/x");
     yaddnsc_http_response response{};
-    response.struct_size = static_cast<uint32_t>(sizeof(response));
+    response.struct_size = static_cast<std::uint32_t>(sizeof(response));
     yaddnsc_error error = make_error_buffer();
 
     EXPECT_NE(services.is_cancelled(services.context), 0);
@@ -558,10 +572,10 @@ TEST(DriverAbiContract, HttpStatusCodeIsForwardedUnvalidated) {
     for (const int status : {99, 700}) {
         host.client.queue_response(status, "odd");
         yaddnsc_http_response response{};
-        response.struct_size = static_cast<uint32_t>(sizeof(response));
+        response.struct_size = static_cast<std::uint32_t>(sizeof(response));
         yaddnsc_error error = make_error_buffer();
         ASSERT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_OK);
-        EXPECT_EQ(response.status_code, static_cast<uint32_t>(status));
+        EXPECT_EQ(response.status_code, static_cast<std::uint32_t>(status));
     }
 }
 
@@ -569,7 +583,7 @@ TEST(DriverAbiContract, AbsentBodyAndEmptyBodyStayDistinct) {
     HostUpdateContext host;
     const auto services = host.context.make_services();
     yaddnsc_http_response response{};
-    response.struct_size = static_cast<uint32_t>(sizeof(response));
+    response.struct_size = static_cast<std::uint32_t>(sizeof(response));
     yaddnsc_error error = make_error_buffer();
 
     auto absent = make_http_request("http://localhost/absent");
@@ -577,7 +591,7 @@ TEST(DriverAbiContract, AbsentBodyAndEmptyBodyStayDistinct) {
     host.client.queue_response(204, "");
     ASSERT_EQ(services.http_exchange(services.context, &absent, &response, &error), YADDNSC_STATUS_OK);
 
-    const uint8_t empty_byte = 0;
+    const std::uint8_t empty_byte = 0;
     auto empty = make_http_request("http://localhost/empty");
     empty.body = {&empty_byte, 0};
     host.client.queue_response(204, "");
@@ -597,7 +611,7 @@ TEST(DriverAbiContract, Http4xxIsDeliveredAsResponse) {
 
     host.client.queue_response(404, "not found", {{"Server", "unit-test"}});
     yaddnsc_http_response response{};
-    response.struct_size = static_cast<uint32_t>(sizeof(response));
+    response.struct_size = static_cast<std::uint32_t>(sizeof(response));
     yaddnsc_error error = make_error_buffer();
 
     ASSERT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_OK);
@@ -615,13 +629,13 @@ TEST(DriverAbiContract, EarlierResponseViewsSurviveLaterExchanges) {
 
     host.client.queue_response(200, "first-body", {{"X-One", "one"}});
     yaddnsc_http_response first{};
-    first.struct_size = static_cast<uint32_t>(sizeof(first));
+    first.struct_size = static_cast<std::uint32_t>(sizeof(first));
     yaddnsc_error error = make_error_buffer();
     ASSERT_EQ(services.http_exchange(services.context, &request, &first, &error), YADDNSC_STATUS_OK);
 
     host.client.queue_response(200, "second-body-with-different-length", {{"X-Two", "two"}});
     yaddnsc_http_response second{};
-    second.struct_size = static_cast<uint32_t>(sizeof(second));
+    second.struct_size = static_cast<std::uint32_t>(sizeof(second));
     ASSERT_EQ(services.http_exchange(services.context, &request, &second, &error), YADDNSC_STATUS_OK);
 
     // The first response's views must still byte-compare equal.
@@ -647,13 +661,13 @@ TEST(DriverAbiContract, RequestFieldsReachTheTransport) {
     yaddnsc_http_request request = make_http_request(url, YADDNSC_HTTP_POST);
     request.headers = headers;
     request.header_count = 2;
-    request.body = {reinterpret_cast<const uint8_t*>(body.data()), body.size()};
+    request.body = {reinterpret_cast<const std::uint8_t*>(body.data()), body.size()};
     const std::string_view content_type = "application/x-test";
     request.content_type = {content_type.data(), content_type.size()};
 
     host.client.queue_response(200, "ok");
     yaddnsc_http_response response{};
-    response.struct_size = static_cast<uint32_t>(sizeof(response));
+    response.struct_size = static_cast<std::uint32_t>(sizeof(response));
     yaddnsc_error error = make_error_buffer();
     ASSERT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_OK);
 
@@ -788,7 +802,7 @@ TEST(DriverAbiContract, PluginRawLogViolationsDoNotFailUpdate) {
     ASSERT_EQ(records.size(), 6u);
     const std::array expected_levels{app::LogLevel::INFO,  app::LogLevel::WARN,  app::LogLevel::ERROR,
                                      app::LogLevel::DEBUG, app::LogLevel::TRACE, app::LogLevel::INFO};
-    for (size_t i = 0; i < records.size(); ++i) {
+    for (std::size_t i = 0; i < records.size(); ++i) {
         EXPECT_EQ(records[i].level, expected_levels[i]) << i;
         EXPECT_EQ(records[i].message, "raw log record") << i;
     }
@@ -852,7 +866,7 @@ TEST(DriverAbiContract, ConcurrentUpdateErrorsAreIsolated) {
                                          R"({"op":"fail","status":"network_error","message":"thread-b-error"})"};
 
     std::array<std::thread, 2> threads{};
-    for (size_t i = 0; i < 2; ++i) {
+    for (std::size_t i = 0; i < 2; ++i) {
         threads[i] = std::thread([&, i] {
             HostUpdateContext host;
             const auto services = host.context.make_services();
@@ -884,7 +898,7 @@ TEST(DriverAbiContract, ConcurrentCreateFailuresAreIsolated) {
     std::array<yaddnsc_status, 2> statuses{};
     std::array<std::string, 2> messages{};
     std::array<std::thread, 2> threads{};
-    for (size_t i = 0; i < 2; ++i) {
+    for (std::size_t i = 0; i < 2; ++i) {
         threads[i] = std::thread([&, i] {
             HostUpdateContext host;
             const auto services = host.context.make_services();
