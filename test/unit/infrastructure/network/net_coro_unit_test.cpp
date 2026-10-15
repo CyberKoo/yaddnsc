@@ -162,11 +162,13 @@ private:
                 EXPECT_EQ(::connect(wake, reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0);
                 ::close(wake);
             }
-            listener_.reset();
         }
         if (thread_.joinable()) {
             thread_.join();
         }
+        // The serve thread reads listener_.get() in accept(); close the
+        // listener only after the join so the write is ordered after it.
+        listener_.reset();
     }
 
     Mode mode_;

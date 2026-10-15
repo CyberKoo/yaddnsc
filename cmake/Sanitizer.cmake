@@ -22,6 +22,22 @@ string(APPEND CMAKE_C_FLAGS_SANITIZER " -fsanitize=address,undefined")
 string(APPEND CMAKE_EXE_LINKER_FLAGS_SANITIZER " -fsanitize=address,undefined")
 
 # ==============================================================================
+# ThreadSanitizer build type flags
+# ==============================================================================
+# Dedicated build type for data-race detection (used in CI). TSan cannot be
+# combined with ASan/UBSan, so it is a separate build type rather than an
+# extension of the Sanitizer configuration.
+# Usage: cmake -B build -DCMAKE_BUILD_TYPE=ThreadSanitizer
+# ==============================================================================
+
+set(CMAKE_CXX_FLAGS_THREADSANITIZER
+    "-O1 -ggdb -gdwarf-3 -fno-omit-frame-pointer"
+    CACHE STRING "Flags used by the ThreadSanitizer build type." FORCE)
+set(CMAKE_C_FLAGS_THREADSANITIZER
+    "-O1 -ggdb -gdwarf-3 -fno-omit-frame-pointer"
+    CACHE STRING "Flags used by the ThreadSanitizer build type." FORCE)
+
+# ==============================================================================
 # Sanitizer feature detection
 # ==============================================================================
 # Individual sanitizer flags may be unsupported on some platforms (musl, ARM64,
@@ -33,6 +49,7 @@ string(APPEND CMAKE_EXE_LINKER_FLAGS_SANITIZER " -fsanitize=address,undefined")
 #   HAVE_SANITIZE_BOUNDS           — TRUE if the compiler supports -fsanitize=bounds
 #   HAVE_SANITIZE_NULL             — TRUE if the compiler supports -fsanitize=null
 #   HAVE_SANITIZE_ALIGNMENT        — TRUE if the compiler supports -fsanitize=alignment
+#   HAVE_SANITIZE_THREAD           — TRUE if the compiler supports -fsanitize=thread
 #   HAVE_ASAN_USE_AFTER_RETURN     — TRUE if the compiler supports
 #                                    -fsanitize-address-use-after-return=always
 # ==============================================================================
@@ -43,6 +60,16 @@ check_cxx_compiler_flag("-fsanitize=integer"          HAVE_SANITIZE_INTEGER)
 check_cxx_compiler_flag("-fsanitize=bounds"           HAVE_SANITIZE_BOUNDS)
 check_cxx_compiler_flag("-fsanitize=null"             HAVE_SANITIZE_NULL)
 check_cxx_compiler_flag("-fsanitize=alignment"        HAVE_SANITIZE_ALIGNMENT)
+# TSan emits a runtime registration constructor into every instrumented
+# translation unit, so even a trivial probe program needs the runtime at
+# link time.  check_cxx_compiler_flag applies the flag to the compile step
+# only; add it to the probe link step too, or the result is a false
+# negative (undefined reference to __tsan_init).
+set(CMAKE_REQUIRED_LINK_OPTIONS_SAVED "${CMAKE_REQUIRED_LINK_OPTIONS}")
+list(APPEND CMAKE_REQUIRED_LINK_OPTIONS "-fsanitize=thread")
+check_cxx_compiler_flag("-fsanitize=thread"           HAVE_SANITIZE_THREAD)
+set(CMAKE_REQUIRED_LINK_OPTIONS "${CMAKE_REQUIRED_LINK_OPTIONS_SAVED}")
+unset(CMAKE_REQUIRED_LINK_OPTIONS_SAVED)
 check_cxx_compiler_flag("-fsanitize-address-use-after-return=always"
                         HAVE_ASAN_USE_AFTER_RETURN)
 
@@ -62,6 +89,11 @@ if(HAVE_ASAN_USE_AFTER_RETURN)
 else()
   message(STATUS "Sanitizer flags: -fsanitize-address-use-after-return=always => no")
 endif()
+if(HAVE_SANITIZE_THREAD)
+  message(STATUS "Sanitizer flags: -fsanitize=thread => yes")
+else()
+  message(STATUS "Sanitizer flags: -fsanitize=thread => no")
+endif()
 
 # Integer sanitizer is optional — not supported on all platforms
 if(HAVE_SANITIZE_INTEGER)
@@ -70,8 +102,18 @@ if(HAVE_SANITIZE_INTEGER)
   string(APPEND CMAKE_EXE_LINKER_FLAGS_SANITIZER " -fsanitize=integer")
 endif()
 
+# ThreadSanitizer build type — thread only, mutually exclusive with the
+# address/undefined combination above (e.g. unsupported on musl targets).
+if(HAVE_SANITIZE_THREAD)
+  string(APPEND CMAKE_CXX_FLAGS_THREADSANITIZER " -fsanitize=thread")
+  string(APPEND CMAKE_C_FLAGS_THREADSANITIZER   " -fsanitize=thread")
+  string(APPEND CMAKE_EXE_LINKER_FLAGS_THREADSANITIZER " -fsanitize=thread")
+endif()
+
 set(CMAKE_EXE_LINKER_FLAGS_SANITIZER    "${CMAKE_EXE_LINKER_FLAGS_SANITIZER}"    CACHE STRING "" FORCE)
 set(CMAKE_SHARED_LINKER_FLAGS_SANITIZER "" CACHE STRING "" FORCE)
+set(CMAKE_EXE_LINKER_FLAGS_THREADSANITIZER    "${CMAKE_EXE_LINKER_FLAGS_THREADSANITIZER}"    CACHE STRING "" FORCE)
+set(CMAKE_SHARED_LINKER_FLAGS_THREADSANITIZER "" CACHE STRING "" FORCE)
 
 # ==============================================================================
 # yaddnsc_sanitizers — sanitizer flags as a linkable interface target
@@ -113,6 +155,19 @@ target_compile_options(yaddnsc_sanitizers INTERFACE
 target_link_options(yaddnsc_sanitizers INTERFACE
   $<$<CONFIG:Sanitizer>:-fsanitize=address,undefined>
 )
+
+# ------------------------------------------------------------------------
+# ThreadSanitizer build type (CI): data-race detection. Mutually exclusive
+# with the address/undefined combination, hence a separate build type.
+# ------------------------------------------------------------------------
+if(HAVE_SANITIZE_THREAD)
+  target_compile_options(yaddnsc_sanitizers INTERFACE
+    $<$<CONFIG:ThreadSanitizer>:-fsanitize=thread>
+  )
+  target_link_options(yaddnsc_sanitizers INTERFACE
+    $<$<CONFIG:ThreadSanitizer>:-fsanitize=thread>
+  )
+endif()
 
 # Compile options: optional flags (bounds, null, alignment) — feature-detected,
 # Sanitizer build type only.

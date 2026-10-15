@@ -171,11 +171,14 @@ public:
                     ::connect(wake, reinterpret_cast<sockaddr*>(&address), sizeof(address));
                 ::close(wake);
             }
-            listener_.reset();
         }
         if (accept_thread_.joinable()) {
             accept_thread_.join();
         }
+        // accept_loop() reads listener_.get() in accept(); close the listener
+        // only after the join so the write is ordered after it. Handler
+        // threads never touch listener_.
+        listener_.reset();
         for (auto& handler : handlers_) {
             if (handler.joinable()) {
                 handler.join();

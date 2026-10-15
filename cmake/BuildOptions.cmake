@@ -18,12 +18,12 @@ endif ()
 add_library(yaddnsc_warnings INTERFACE)
 target_compile_options(yaddnsc_warnings INTERFACE
     -Wall -Wextra -Wpedantic -Wshadow -Werror
-    # GCC 14 with -O1 (Sanitizer build type) produces false-positive
-    # -Wmaybe-uninitialized warnings in <regex> internals (std::function
-    # move constructor in std::__detail::_State). -Wall enables this
-    # warning, and -Werror promotes it to a hard error.  Suppress it
-    # for Sanitizer builds where -O1 is required for instrumentation.
-    $<$<CONFIG:Sanitizer>:-Wno-maybe-uninitialized>
+    # GCC 14 with -O1 (Sanitizer and ThreadSanitizer build types) produces
+    # false-positive -Wmaybe-uninitialized warnings in <regex> internals
+    # (std::function move constructor in std::__detail::_State). -Wall enables
+    # this warning, and -Werror promotes it to a hard error.  Suppress it
+    # for the sanitizer builds where -O1 is required for instrumentation.
+    $<$<OR:$<CONFIG:Sanitizer>,$<CONFIG:ThreadSanitizer>>:-Wno-maybe-uninitialized>
 )
 
 # System fmt < 10 (Ubuntu 24.04 ships 9.1.0) hits a GCC 14 false-positive

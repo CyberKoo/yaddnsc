@@ -341,6 +341,22 @@ separate build directory. The nightly sanitizer job also sets:
 export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2
 ```
 
+The `ThreadSanitizer` build type is a second dedicated configuration for
+data-race detection; TSan cannot be combined with ASan/UBSan, so it is a
+separate build type rather than an extension of `Sanitizer`. The CI
+`thread-sanitizer` job runs it on Ubuntu only — GCC's libtsan does not
+support musl, and C++23 coroutines under Darwin TSan are unverified:
+
+```bash
+cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=ThreadSanitizer -DYADDNSC_BUILD_TESTS=ON
+cmake --build build-tsan --parallel
+TSAN_OPTIONS="halt_on_error=0 history_size=7 second_deadlock_stack=1 report_bugs=1" \
+  ctest --test-dir build-tsan --output-on-failure
+```
+
+TSan reports make the test binaries exit non-zero, so a green run means zero
+warnings.
+
 Coverage uses `YADDNSC_SANITIZE_DEBUG=OFF` to avoid mixing instrumentation.
 
 ### Coroutine regression tests
@@ -475,6 +491,8 @@ by `ci.yml` path filters.
 - `linux-amd64` — GCC Debug + full test suite (includes the plugin contract
   tests and the `architecture_guard` boundary checks);
 - `linux-amd64-musl`, `macos-arm64` — platform matrix (glibc/musl/macOS);
+- `thread-sanitizer` — `ThreadSanitizer` build type + full test suite,
+  Ubuntu-only (see "Sanitizers" for the platform rationale);
 - `conversion-gate` (PR only) — `-Wconversion -Wsign-conversion` build;
 - `benchmark` (PR only) — Google Benchmark smoke run, with no stored historical
   baseline, comparison step, or performance-regression threshold;
@@ -503,7 +521,8 @@ nightly/manual coverage, not a PR check.
 production modules, the executable, header checks, and tests that link the shared
 warning interfaces. SDK/C ABI/plugin-crypto targets carry their own warning
 options. `BuildOptions.cmake`
-also suppresses `maybe-uninitialized` in `Sanitizer` builds and demotes
+also suppresses `maybe-uninitialized` in `Sanitizer` and `ThreadSanitizer`
+builds and demotes
 `array-bounds` for system fmt below version 10. The conversion job adds
 `-Wconversion -Wsign-conversion` on top of the defaults above.
 
