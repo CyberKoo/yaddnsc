@@ -336,3 +336,70 @@ TEST(NormalizerTest, BootstrapDns_BracketedIPv6_NormalisedToBareAddress) {
     EXPECT_EQ(config.resolver.bootstrap_servers[0].address, "2606:4700:4700::1111");
     EXPECT_EQ(config.resolver.bootstrap_servers[0].port, 53);
 }
+
+// ===========================================================================
+// Warning fallbacks and the bootstrap/uri seam
+// ===========================================================================
+
+TEST(NormalizerTest, SubdomainWithNeitherTypeNorIpSource_FallsBackToBothDefaults) {
+    // Both warning arms in one case: a legacy config that omits the keys
+    // entirely still normalizes, to A over the interface source.
+    const auto raw = parse_raw(R"({
+        "drivers": { "auto_discover": false },
+        "resolver": { "use_custom_servers": false },
+        "domains": [
+            {
+                "name": "example.com", "update_interval": 300, "driver": "d",
+                "subdomains": [ {"name": "www"} ]
+            }
+        ]
+    })");
+
+    const auto config = Config::normalize(raw);
+
+    ASSERT_EQ(config.domains.size(), 1U);
+    ASSERT_EQ(config.domains[0].subdomains.size(), 1U);
+    const auto& subdomain = config.domains[0].subdomains[0];
+    EXPECT_EQ(subdomain.type, domain::RecordKind::A);
+    EXPECT_EQ(subdomain.ip_source, domain::IpSource::INTERFACE);
+}
+
+TEST(NormalizerTest, SubdomainWithTypeButNoIpSource_KeepsTypeAndDefaultsTheSource) {
+    // The two fallbacks are independent: supplying one key must not suppress
+    // the other's default.
+    const auto raw = parse_raw(R"({
+        "drivers": { "auto_discover": false },
+        "resolver": { "use_custom_servers": false },
+        "domains": [
+            {
+                "name": "example.com", "update_interval": 300, "driver": "d",
+                "subdomains": [ {"name": "www", "type": "aaaa"} ]
+            }
+        ]
+    })");
+
+    const auto config = Config::normalize(raw);
+
+    ASSERT_EQ(config.domains.size(), 1U);
+    ASSERT_EQ(config.domains[0].subdomains.size(), 1U);
+    const auto& subdomain = config.domains[0].subdomains[0];
+    EXPECT_EQ(subdomain.type, domain::RecordKind::AAAA);
+    EXPECT_EQ(subdomain.ip_source, domain::IpSource::INTERFACE);
+}
+
+TEST(NormalizerTest, BootstrapServerThatDoesNotParse_IsKeptVerbatim) {
+    // normalize() performs no validation, so a value Uri::parse rejects is
+    // carried through unchanged and reported later by the validator rather
+    // than silently dropped here.
+    const auto raw = parse_raw(R"({
+        "drivers": { "auto_discover": false },
+        "resolver": { "use_custom_servers": false },
+        "domains": [],
+        "bootstrap_dns": "not a uri"
+    })");
+
+    const auto config = Config::normalize(raw);
+
+    ASSERT_FALSE(config.resolver.bootstrap_servers.empty());
+    EXPECT_EQ(config.resolver.bootstrap_servers[0].address, "not a uri");
+}

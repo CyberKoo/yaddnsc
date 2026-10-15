@@ -133,6 +133,7 @@ add_unit_test(coro
            coro/offload_test.cpp
            coro/trace_sink_test.cpp
            coro/loop_test.cpp
+           coro/loop_fd_events_test.cpp
            coro/context_contract_test.cpp
            coro/task_group_contract_test.cpp
            coro/scope_group_paths_test.cpp
@@ -187,6 +188,17 @@ target_link_libraries(test_config_static_validator PRIVATE yaddnsc_config_infras
 add_unit_test(config_loader SOURCE infrastructure/config/config_loader_test.cpp)
 target_link_libraries(test_config_loader PRIVATE yaddnsc_config_infrastructure)
 
+# locator_token — the diagnostics scanner's lexical rules: number sign/zero/
+# fraction/exponent clauses, literal-boundary lookahead, key-without-colon,
+# and line/column accounting, each driven by the smallest reaching buffer.
+add_unit_test(locator_token SOURCE infrastructure/config/locator_token_test.cpp)
+target_link_libraries(test_locator_token PRIVATE yaddnsc_config_infrastructure)
+
+# schema_sweep — walks the generated AppConfig schema breadth-first, so every
+# member, element and leaf type is looked up at least once.
+add_unit_test(schema_sweep SOURCE infrastructure/config/schema_sweep_test.cpp)
+target_link_libraries(test_schema_sweep PRIVATE yaddnsc_config_infrastructure)
+
 # diagnostics_renderer — the config diagnostics wording: every named ErrorKind
 # sentence and the prose-kind fallback, asserted through render()
 add_unit_test(diagnostics_renderer SOURCE infrastructure/config/diagnostics_renderer_test.cpp)
@@ -209,6 +221,15 @@ add_library(yaddnsc_bad_driver_fixture MODULE infrastructure/plugin/bad_driver_f
 
 add_unit_test(driver_loader SOURCE infrastructure/plugin/driver_loader_test.cpp)
 target_link_libraries(test_driver_loader PRIVATE yaddnsc_prod_all)
+
+# driver_catalog_capabilities — the descriptor capability-bit translation:
+# an AAAA-only plugin, a plugin with no bits, and the loader's file naming.
+add_unit_test(driver_catalog_capabilities SOURCE infrastructure/plugin/driver_catalog_capabilities_test.cpp)
+target_link_libraries(test_driver_catalog_capabilities PRIVATE yaddnsc_prod_all)
+target_compile_definitions(test_driver_catalog_capabilities PRIVATE
+    AAAA_ONLY_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_aaaa_only>"
+    NO_CAPS_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_no_caps>")
+add_dependencies(test_driver_catalog_capabilities yaddnsc_fixture_aaaa_only yaddnsc_fixture_no_caps)
 
 # macOS + ASan + dlopen plugins: ASan's ODR checker reports the driver's
 # vtables as duplicate-registration conflicts (known false positive; the
@@ -451,6 +472,11 @@ add_unit_test(validation    SOURCE support/validation_test.cpp)
 
 add_unit_test(sdk_helpers   SOURCE sdk/sdk_helpers_test.cpp)
 add_unit_test(sdk_driver_helpers SOURCE sdk/sdk_driver_helpers_test.cpp)
+
+# sdk_host_defense — the plugin SDK's refusal to trust a malformed host:
+# a null/truncated/ABI-incompatible services table, a null entry point, an
+# unknown status, an inconsistent error report and a null response body.
+add_unit_test(sdk_host_defense SOURCE sdk/sdk_host_defense_test.cpp)
 
 # driver_magic — the YADDNSC_DRIVER_MAGIC constant in the v1 ABI header
 add_unit_test(driver_magic SOURCE sdk/driver_magic_test.cpp)

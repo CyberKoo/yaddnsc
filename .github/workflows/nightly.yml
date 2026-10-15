@@ -1,252 +1,252 @@
 name: Nightly — full build matrix
 
 on:
-    schedule:
-        # Daily at 21:38 UTC — only runs if there were commits in 24h.
-        - cron: "38 21 * * *"
-    workflow_dispatch:
-        # Manual trigger — runs unconditionally on the selected branch.
+  schedule:
+    # Daily at 21:38 UTC — only runs if there were commits in 24h.
+    - cron: "38 21 * * *"
+  workflow_dispatch:
+    # Manual trigger — runs unconditionally on the selected branch.
 
 permissions:
-    contents: read
+  contents: read
 
 # Scheduled runs always execute from the default branch's workflow file, but
 # the code under test is dev (active development branch): NIGHTLY_REF pins
 # every checkout below. Manual runs build whichever branch was selected.
 env:
-    NIGHTLY_REF: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || 'dev' }}
+  NIGHTLY_REF: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || 'dev' }}
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.ref }}
-    cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-    # ── Gate: check if full builds are needed ─────────────────────────
-    should_run:
-        runs-on: ubuntu-24.04
-        timeout-minutes: 5
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        outputs:
-            result: ${{ steps.check.outputs.result }}
-        steps:
-            - name: Checkout with full history
-              uses: actions/checkout@v7
-              with:
-                  ref: ${{ env.NIGHTLY_REF }}
-                  fetch-depth: 0
-            - name: Check for recent commits
-              id: check
-              run: |
-                  if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-                      echo "result=true" >> "$GITHUB_OUTPUT"
-                      echo "Manual trigger — running all builds"
-                  else
-                      SINCE="$(date -d '24 hours ago' --iso-8601=seconds)"
-                      COUNT=$(git log --since="$SINCE" --oneline 2>/dev/null | wc -l)
-                      if [ "$COUNT" -gt 0 ]; then
-                          echo "result=true" >> "$GITHUB_OUTPUT"
-                          echo "Found $COUNT new commit(s) since $SINCE — running all builds"
-                      else
-                          echo "result=false" >> "$GITHUB_OUTPUT"
-                          echo "No new commits since $SINCE — skipping"
-                      fi
-                  fi
+  # ── Gate: check if full builds are needed ─────────────────────────
+  should_run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    outputs:
+      result: ${{ steps.check.outputs.result }}
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.NIGHTLY_REF }}
+          fetch-depth: 0
+      - name: Check for recent commits
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              echo "result=true" >> "$GITHUB_OUTPUT"
+              echo "Manual trigger — running all builds"
+          else
+              SINCE="$(date -d '24 hours ago' --iso-8601=seconds)"
+              COUNT=$(git log --since="$SINCE" --oneline 2>/dev/null | wc -l)
+              if [ "$COUNT" -gt 0 ]; then
+                  echo "result=true" >> "$GITHUB_OUTPUT"
+                  echo "Found $COUNT new commit(s) since $SINCE — running all builds"
+              else
+                  echo "result=false" >> "$GITHUB_OUTPUT"
+                  echo "No new commits since $SINCE — skipping"
+              fi
+          fi
 
-    # ── Build matrix ──────────────────────────────────────────────────
-    linux-arm64:
-        needs: [should_run]
-        if: needs.should_run.outputs.result == 'true'
-        runs-on: ubuntu-24.04-arm
-        timeout-minutes: 45
-        env:
-            CC: gcc-14
-            CXX: g++-14
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v7
-              with:
-                  ref: ${{ env.NIGHTLY_REF }}
-            - name: Cache CPM dependencies
-              uses: actions/cache@v4
-              with:
-                  path: ~/.cache/CPM
-                  key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
-                  restore-keys: cpm-${{ runner.os }}-
-            - name: Install dependencies
-              run: sudo apt update && sudo apt install -y ninja-build libssl-dev zlib1g-dev pkg-config
-            - name: Configure
-              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON -DCPM_SOURCE_CACHE=$HOME/.cache/CPM
-            - name: Build
-              run: ninja -C build -j$(nproc)
-            - name: Test
-              run: ctest --test-dir build --output-on-failure -j$(nproc)
+  # ── Build matrix ──────────────────────────────────────────────────
+  linux-arm64:
+    needs: [should_run]
+    if: needs.should_run.outputs.result == 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    env:
+      CC: gcc-14
+      CXX: g++-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.NIGHTLY_REF }}
+      - name: Cache CPM dependencies
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/CPM
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          restore-keys: cpm-${{ runner.os }}-
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y ninja-build libssl-dev zlib1g-dev pkg-config
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON -DCPM_SOURCE_CACHE=$HOME/.cache/CPM
+      - name: Build
+        run: ninja -C build -j$(nproc)
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -j$(nproc)
 
-    linux-amd64-feature-flags:
-        needs: [should_run]
-        if: needs.should_run.outputs.result == 'true'
-        runs-on: ubuntu-24.04
-        timeout-minutes: 45
-        env:
-            CC: gcc-14
-            CXX: g++-14
-        strategy:
-            fail-fast: false
-            matrix:
-                config:
-                    - name: release
-                      cmake_flags: ""
-                      apt_deps: ""
-                    - name: system-spdlog
-                      cmake_flags: "-DYADDNSC_USE_SYSTEM_SPDLOG=ON"
-                      apt_deps: "libspdlog-dev"
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v7
-              with:
-                  ref: ${{ env.NIGHTLY_REF }}
-            - name: Cache CPM dependencies
-              uses: actions/cache@v4
-              with:
-                  path: ~/.cache/CPM
-                  key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
-                  restore-keys: cpm-${{ runner.os }}-
-            - name: Install dependencies
-              run: |
-                  sudo apt update
-                  sudo apt install -y ninja-build libssl-dev zlib1g-dev pkg-config ${{ matrix.config.apt_deps }}
-            - name: Configure
-              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DYADDNSC_BUILD_TESTS=OFF -DCPM_SOURCE_CACHE=$HOME/.cache/CPM ${{ matrix.config.cmake_flags }}
-            - name: Build
-              run: ninja -C build -j$(nproc)
+  linux-amd64-feature-flags:
+    needs: [should_run]
+    if: needs.should_run.outputs.result == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CC: gcc-14
+      CXX: g++-14
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - name: release
+            cmake_flags: ""
+            apt_deps: ""
+          - name: system-spdlog
+            cmake_flags: "-DYADDNSC_USE_SYSTEM_SPDLOG=ON"
+            apt_deps: "libspdlog-dev"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.NIGHTLY_REF }}
+      - name: Cache CPM dependencies
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/CPM
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          restore-keys: cpm-${{ runner.os }}-
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y ninja-build libssl-dev zlib1g-dev pkg-config ${{ matrix.config.apt_deps }}
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DYADDNSC_BUILD_TESTS=OFF -DCPM_SOURCE_CACHE=$HOME/.cache/CPM ${{ matrix.config.cmake_flags }}
+      - name: Build
+        run: ninja -C build -j$(nproc)
 
-    linux-amd64-sanitizer:
-        needs: [should_run]
-        if: needs.should_run.outputs.result == 'true'
-        runs-on: ubuntu-24.04
-        timeout-minutes: 60
-        env:
-            CC: gcc-14
-            CXX: g++-14
-            ASAN_OPTIONS: detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v7
-              with:
-                  ref: ${{ env.NIGHTLY_REF }}
-            - name: Cache CPM dependencies
-              uses: actions/cache@v4
-              with:
-                  path: ~/.cache/CPM
-                  key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
-                  restore-keys: cpm-${{ runner.os }}-
-            - name: Install dependencies
-              run: sudo apt update && sudo apt install -y ninja-build libssl-dev zlib1g-dev pkg-config
-            - name: Configure
-              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Sanitizer -DYADDNSC_BUILD_TESTS=ON -DCPM_SOURCE_CACHE=$HOME/.cache/CPM
-            - name: Build
-              run: ninja -C build -j$(nproc)
-            - name: Test
-              run: ctest --test-dir build --output-on-failure -j$(nproc)
+  linux-amd64-sanitizer:
+    needs: [should_run]
+    if: needs.should_run.outputs.result == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CC: gcc-14
+      CXX: g++-14
+      ASAN_OPTIONS: detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.NIGHTLY_REF }}
+      - name: Cache CPM dependencies
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/CPM
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          restore-keys: cpm-${{ runner.os }}-
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y ninja-build libssl-dev zlib1g-dev pkg-config
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Sanitizer -DYADDNSC_BUILD_TESTS=ON -DCPM_SOURCE_CACHE=$HOME/.cache/CPM
+      - name: Build
+        run: ninja -C build -j$(nproc)
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -j$(nproc)
 
-    # ----------------------------------------------------------------------
-    # Static analysis, compile-only (no ctest). Ubuntu 26.04 ships clang-21
-    # with matching clang-tidy and IWYU from the same distro release.
-    # Enforcement boundaries: IWYU violations fail the build (-Xiwyu --error,
-    # cmake/IWYU.cmake); compiler warnings fail via yaddnsc_warnings -Werror;
-    # clang-tidy diagnostics are reported but NOT promoted to errors (no
-    # WarningsAsErrors), though tidy execution/parse errors still fail.
-    # ----------------------------------------------------------------------
-    linux-amd64-lint:
-        needs: [should_run]
-        if: needs.should_run.outputs.result == 'true'
-        runs-on: ubuntu-26.04
-        timeout-minutes: 60
-        env:
-            CC: clang
-            CXX: clang++
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v7
-              with:
-                  ref: ${{ env.NIGHTLY_REF }}
-            - name: Cache CPM dependencies
-              uses: actions/cache@v4
-              with:
-                  path: ~/.cache/CPM
-                  key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
-                  restore-keys: cpm-${{ runner.os }}-
-            - name: Install dependencies
-              run: sudo apt update && sudo apt install -y clang clang-tidy iwyu lld libc++-dev libc++abi-dev ninja-build libssl-dev zlib1g-dev pkg-config
-            - name: Configure
-              run: >-
-                  cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
-                  -DCPM_SOURCE_CACHE=$HOME/.cache/CPM
-                  -DCMAKE_CXX_FLAGS="-stdlib=libc++"
-                  -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -fuse-ld=lld"
-                  -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -fuse-ld=lld"
-                  -DCMAKE_MODULE_LINKER_FLAGS="-stdlib=libc++ -fuse-ld=lld"
-            - name: Build (compile-only lint)
-              run: ninja -C build -j$(nproc)
+  # ----------------------------------------------------------------------
+  # Static analysis, compile-only (no ctest). Ubuntu 26.04 ships clang-21
+  # with matching clang-tidy and IWYU from the same distro release.
+  # Enforcement boundaries: IWYU violations fail the build (-Xiwyu --error,
+  # cmake/IWYU.cmake); compiler warnings fail via yaddnsc_warnings -Werror;
+  # clang-tidy diagnostics are reported but NOT promoted to errors (no
+  # WarningsAsErrors), though tidy execution/parse errors still fail.
+  # ----------------------------------------------------------------------
+  linux-amd64-lint:
+    needs: [should_run]
+    if: needs.should_run.outputs.result == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    env:
+      CC: clang
+      CXX: clang++
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.NIGHTLY_REF }}
+      - name: Cache CPM dependencies
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/CPM
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          restore-keys: cpm-${{ runner.os }}-
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y clang clang-tidy iwyu lld libc++-dev libc++abi-dev ninja-build libssl-dev zlib1g-dev pkg-config
+      - name: Configure
+        run: >-
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
+          -DCPM_SOURCE_CACHE=$HOME/.cache/CPM
+          -DCMAKE_CXX_FLAGS="-stdlib=libc++"
+          -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -fuse-ld=lld"
+          -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -fuse-ld=lld"
+          -DCMAKE_MODULE_LINKER_FLAGS="-stdlib=libc++ -fuse-ld=lld"
+      - name: Build (compile-only lint)
+        run: ninja -C build -j$(nproc)
 
-    coverage:
-        needs: [should_run]
-        if: needs.should_run.outputs.result == 'true'
-        runs-on: ubuntu-24.04
-        timeout-minutes: 60
-        env:
-            CC: gcc-14
-            CXX: g++-14
-        steps:
-            - uses: actions/checkout@v7
-              with:
-                  ref: ${{ env.NIGHTLY_REF }}
-            - name: Cache CPM dependencies
-              uses: actions/cache@v4
-              with:
-                  path: ~/.cache/CPM
-                  key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
-                  restore-keys: cpm-${{ runner.os }}-
-            - name: Install dependencies
-              run: |
-                  sudo apt update
-                  sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g-dev pkg-config python3-venv lcov curl
-            - name: Configure
-              run: >-
-                  cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_SANITIZE_DEBUG=OFF
-                  -DYADDNSC_BUILD_TESTS=ON
-                  -DCPM_SOURCE_CACHE=$HOME/.cache/CPM
-                  -DCMAKE_CXX_FLAGS="--coverage -O0 -fprofile-update=atomic"
-                  -DCMAKE_EXE_LINKER_FLAGS="--coverage -fprofile-update=atomic"
-            - name: Build
-              run: ninja -C build -j$(nproc)
-            - name: Test
-              run: ctest --test-dir build --output-on-failure -j$(nproc)
-            - name: Generate coverage report
-              run: |
-                  python3 -m venv /tmp/cov-venv
-                  source /tmp/cov-venv/bin/activate
-                  pip install -q fastcov
-                  # -i takes substrings, so unanchored "include/" also matches
-                  # third-party headers vendored in the CPM cache
-                  # (~/.cache/CPM/*/include/...). Anchor to the checkout root so
-                  # only first-party sources are gated. -b (not -B) keeps the
-                  # meaningful branches and drops the compiler-generated
-                  # exceptional ones: every new/dtor/throw adds implicit EH
-                  # edges, which are unreachable by construction and make C++
-                  # branch coverage non-comparable.
-                  fastcov -g gcov-14 -d build \
-                      -i "$(pwd)/src/" "$(pwd)/include/" "$(pwd)/driver/" \
-                      -e "/usr/" "*/generated/" \
-                      -b -o coverage.info --lcov
-                  lcov --list coverage.info --ignore-errors inconsistent --rc lcov_branch_coverage=1
-            # Two-track gate: coroutine TUs (line data collapses under GCC's
-            # coroutine split) on branch coverage, all other TUs on line
-            # coverage. Runs from the checkout on the host python3 — no deps.
-            - name: Coverage gate
-              run: python3 test/coverage_gate.py coverage.info
-            - name: Upload coverage reports to Codecov
-              uses: codecov/codecov-action@v5
-              with:
-                  files: coverage.info
-                  token: ${{ secrets.CODECOV_TOKEN }}
-                  fail_ci_if_error: true
+  coverage:
+    needs: [should_run]
+    if: needs.should_run.outputs.result == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CC: gcc-14
+      CXX: g++-14
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.NIGHTLY_REF }}
+      - name: Cache CPM dependencies
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/CPM
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          restore-keys: cpm-${{ runner.os }}-
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g-dev pkg-config python3-venv lcov curl
+      - name: Configure
+        run: >-
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_SANITIZE_DEBUG=OFF
+          -DYADDNSC_BUILD_TESTS=ON
+          -DCPM_SOURCE_CACHE=$HOME/.cache/CPM
+          -DCMAKE_CXX_FLAGS="--coverage -O0 -fprofile-update=atomic"
+          -DCMAKE_EXE_LINKER_FLAGS="--coverage -fprofile-update=atomic"
+      - name: Build
+        run: ninja -C build -j$(nproc)
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -j$(nproc)
+      - name: Generate coverage report
+        run: |
+          python3 -m venv /tmp/cov-venv
+          source /tmp/cov-venv/bin/activate
+          pip install -q fastcov
+          # -i takes substrings, so unanchored "include/" also matches
+          # third-party headers vendored in the CPM cache
+          # (~/.cache/CPM/*/include/...). Anchor to the checkout root so
+          # only first-party sources are gated. -b (not -B) keeps the
+          # meaningful branches and drops the compiler-generated
+          # exceptional ones: every new/dtor/throw adds implicit EH
+          # edges, which are unreachable by construction and make C++
+          # branch coverage non-comparable.
+          fastcov -g gcov-14 -d build \
+              -i "$(pwd)/src/" "$(pwd)/include/" "$(pwd)/driver/" \
+              -e "/usr/" "*/generated/" \
+              -b -o coverage.info --lcov
+          lcov --list coverage.info --ignore-errors inconsistent --rc lcov_branch_coverage=1
+      # Two-track gate: coroutine TUs (line data collapses under GCC's
+      # coroutine split) on branch coverage, all other TUs on line
+      # coverage. Runs from the checkout on the host python3 — no deps.
+      - name: Coverage gate
+        run: python3 test/coverage_gate.py coverage.info
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true

@@ -125,6 +125,15 @@ add_dependencies(test_coro_driver_gateway yaddnsc_test_driver_plugin yaddnsc_fix
 add_library(yaddnsc_fixture_abi_misbehave MODULE fixtures/abi_misbehave.cpp)
 set_target_properties(yaddnsc_fixture_abi_misbehave PROPERTIES PREFIX "" OUTPUT_NAME "abi_misbehave")
 target_include_directories(yaddnsc_fixture_abi_misbehave PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
+# Capability-bit fixtures — one declares only the AAAA bit, one declares none.
+# The catalog translates the descriptor's capability bits into the record kinds
+# the application layer sees, and each bit must stand on its own.
+foreach(caps aaaa_only no_caps)
+    add_library(yaddnsc_fixture_${caps} MODULE fixtures/${caps}.cpp)
+    set_target_properties(yaddnsc_fixture_${caps} PROPERTIES PREFIX "" OUTPUT_NAME "${caps}")
+    target_include_directories(yaddnsc_fixture_${caps} PRIVATE ${PROJECT_SOURCE_DIR}/include)
+endforeach()
 add_unit_test(gateway_abi_contract SOURCE gateway_abi_contract_test.cpp)
 target_link_libraries(test_gateway_abi_contract PRIVATE yaddnsc_prod_all yaddnsc_coro_plugin ${CMAKE_DL_LIBS})
 set_tests_properties(test_gateway_abi_contract PROPERTIES
