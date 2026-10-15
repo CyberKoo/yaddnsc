@@ -8,7 +8,6 @@
 #include <string>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 #include <expected>
 #include <spdlog/spdlog.h>

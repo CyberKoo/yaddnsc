@@ -11,6 +11,7 @@
 #include <climits>
 #include <compare>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstring>  // IWYU pragma: keep — clang resolves std::strerror transitively, GCC does not
+#include <ctime>    // timespec / nanosleep (POSIX names, provided in the global namespace)
 #include <exception>
 #include <functional>
 #include <source_location>
@@ -25,7 +26,6 @@
 
 #include <poll.h>
 #include <sys/types.h>
-#include <time.h>
 #include <unistd.h>
 
 #include "coro/detail/frame.h"
@@ -289,12 +289,16 @@ std::size_t Loop::drain_ready() {
 
 void Loop::post(std::function<void()> fn) {
     auto node = std::make_unique<ClosureNode>();
-    node->node.context = node.get();
     node->node.run = &run_closure_node;
     node->node.dispose = &dispose_closure_node;
     node->fn = std::move(fn);
-    post_node(node->node);
-    node.release();  // posted: the loop owns the closure until it runs or teardown
+    // Hand the allocation to the loop before it is published: the loop owns the
+    // closure from here, and the inbox node outlives this call until the posted
+    // work runs or teardown disposes it. Re-seeding context from the released
+    // pointer keeps the handle and the node self-consistent.
+    ClosureNode* const posted = node.release();
+    posted->node.context = posted;
+    post_node(posted->node);
 }
 
 void Loop::post_node(detail::InboxNode& node) noexcept {

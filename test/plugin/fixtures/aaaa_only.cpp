@@ -3,8 +3,6 @@
 /// The host's record-type gate is a translation of the descriptor's
 /// capability bits, and both bits are independent: a driver that supports
 /// IPv6 lookups but not IPv4 must report AAAA alone, never a default A.
-#include <cstdint>
-
 #include <yaddnsc/sdk/driver_abi.h>
 
 #define FIXTURE_EXPORT __attribute__((visibility("default")))

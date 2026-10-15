@@ -18,6 +18,7 @@
 // Pure string scanning over literal buffers — no file, no schema, no I/O.
 //
 
+#include <initializer_list>
 #include <string>
 #include <string_view>
 

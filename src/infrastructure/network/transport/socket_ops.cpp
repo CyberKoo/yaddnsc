@@ -7,6 +7,7 @@
 #include <cerrno>
 #include <cstring>
 #include <optional>
+#include <string>
 #include <system_error>
 
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not

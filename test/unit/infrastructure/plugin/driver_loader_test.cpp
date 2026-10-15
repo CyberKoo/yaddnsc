@@ -12,7 +12,6 @@
 
 #include "infrastructure/plugin/driver_loader.h"
 
-#include <cstdio>
 #include <cstdlib>
 #include <expected>
 #include <filesystem>

@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <functional>
 #include <source_location>
 #include <stdexcept>
 #include <string>

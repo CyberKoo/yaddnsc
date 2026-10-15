@@ -10,7 +10,6 @@
 //     without ever echoing a configuration value.
 // =============================================================================
 
-#include <cstddef>
 #include <cstdlib>
 #include <filesystem>
 #include <initializer_list>

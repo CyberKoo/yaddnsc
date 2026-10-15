@@ -16,12 +16,15 @@
 // slash-less-path arm is driven here too.
 //
 
+#include <algorithm>
+#include <expected>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <gtest/gtest.h>
 
+#include "application/ports/driver_catalog.h"
 #include "domain/dns/record_kind.h"
 #include "domain/error/error.h"
 #include "infrastructure/plugin/driver_catalog.h"
@@ -30,12 +33,7 @@
 namespace {
 
 [[nodiscard]] bool supports(const std::vector<domain::RecordKind>& kinds, domain::RecordKind wanted) {
-    for (const auto kind : kinds) {
-        if (kind == wanted) {
-            return true;
-        }
-    }
-    return false;
+    return std::ranges::any_of(kinds, [wanted](domain::RecordKind kind) { return kind == wanted; });
 }
 
 }  // namespace

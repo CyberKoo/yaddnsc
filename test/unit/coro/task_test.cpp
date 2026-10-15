@@ -35,6 +35,7 @@
 #include "coro/detail/wait_node.h"
 
 namespace coro::detail {
+struct FdEntry;
 struct PromiseBase;
 struct TimerNode;
 }  // namespace coro::detail

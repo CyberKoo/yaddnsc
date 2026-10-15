@@ -2,6 +2,7 @@
 // other test binaries. Only the calling thread's selected allocation fails.
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <exception>
 #include <functional>
 #include <initializer_list>
@@ -215,12 +216,12 @@ TEST(CoroAllocationFailure, offload_DeferredSubmissionFailure_CompletesAndDispat
     coro::detail::LoopAccess::admit_offload(loop, blocker);
     coro::detail::OffloadAdmission queued;
     queued.owner = &failed;
+    // The callback signature is an ownership contract fixed by OffloadAdmission,
+    // so `error` must keep being taken by value even though the body only reads it.
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
     queued.failed = [](void* owner, std::exception_ptr error) noexcept {
-        // The callback signature takes ownership by value, so move the
-        // exception_ptr out once instead of rethrowing through the parameter.
-        std::exception_ptr thrown = std::move(error);
         try {
-            std::rethrow_exception(thrown);
+            std::rethrow_exception(error);
         } catch (const std::bad_alloc&) {
             *static_cast<bool*>(owner) = true;
         } catch (...) {

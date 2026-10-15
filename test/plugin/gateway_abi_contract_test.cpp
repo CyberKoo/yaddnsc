@@ -19,23 +19,27 @@
 
 #include <chrono>
 #include <climits>
+#include <coroutine>
 #include <cstdint>
 #include <expected>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
 #include "domain/error/error.h"
 #include "domain/update/driver_update_command.h"
-#include "infrastructure/http/types.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_gateway.h"
 #include "infrastructure/plugin/shared_library.h"
 #include "mocks/null_logger.h"
-#include "yaddnsc/sdk/driver_abi.h"
+
+namespace app {
+class LoggerPort;
+}  // namespace app
 
 namespace {
 
@@ -76,7 +80,7 @@ public:
     /// Returns the fixture's own result: 0 when the mode name was recognised,
     /// non-zero otherwise. Propagating it keeps a mistyped mode from reading as
     /// a passing case.
-    int set_mode(const std::string_view name) const { return set_mode_(name.data()); }
+    [[nodiscard]] int set_mode(const std::string_view name) const { return set_mode_(name.data()); }
 
     void reset() const { reset_(); }
 
