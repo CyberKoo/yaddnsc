@@ -53,16 +53,22 @@ void record_trace(void* context, std::string_view message, const std::source_loc
 
 /// A trace sink is a diagnostic channel, not a behaviour switch: install one
 /// where the event name itself is under test.
+///
+/// The recorder is declared BEFORE the loop on purpose: members are destroyed
+/// in reverse declaration order, so this makes ~Loop() run first. The loop
+/// still emits traces while tearing down (closing the self-pipe calls
+/// remove_fd), and a sink installed on a dead recorder would be a
+/// heap-use-after-free.
 class TracingLoop {
+private:
+    TraceRecorder recorder_;
+    coro::Loop loop_;
+
 public:
     TracingLoop() { loop_.set_trace_sink(&record_trace, &recorder_); }
 
     [[nodiscard]] coro::Loop& loop() noexcept { return loop_; }
     [[nodiscard]] const TraceRecorder& recorder() const noexcept { return recorder_; }
-
-private:
-    coro::Loop loop_;
-    TraceRecorder recorder_;
 };
 
 }  // namespace
