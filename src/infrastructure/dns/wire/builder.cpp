@@ -129,7 +129,7 @@ constexpr std::uint16_t OPT_RR_TYPE = 41;
 QueryBuilder::QueryBuilder() : QueryBuilder(0) {
     const auto id = Utils::Random::crypto_u16();
     if (!id) {
-        throw id.error();
+        throw Utils::Random::EntropyError(id.error());
     }
     id_ = *id;
 }

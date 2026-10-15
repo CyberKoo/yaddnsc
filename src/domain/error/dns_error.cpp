@@ -24,8 +24,6 @@ std::string_view error_to_str(DnsError error) {
             return "configuration error (CONFIG)";
         case DnsError::SERVER_REFUSED:
             return "server refused query (REFUSED)";
-        case DnsError::UNKNOWN:
-            return "unknown DNS error";
         default:
             return "unknown DNS error";
     }

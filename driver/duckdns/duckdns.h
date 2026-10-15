@@ -30,7 +30,7 @@ private:
     [[nodiscard]] static DuckDnsParams parse_params(std::string_view json);
 
     /// Build the DuckDNS API request URL from config and update params.
-    static std::string generate_url(const DuckDnsParams& cfg, const yaddnsc::sdk::UpdateRequest& request);
+    static std::string generate_url(const DuckDnsParams& cfg, const yaddnsc::sdk::UpdateRequest& params);
 
     /// Validate the DuckDNS API response (expects "OK" or "KO").
     [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,

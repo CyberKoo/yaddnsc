@@ -7,12 +7,12 @@
 #include <arpa/inet.h>
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <openssl/ssl.h>
-#include <signal.h>
 #include <spdlog/spdlog.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <openssl/x509.h>
 #include <array>
+#include <csignal>
 #include <expected>
 #include <limits>
 #include <string>

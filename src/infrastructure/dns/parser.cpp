@@ -682,8 +682,7 @@ dns::FormattedResponse dns::RecordParser::parse_strings(const std::span<const st
     if (response.rcode == Rcode::NOERROR) [[likely]] {
         filter_answers(msg, data, host, type_filter);
         response.records.reserve(msg.answers.size());
-        for (size_t i = 0; i < msg.answers.size(); ++i) {
-            const auto& answer = msg.answers[i];
+        for (const auto& answer : msg.answers) {
             // Skip records that do not answer the query — above all the CNAME
             // hops of an RFC 1034 §3.6.2 chain, whose value is a hostname, not
             // the address the caller asked for.
@@ -691,7 +690,9 @@ dns::FormattedResponse dns::RecordParser::parse_strings(const std::span<const st
                 continue;
             }
             auto record = rdata_to_string(answer, data);
-            SPDLOG_TRACE(R"(DNS answer #{} for "{}": {})", i, host, record);
+            // Numbered by their position in the returned vector, so a trace
+            // line maps onto response.records by index.
+            SPDLOG_TRACE(R"(DNS answer #{} for "{}": {})", response.records.size(), host, record);
             response.records.push_back(std::move(record));
         }
     }

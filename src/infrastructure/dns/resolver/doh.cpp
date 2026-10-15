@@ -67,7 +67,7 @@ constexpr unsigned char ALPN_HTTP_1_1[] = {8, 'h', 't', 't', 'p', '/', '1', '.',
 }
 }  // namespace
 
-DohResolver::DohResolver(std::string url, http::Options options, Policy policy)
+DohResolver::DohResolver(const std::string& url, http::Options options, Policy policy)
     : target_(endpoint_target(url)), policy_(policy) {
     options.tls.alpn_proto = ALPN_HTTP_1_1;
     // Local safety policy: only query the configured URI; reject all redirects.
@@ -78,7 +78,7 @@ DohResolver::DohResolver(std::string url, http::Options options, Policy policy)
     }
     // Admission waits on our own mutex, before the backend attempt starts.
     options.queue_timeout = std::chrono::milliseconds::zero();
-    client_ = std::make_unique<http::PersistentClient>(std::move(url), std::move(options));
+    client_ = std::make_unique<http::PersistentClient>(url, std::move(options));
 }
 
 DohResolver::~DohResolver() = default;

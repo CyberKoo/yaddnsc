@@ -175,22 +175,20 @@ private:
                     break;
                 }
 
-                if (attempt.error.code == domain::DnsError::NX_DOMAIN) {
-                    SPDLOG_TRACE(R"(Resolver #{} returned NXDOMAIN for "{}")", attempt.id, host);
-                } else if (detail::is_definitive(attempt.error.code)) {
-                    SPDLOG_TRACE(R"(Resolver #{} failed for "{}": {})", attempt.id, host,
-                                 domain::error_to_str(attempt.error.code));
-                } else {
-                    SPDLOG_TRACE(R"(Resolver #{} returned {} for "{}")", attempt.id,
-                                 domain::error_to_str(attempt.error.code), host);
-                }
+                const auto code = attempt.error.code;
                 errors.note(attempt);
-                if (detail::is_definitive(attempt.error.code)) {
+                if (detail::is_definitive(code)) {
+                    SPDLOG_TRACE(R"(Resolver #{} failed for "{}": {})", attempt.id, host, domain::error_to_str(code));
                     race.cancel();
                     break;
                 }
-                if (attempt.error.code == domain::DnsError::CONNECTION ||
-                    attempt.error.code == domain::DnsError::RETRY) {
+                // NXDOMAIN is a negative answer, not a backend failure, and
+                // error_to_str() spells it out verbosely — name it plainly.
+                SPDLOG_TRACE(
+                    R"(Resolver #{} returned {} for "{}")", attempt.id,
+                    code == domain::DnsError::NX_DOMAIN ? std::string_view{"NXDOMAIN"} : domain::error_to_str(code),
+                    host);
+                if (code == domain::DnsError::CONNECTION || code == domain::DnsError::RETRY) {
                     retry.push_back(attempt.backend);
                 }
                 launch();  // every endpoint failure/negative answer frees its slot

@@ -28,7 +28,7 @@ private:
 
     /// Build the DNSPod API request from parsed config and update params.
     [[nodiscard]] static yaddnsc::sdk::HttpRequest generate_request(const DnsPodParams& cfg,
-                                                                    const yaddnsc::sdk::UpdateRequest& request);
+                                                                    const yaddnsc::sdk::UpdateRequest& params);
 
     /// Validate the DNSPod API response.
     [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,

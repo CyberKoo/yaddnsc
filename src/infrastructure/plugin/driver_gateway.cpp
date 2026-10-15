@@ -404,9 +404,11 @@ coro::Task<void> own_cycle(std::shared_ptr<CallState> state, coro::Task<coro::Sc
 template<typename Work>
 coro::Task<void> make_cycle_owner(std::shared_ptr<CallState> state, Work work) {
     // The shield's callable only moves the pre-created body task.
+    // `state` stays by value on purpose: this is a coroutine, so the frame —
+    // not the caller — owns it through suspension.
     auto shielded = coro::non_cancellable(
         [body = cycle_body(state, std::move(work))](coro::CancelScope&) mutable { return std::move(body); });
-    return own_cycle(state, std::move(shielded));
+    return own_cycle(std::move(state), std::move(shielded));
 }
 
 }  // namespace

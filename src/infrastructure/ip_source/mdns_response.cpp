@@ -1,9 +1,8 @@
 #include "mdns_response.h"
 
+#include <cstddef>
 #include <optional>
 #include <string>  // IWYU pragma: keep — rr.name/record are std::string used through conversion; clangd sees no spelled use
-
-#include <stddef.h>
 
 #include "domain/dns/record_kind.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
@@ -22,7 +21,7 @@ std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo> ipsource::
         }
         results.reserve(msg.answers.size());
 
-        for (size_t i = 0; i < msg.answers.size(); ++i) {
+        for (std::size_t i = 0; i < msg.answers.size(); ++i) {
             const auto& rr = msg.answers[i];
             // The high CLASS bit is the mDNS cache-flush flag, not part of the class.
             if (rr.ttl == 0 || (rr.qclass & 0x7fff) != static_cast<std::uint16_t>(dns::RecordClass::IN) ||

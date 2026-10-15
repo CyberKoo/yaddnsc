@@ -47,7 +47,7 @@ namespace {
 
 }  // namespace
 
-PersistentClient::PersistentClient(std::string base_url, Options options)
+PersistentClient::PersistentClient(const std::string& base_url, Options options)
     : PersistentClient(parse_origin(base_url), std::move(options)) {}
 
 PersistentClient::PersistentClient(Origin origin, Options options)

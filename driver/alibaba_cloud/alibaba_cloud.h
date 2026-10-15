@@ -33,8 +33,7 @@ private:
     [[nodiscard]] static AlibabaParams parse_params(std::string_view json);
 
     /// Build an Alibaba Cloud DNS UpdateDomainRecord request with RPC signature.
-    static yaddnsc::sdk::HttpRequest generate_request(const AlibabaParams& cfg,
-                                                      const yaddnsc::sdk::UpdateRequest& request);
+    static yaddnsc::sdk::HttpRequest generate_request(const AlibabaParams& cfg, const yaddnsc::sdk::UpdateRequest& ctx);
 
     /// Validate the Alibaba Cloud DNS API response.
     [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,

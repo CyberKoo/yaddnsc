@@ -58,7 +58,7 @@ public:
     ///                 ALPN is forced to HTTP/1.1.
     /// @param policy   Local budgets for admitted queries.
     /// @throws std::invalid_argument when `url` is not a valid https URL.
-    DohResolver(std::string url, http::Options options, Policy policy = {});
+    DohResolver(const std::string& url, http::Options options, Policy policy = {});
 
     ~DohResolver();
 

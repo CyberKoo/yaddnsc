@@ -112,8 +112,8 @@ namespace {
 }  // namespace
 
 std::unique_ptr<Dispatcher> make_dispatcher(const domain::ResolverSettings& settings,
-                                            std::vector<domain::DnsServer> bootstrap,
-                                            std::shared_ptr<const net::TlsContext> tls_context, Policy policy) {
+                                            const std::vector<domain::DnsServer>& bootstrap,
+                                            const std::shared_ptr<const net::TlsContext>& tls_context, Policy policy) {
     if (settings.servers.empty()) {
         throw std::invalid_argument("ResolverSettings.servers must not be empty");
     }

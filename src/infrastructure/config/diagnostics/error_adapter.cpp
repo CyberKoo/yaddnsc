@@ -42,7 +42,6 @@ ParseFailure adapt_error(glz::error_code code) {
         case glz::error_code::file_extension_not_supported:
             return {.kind = ErrorKind::FILE_EXTENSION, .identifier = {}};
         case glz::error_code::missing_key:
-            return {.kind = ErrorKind::MISSING_KEY, .identifier = {}};
         case glz::error_code::key_not_found:
             return {.kind = ErrorKind::MISSING_KEY, .identifier = {}};
         case glz::error_code::invalid_nullable_read:

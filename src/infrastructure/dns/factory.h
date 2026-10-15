@@ -35,8 +35,8 @@ namespace dns {
 ///         address is malformed / uses an unknown schema (configuration
 ///         validation should have rejected both first).
 [[nodiscard]] std::unique_ptr<Dispatcher> make_dispatcher(const domain::ResolverSettings& settings,
-                                                          std::vector<domain::DnsServer> bootstrap,
-                                                          std::shared_ptr<const net::TlsContext> tls_context,
+                                                          const std::vector<domain::DnsServer>& bootstrap,
+                                                          const std::shared_ptr<const net::TlsContext>& tls_context,
                                                           Policy policy = {});
 
 }  // namespace dns

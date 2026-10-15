@@ -46,7 +46,7 @@ public:
     ///                  allowed and only used for relative fallback).
     /// @param options   Client options, including the injected hostname resolver.
     /// @throws std::invalid_argument when base_url is not a valid http(s) URL.
-    explicit PersistentClient(std::string base_url, Options options = {});
+    explicit PersistentClient(const std::string& base_url, Options options = {});
 
     PersistentClient(const PersistentClient&) = delete;
     PersistentClient& operator=(const PersistentClient&) = delete;
