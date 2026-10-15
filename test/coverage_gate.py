@@ -12,8 +12,15 @@ Tracks:
   - TU containing co_await/co_return/co_yield: branch coverage >= --branch-min
   - every other TU:                            line coverage >= --line-min
 
-The input tracefile must contain branch records (fastcov -B); a line-only
+The input tracefile must contain branch records (fastcov -b); a line-only
 file is rejected so the gate cannot silently pass without branch data.
+
+Branch records must exclude the compiler-generated exceptional edges: every
+new/destructor/throw emits implicit EH branches that no test can reach, so
+including them makes C++ branch coverage non-comparable. Paths a test genuinely
+cannot drive (a close() that only fails on a full disk, a pthread primitive
+failing under resource exhaustion) are marked LCOV_EXCL_BR_LINE at the branch
+site rather than chased with synthetic tests.
 
 Thresholds are ratchets: raise them as coverage improves, never lower them.
 """
@@ -82,7 +89,7 @@ def main():
         print(f"coverage-gate: {args.tracefile} contains no source files", file=sys.stderr)
         return 2
     if not any(v["br"] for v in files.values()):
-        print(f"coverage-gate: {args.tracefile} has no branch records — regenerate with fastcov -B",
+        print(f"coverage-gate: {args.tracefile} has no branch records — regenerate with fastcov -b",
               file=sys.stderr)
         return 2
 

@@ -367,13 +367,15 @@ target_link_libraries(test_uri_edge PRIVATE yaddnsc_uri)
 # window and the redirect policy, plus wire-request construction/validation
 # and the exchange request/response grammar guards, and the client/session/
 # persistent-client paths (redirect loop, replay, keep-alive budget, queue
-# timeout, origin/target resolution).
+# timeout, origin/target resolution), and the RFC 9110 field-syntax predicates
+# (tchar set, field-value character rules) the builder and parser share.
 add_unit_test(net_coro_http
     SOURCE infrastructure/http/http_coro_test.cpp
            infrastructure/http/wire_request_test.cpp
            infrastructure/http/exchange_paths_test.cpp
            infrastructure/http/client_redirect_test.cpp
            infrastructure/http/session_paths_test.cpp
+           infrastructure/http/field_chars_test.cpp
 )
 target_link_libraries(test_net_coro_http PRIVATE yaddnsc_http)
 

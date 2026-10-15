@@ -117,6 +117,22 @@ target_compile_definitions(test_coro_driver_gateway PRIVATE
 add_dependencies(test_coro_driver_gateway yaddnsc_test_driver_plugin yaddnsc_fixture_no_validate
     yaddnsc_fixture_throwing)
 
+# ABI error-report contract — drives a plugin that breaks one ABI rule at a time
+# (create returning OK without a handle, a non-OK status with no error report,
+# a report whose status disagrees, an overflowing retry_after, a plugin-reported
+# CANCELLED) through the coroutine gateway. No mode reaches the HTTP bridge, so
+# these tests need no server.
+add_library(yaddnsc_fixture_abi_misbehave MODULE fixtures/abi_misbehave.cpp)
+set_target_properties(yaddnsc_fixture_abi_misbehave PROPERTIES PREFIX "" OUTPUT_NAME "abi_misbehave")
+target_include_directories(yaddnsc_fixture_abi_misbehave PRIVATE ${PROJECT_SOURCE_DIR}/include)
+add_unit_test(gateway_abi_contract SOURCE gateway_abi_contract_test.cpp)
+target_link_libraries(test_gateway_abi_contract PRIVATE yaddnsc_prod_all yaddnsc_coro_plugin ${CMAKE_DL_LIBS})
+set_tests_properties(test_gateway_abi_contract PROPERTIES
+    ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
+target_compile_definitions(test_gateway_abi_contract PRIVATE
+    ABI_MISBEHAVE_PATH="$<TARGET_FILE:yaddnsc_fixture_abi_misbehave>")
+add_dependencies(test_gateway_abi_contract yaddnsc_fixture_abi_misbehave)
+
 foreach(test_target test_plugin_abi_contract test_plugin_lifecycle)
     target_link_libraries(${test_target} PRIVATE yaddnsc_prod_all ${CMAKE_DL_LIBS})
     # macOS + ASan + dlopen plugins: disable the ODR checker for the plugin's
