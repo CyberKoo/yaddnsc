@@ -1,0 +1,4 @@
+# The upload includes codecov-cli's gcov-plugin results, which cover the
+# instrumented test/ tree. Gate and track product code only.
+ignore:
+  - "test/**"

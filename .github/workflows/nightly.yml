@@ -244,9 +244,14 @@ jobs:
       # coverage. Runs from the checkout on the host python3 — no deps.
       - name: Coverage gate
         run: python3 test/coverage_gate.py coverage.info
+      # Upload exactly the fastcov report. codecov-cli otherwise runs its
+      # gcov plugin on the instrumented build tree and merges test/
+      # coverage (with its own branch numbering) into the totals.
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
           files: coverage.info
+          disable_search: true
+          plugins: noop
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
