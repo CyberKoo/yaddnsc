@@ -1,12 +1,14 @@
 // Isolated POSIX syscall fault injection; production code has no test hooks.
+#include <array>
 #include <cerrno>
 #include <chrono>
+#include <coroutine>
 #include <cstddef>
 #include <functional>
+#include <initializer_list>
+#include <new>
 #include <string>
 #include <system_error>
-
-#include <coroutine>
 
 #include <gtest/gtest.h>
 #include <poll.h>
@@ -14,6 +16,9 @@
 #include <unistd.h>
 
 #include "coro/coro.h"
+#include "coro/detail/access.h"
+#include "coro/detail/fd_entry.h"
+#include "mocks/allocation_fault.h"
 #include "support/util/fd.hpp"
 
 namespace {
@@ -24,6 +29,13 @@ int next_poll_error = 0;
 int persistent_poll_error = 0;
 int write_calls = 0;
 int poll_calls = 0;
+bool fail_allocations_on_poll = false;
+int allocation_attempts = 0;
+
+void fail_allocation(std::size_t) {
+    ++allocation_attempts;
+    throw std::bad_alloc{};
+}
 }  // namespace
 
 // NOLINTNEXTLINE(bugprone-reserved-identifier)  // ld --wrap requires this exact symbol name
@@ -46,6 +58,9 @@ extern "C" ssize_t __wrap_write(int fd, const void* buffer, std::size_t size) {
 extern "C" int __wrap_poll(pollfd* fds, nfds_t count, int timeout) {
     ++poll_calls;
     if (persistent_poll_error != 0) {
+        if (fail_allocations_on_poll) {
+            test::set_allocation_fault_hook(&fail_allocation);
+        }
         errno = persistent_poll_error;
         return -1;
     }
@@ -142,6 +157,88 @@ TEST(CoroSyscallFailure, SustainedPollFailure_FailsWaitWithErrnoAndLoopSurvives)
     // and run() returned normally after the root task completed.
     EXPECT_EQ(observed, std::error_code(ENOMEM, std::generic_category()));
     EXPECT_GE(poll_calls, 8);  // shed threshold reached
+}
+
+TEST(CoroSyscallFailure, SustainedPollFailure_AllocationUnavailable_FailsWaitWithoutAllocating) {
+    coro::Loop loop;
+    auto [read_end, write_end] = Utils::make_pipe();
+    ASSERT_TRUE(read_end);
+    ASSERT_TRUE(write_end);
+    std::error_code observed;
+    auto root = [&]() -> coro::Task<void> { observed = co_await coro::wait_readable(read_end.get()); };
+    poll_calls = 0;
+    allocation_attempts = 0;
+    persistent_poll_error = ENOMEM;
+    fail_allocations_on_poll = true;
+    coro::run(loop, root());
+    test::set_allocation_fault_hook(nullptr);
+    fail_allocations_on_poll = false;
+    persistent_poll_error = 0;
+    EXPECT_EQ(allocation_attempts, 0);
+    EXPECT_EQ(observed, std::error_code(ENOMEM, std::generic_category()));
+    EXPECT_GE(poll_calls, 8);
+}
+
+TEST(CoroSyscallFailure, Dispatch_CallbackRegistersDescriptors_PreservesRemainingSnapshot) {
+    for (const int error : {0, ENOMEM}) {
+        coro::Loop loop;
+        auto [read_end, write_end] = Utils::make_pipe();
+        ASSERT_TRUE(read_end);
+        ASSERT_TRUE(write_end);
+        const char byte = 1;
+        ASSERT_EQ(::write(write_end.get(), &byte, 1), 1);
+
+        struct Callbacks {
+            coro::Loop& loop;
+            std::array<coro::detail::FdEntry, 32> initial{};
+            std::array<coro::detail::FdEntry, 256> added{};
+            std::size_t fired = 0;
+            bool failed = false;
+
+            static void fire(void* context, short) noexcept {
+                auto& self = *static_cast<Callbacks*>(context);
+                if (++self.fired == 1) {
+                    // Grow both dispatch buffers while later callbacks remain
+                    // in the current snapshot. Registration does not dispatch.
+                    try {
+                        for (auto& entry : self.added) {
+                            entry.fd = self.initial.front().fd;
+                            entry.events = POLLIN;
+                            entry.fn = &Callbacks::fire;
+                            entry.context = &self;
+                            coro::detail::LoopAccess::add_fd(self.loop, entry);
+                        }
+                    } catch (...) {
+                        self.failed = true;
+                        self.loop.request_stop();
+                        return;
+                    }
+                }
+                if (self.fired == self.initial.size()) {
+                    self.loop.request_stop();
+                }
+            }
+        } callbacks{loop};
+
+        for (auto& entry : callbacks.initial) {
+            entry.fd = read_end.get();
+            entry.events = POLLIN;
+            entry.fn = &Callbacks::fire;
+            entry.context = &callbacks;
+            coro::detail::LoopAccess::add_fd(loop, entry);
+        }
+        persistent_poll_error = error;
+        loop.run();
+        persistent_poll_error = 0;
+        for (auto& entry : callbacks.initial) {
+            coro::detail::LoopAccess::remove_fd(loop, entry);
+        }
+        for (auto& entry : callbacks.added) {
+            coro::detail::LoopAccess::remove_fd(loop, entry);
+        }
+        EXPECT_FALSE(callbacks.failed);
+        EXPECT_EQ(callbacks.fired, callbacks.initial.size()) << "poll errno: " << error;
+    }
 }
 
 TEST(CoroSyscallFailure, StructuralPollError_StaysFatal) {

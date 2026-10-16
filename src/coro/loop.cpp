@@ -517,12 +517,11 @@ void Loop::poll_once(int timeout_ms) {
     if (fds_.empty()) {
         return;
     }
-    // The scratch buffers are members reused across rounds (clear() keeps the
-    // allocation). poll() writes only revents, so the fd/events array is
+    // Registration reserves the scratch buffers; clear() keeps their capacity.
+    // poll() writes only revents, so the fd/events array is
     // rebuilt only when the registration table changed since the last poll.
     if (poll_revision_ != fds_revision_) {
         pollfds_scratch_.clear();
-        pollfds_scratch_.reserve(fds_.size());
         for (const detail::FdEntry* entry : fds_) {
             pollfds_scratch_.push_back(pollfd{entry->fd, entry->events, 0});
         }
@@ -563,7 +562,11 @@ void Loop::poll_once(int timeout_ms) {
                 ReadyEntry{fds_[i]->fn, fds_[i]->context, fds_[i]->fd, pollfds_scratch_[i].revents});
         }
     }
-    for (const ReadyEntry& entry : ready_entries_scratch_) {
+    // A callback may register fds and reallocate the buffer. Keep only an
+    // index and a value copy across the call.
+    // NOLINTNEXTLINE(modernize-loop-convert)  // reallocation hazard: not convertible to range-for
+    for (std::size_t i = 0; i < ready_entries_scratch_.size(); ++i) {
+        const ReadyEntry entry = ready_entries_scratch_[i];
         CORO_TRACE("Fd {} ready: {}", entry.fd, describe_poll_events(entry.revents));
         entry.fn(entry.context, entry.revents);
     }
@@ -574,15 +577,19 @@ void Loop::on_poll_impaired(const int error) noexcept {
     poll_error_ = error;
     CORO_TRACE("poll() impaired: {} (consecutive failure {})", std::strerror(error), poll_failures_);
     if (poll_failures_ >= POLL_FAILURE_SHED_THRESHOLD) {
-        // Fail every registered wait with the poll errno. Same snapshot
-        // discipline as event dispatch: callbacks unregister themselves.
+        // Fail every registered wait with the poll errno. Registration already
+        // reserved the snapshot storage: shedding must not allocate under ENOMEM.
+        // Same discipline as event dispatch: callbacks unregister themselves.
         ready_entries_scratch_.clear();
         for (const detail::FdEntry* entry : fds_) {
             if (entry->fn != nullptr) {
                 ready_entries_scratch_.push_back(ReadyEntry{entry->fn, entry->context, entry->fd, POLLERR});
             }
         }
-        for (const ReadyEntry& entry : ready_entries_scratch_) {
+        // Callbacks may grow this buffer through add_fd(), as in poll_once().
+        // NOLINTNEXTLINE(modernize-loop-convert)  // reallocation hazard: not convertible to range-for
+        for (std::size_t i = 0; i < ready_entries_scratch_.size(); ++i) {
+            const ReadyEntry entry = ready_entries_scratch_[i];
             entry.fn(entry.context, entry.revents);
         }
     }
@@ -711,6 +718,15 @@ void Loop::heap_sift_down(std::size_t index) noexcept {
 
 void Loop::add_fd(detail::FdEntry& entry) {
     fds_.push_back(&entry);  // may throw; the entry stays unlinked
+    try {
+        // Follow the table's geometric growth so dispatch and load shedding
+        // need no allocation once a registration is committed.
+        pollfds_scratch_.reserve(fds_.capacity());
+        ready_entries_scratch_.reserve(fds_.capacity());
+    } catch (...) {
+        fds_.pop_back();
+        throw;
+    }
     entry.index = fds_.size() - 1;
     entry.linked = true;
     ++fds_revision_;

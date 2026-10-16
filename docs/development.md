@@ -189,6 +189,11 @@ fd-operation reuse, while runtime tests exercise concurrent lock descriptors,
 Handle reservation conflicts, FIFO admission and capacity held through running
 cancellation. `test_coro_allocation_failure` checks pool initialization and both
 immediate/deferred submission failures, as well as mutex queue growth failure.
+It also checks fd registration rollback when table or dispatch-buffer growth
+fails. On Linux, `test_coro_syscall_failure` combines sustained poll `ENOMEM`
+with allocator failure to verify that shedding completes without allocating.
+It also registers descriptors from a callback during both readiness dispatch
+and sustained-failure shedding, verifying that later snapshot callbacks run.
 `test_plugin_cancellation_publication` uses an isolated allocator rendezvous to
 cancel after the Host Services entry check and before request copying completes.
 It also injects worker post, loop admission and real gateway request-copy failures.
@@ -407,8 +412,12 @@ receive the configured recovery attempt, and invalid names are rejected before
 entropy acquisition. It does not change OpenSSL configuration in other test
 processes.
 mDNS receive tests use isolated loopback sockets to verify mixed discard bursts,
-backoff, the unchanged caller window and cancellation during backoff. Debug sanitizer builds exercise these same
-tests; a passing suite does not substitute for separate TSan/platform validation.
+backoff, the unchanged caller window and cancellation during backoff. The
+successful receive case uses the real loop clock with a 5s test deadline, so
+UDP delivery and timeout share the same clock; its two 1ms backoffs are checked
+as a lower bound. Cancellation cases use a manual clock for exact deadline
+assertions. Debug sanitizer builds exercise these same tests; a passing suite
+does not substitute for separate TSan/platform validation.
 
 ## Documentation
 

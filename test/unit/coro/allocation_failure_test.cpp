@@ -2,6 +2,7 @@
 // other test binaries. Only the calling thread's selected allocation fails.
 #include <array>
 #include <atomic>
+#include <coroutine>
 #include <cstddef>
 #include <exception>
 #include <functional>
@@ -11,17 +12,15 @@
 #include <string>
 #include <utility>
 
-#include <coroutine>
-
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
 #include "coro/detail/access.h"
+#include "coro/detail/fd_entry.h"
 #include "coro/detail/mutex_state.h"
 #include "coro/detail/offload_job.h"
 #include "coro/detail/timer_node.h"
 #include "coro/detail/wait_node.h"
-
 #include "mocks/allocation_fault.h"
 
 namespace {
@@ -113,6 +112,31 @@ TEST(CoroAllocationFailure, add_timer_HeapGrowthThrows_LeavesTimerUnarmedAndReus
     EXPECT_TRUE(timer.in_heap);
     coro::detail::LoopAccess::remove_timer(loop, timer);
     EXPECT_FALSE(timer.in_heap);
+}
+
+TEST(CoroAllocationFailure, add_fd_StorageGrowthThrows_LeavesEntryUnlinkedAndReusable) {
+    // Exercise table growth and both dispatch-buffer allocations.
+    for (const int after : {0, 1, 2}) {
+        coro::Loop loop;
+        coro::detail::FdEntry entry;
+        bool caught = false;
+        {
+            const FailAllocation failure{after};
+            try {
+                coro::detail::LoopAccess::add_fd(loop, entry);
+            } catch (const std::bad_alloc&) {
+                caught = true;
+            }
+        }
+        EXPECT_TRUE(caught);
+        EXPECT_FALSE(entry.linked);
+        coro::detail::LoopAccess::remove_fd(loop, entry);
+        coro::detail::LoopAccess::add_fd(loop, entry);
+        EXPECT_TRUE(entry.linked);
+        EXPECT_EQ(entry.index, 1u);  // only the self-pipe preceded this registration
+        coro::detail::LoopAccess::remove_fd(loop, entry);
+        EXPECT_FALSE(entry.linked);
+    }
 }
 
 TEST(CoroAllocationFailure, ScopeRegistrationAndRemoval_DoNotAllocate) {

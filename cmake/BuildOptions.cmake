@@ -23,7 +23,8 @@ target_compile_options(yaddnsc_warnings INTERFACE
     # (std::function move constructor in std::__detail::_State). -Wall enables
     # this warning, and -Werror promotes it to a hard error.  Suppress it
     # for the sanitizer builds where -O1 is required for instrumentation.
-    $<$<OR:$<CONFIG:Sanitizer>,$<CONFIG:ThreadSanitizer>>:-Wno-maybe-uninitialized>
+    # The switch is GCC-only: Clang rejects it via -Wunknown-warning-option.
+    $<$<AND:$<OR:$<CONFIG:Sanitizer>,$<CONFIG:ThreadSanitizer>>,$<CXX_COMPILER_ID:GNU>>:-Wno-maybe-uninitialized>
 )
 
 # System fmt < 10 (Ubuntu 24.04 ships 9.1.0) hits a GCC 14 false-positive

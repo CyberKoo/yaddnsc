@@ -204,12 +204,13 @@ protected:
 };
 
 TEST_F(MdnsReceiveTest, MixedDiscards_BackOffAndAcceptTheLaterAnswer) {
-    coro::ManualClock clock;
-    coro::Loop loop{clock};
+    // UDP delivery and the receive deadline must use the same real clock.
+    coro::Loop loop;
     auto task = [&]() -> coro::Task<void> {
         co_await send_burst();
         EXPECT_TRUE((co_await sender_.send_to(address_, port_, answer_)).has_value());
-        const auto outcome = co_await coro::with_timeout(100ms, [this] { return receive(); });
+        const auto started = loop.now();
+        const auto outcome = co_await coro::with_timeout(5s, [this] { return receive(); });
         EXPECT_FALSE(outcome.timed_out);
         if (!outcome.has_value())
             co_return;
@@ -220,10 +221,10 @@ TEST_F(MdnsReceiveTest, MixedDiscards_BackOffAndAcceptTheLaterAnswer) {
         if (!(**outcome).empty()) {
             EXPECT_EQ((**outcome).front().to_string(), "192.0.2.42");
         }
+        // Two bursts of 32 each back off for 1 ms; real I/O may take longer.
+        EXPECT_GE(loop.now() - started, 2ms);
     };
     coro::run(loop, task());
-    // Two bursts of 32 across every discard path must each back off once.
-    EXPECT_EQ(clock.now(), coro::TimePoint{2ms});
 }
 
 TEST_F(MdnsReceiveTest, Flood_DoesNotResetTheCallerWindow) {

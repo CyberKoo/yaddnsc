@@ -145,7 +145,7 @@ target_link_libraries(test_coro PRIVATE yaddnsc_coro)
 # GNU linker wrapping stays in an isolated Linux-only fault-injection binary.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_unit_test(coro_syscall_failure SOURCE coro/syscall_failure_test.cpp)
-    target_link_libraries(test_coro_syscall_failure PRIVATE yaddnsc_coro)
+    target_link_libraries(test_coro_syscall_failure PRIVATE yaddnsc_coro test_allocation_fault)
     target_link_options(test_coro_syscall_failure PRIVATE "LINKER:--wrap=write" "LINKER:--wrap=poll")
 endif()
 

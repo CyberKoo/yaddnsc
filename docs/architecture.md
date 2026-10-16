@@ -225,6 +225,12 @@ fails every registered fd wait with the poll errno (fd waits resolve to an
 `std::error_code` instead of readiness) and keeps running, so in-flight
 queries shed load rather than die with the process. `EINVAL`/`EFAULT` indict
 the loop's own call construction and stay on the fatal dispatch path.
+Fd registration reserves both poll-array and callback-snapshot storage before
+linking the wait; allocation failure leaves it unlinked. Building either
+dispatch snapshot therefore needs no buffer growth. Dispatch copies each
+callback by index, so registering more descriptors in a callback may grow the
+buffers without invalidating the current traversal. Optional trace formatting
+remains best-effort and contains its own allocation failures.
 
 Group bodies cancel their children on every abnormal exit, including cancellation
 propagated from a nested deadline scope whose manual cancellation did not cancel

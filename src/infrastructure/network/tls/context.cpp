@@ -31,6 +31,14 @@
 namespace net {
 namespace {
 
+#if OPENSSL_VERSION_NUMBER >= 0x30300000L
+/// Owns an X509_STORE_get1_objects() snapshot: frees the stack and drops each
+/// contained object's reference.
+void free_object_stack(STACK_OF(X509_OBJECT)* stack) {
+    sk_X509_OBJECT_pop_free(stack, X509_OBJECT_free);
+}
+#endif
+
 /// The bundle to trust: the explicit path when set, otherwise discovery. Returns
 /// nullopt when no usable bundle exists; the caller then eagerly loads the
 /// OpenSSL default cert dir (the legacy fallback) before failing closed.
@@ -113,9 +121,21 @@ std::expected<void, IoError> detail::load_trust_directory(X509_STORE& store, con
             X509_STORE_load_file(staged.get(), file.path.c_str()) != 1) {
             return std::unexpected(IoError::CONNECTION_FAILED);
         }
-        const auto* objects = X509_STORE_get0_objects(staged.get());
-        for (int i = 0; i < sk_X509_OBJECT_num(objects); ++i) {
-            auto* object = sk_X509_OBJECT_value(objects, i);
+        // X509_STORE_get1_objects() arrived in OpenSSL 3.3 and is the only
+        // store snapshot OpenSSL 4 does not deprecate; earlier 3.x offers only
+        // the borrowed get0 view. The iteration below is identical either way.
+#if OPENSSL_VERSION_NUMBER >= 0x30300000L
+        const std::unique_ptr<STACK_OF(X509_OBJECT), decltype(&free_object_stack)> objects{
+            X509_STORE_get1_objects(staged.get()), &free_object_stack};
+        if (!objects) {
+            return std::unexpected(IoError::CONNECTION_FAILED);
+        }
+        const STACK_OF(X509_OBJECT)* view = objects.get();
+#else
+        const STACK_OF(X509_OBJECT)* view = X509_STORE_get0_objects(staged.get());
+#endif
+        for (int i = 0; i < sk_X509_OBJECT_num(view); ++i) {
+            auto* object = sk_X509_OBJECT_value(view, i);
             if (!file.crl && X509_OBJECT_get_type(object) == X509_LU_X509) {
                 X509* cert = X509_OBJECT_get0_X509(object);
                 if (X509_subject_name_hash(cert) != file.hash || X509_STORE_add_cert(&store, cert) != 1) {

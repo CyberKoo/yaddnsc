@@ -166,8 +166,8 @@ private:
     void remove_timer(detail::TimerNode& timer) noexcept;
 
     /// Register `entry` for poll() dispatch; `entry` carries the fd, the events
-    /// and the callback. Allocates (table growth), so it may throw std::bad_alloc;
-    /// in that case the entry is not linked.
+    /// and the callback. Reserves table and dispatch storage, so it may throw
+    /// std::bad_alloc; in that case the entry is not linked.
     ///
     /// The caller owns `entry` and must remove it before it dies; two entries on
     /// one fd are independent registrations.
@@ -234,7 +234,8 @@ private:
     std::vector<detail::FdEntry*> fds_;
     std::uint64_t fds_revision_ = 0;
     std::uint64_t poll_revision_ = 0;
-    // poll_once scratch, reused across rounds instead of re-allocated.
+    // Dispatch scratch: registration reserves at least fds_.size() slots in
+    // both buffers, so snapshot construction needs no storage growth.
     std::vector<pollfd> pollfds_scratch_;
     std::vector<ReadyEntry> ready_entries_scratch_;
     detail::FdEntry pipe_entry_{};

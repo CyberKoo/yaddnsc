@@ -2,7 +2,6 @@
 # A stale local build tree carries a CMakeCache.txt with host paths that
 # breaks the in-container configure step.
 
-.git/
 .cache/
 
 # Local build trees
