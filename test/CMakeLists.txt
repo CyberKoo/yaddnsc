@@ -127,6 +127,16 @@ target_include_directories(test_allocation_fault PRIVATE
 target_link_libraries(test_allocation_fault PRIVATE yaddnsc_warnings)
 
 # ---------------------------------------------------------------------------
+# test_main  —  shared entry point for every test binary, replacing
+# gtest_main. Exits 77 when any case was skipped and nothing failed, which
+# add_unit_test pairs with SKIP_RETURN_CODE so CTest marks the binary as
+# Skipped rather than Passed. A skip means the environment lacked something
+# the test needed; that must stay visible instead of counting as a pass.
+# ---------------------------------------------------------------------------
+add_library(test_main STATIC test_main.cpp)
+target_link_libraries(test_main PRIVATE GTest::gtest)
+
+# ---------------------------------------------------------------------------
 # yaddnsc_test_config  —  compile config for test targets.
 # Test targets inherit the same strict warnings as production code
 # (via yaddnsc_warnings); pre-existing test warnings must be fixed,
@@ -204,7 +214,7 @@ function(add_unit_test name)
     target_link_libraries(test_${name} PRIVATE
         test_support
         yaddnsc_test_config
-        GTest::gtest_main
+        test_main
     )
     # Production module targets are sanitizer-instrumented; every test binary
     # gets matching flags so linking any of them (and dlopen'ing sanitized
@@ -222,6 +232,9 @@ function(add_unit_test name)
     # memoised CA-bundle lookups) belongs in its own executable; see
     # component/cert_util_override_test.cpp.
     add_test(NAME test_${name} COMMAND test_${name} --gtest_shuffle)
+    # test_main exits 77 when cases were skipped (and nothing failed); surface
+    # that as a Skipped test instead of letting it count as a pass.
+    set_tests_properties(test_${name} PROPERTIES SKIP_RETURN_CODE 77)
 
     # Collect all test targets for the top-level test-build convenience target.
     set_property(GLOBAL APPEND PROPERTY YADDNSC_TEST_TARGETS test_${name})

@@ -61,7 +61,7 @@ jobs:
           key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
           restore-keys: cpm-${{ runner.os }}-
       - name: Install dependencies
-        run: apk add --no-cache build-base git cmake samurai openssl openssl-dev zlib-dev pkgconfig
+        run: apk add --no-cache build-base git cmake samurai openssl openssl-dev zlib-dev pkgconfig python3
       - name: Configure
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON -DCPM_SOURCE_CACHE=$HOME/.cache/CPM
       - name: Build

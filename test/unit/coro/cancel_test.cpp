@@ -442,9 +442,11 @@ TEST(CancelScope, with_timeout_BusyReadyQueue_TimerStillFires) {
     // continuation, so a loop that only fires timers once the ready queue is
     // empty would report this 1ms timeout tens of milliseconds late — after
     // the churn ends. The timeout must win while the churn still runs.
-    // The churn is sized so it cannot drain inside the 1ms window even on the
-    // fastest machine: two million frame round-trips never fit in 1ms, while
-    // the passing path cancels the churn right at the timeout either way.
+    // The churn must satisfy three constraints: large enough that it never
+    // drains inside the 1ms window even on the fastest machine; cancellable,
+    // so the passing path ends right at the timeout instead of paying every
+    // step; and finite, so a loop that starves timers still terminates and is
+    // caught by the assertion below. A checkpoint loop gets all three.
     coro::Loop loop;
     constexpr int churn_steps = 2000000;
     int churned = 0;
@@ -453,7 +455,7 @@ TEST(CancelScope, with_timeout_BusyReadyQueue_TimerStillFires) {
 
     auto churn = [&churned]() -> coro::Task<void> {
         for (int i = 0; i < churn_steps; ++i) {
-            co_await []() -> coro::Task<void> { co_return; }();
+            co_await coro::checkpoint();
             ++churned;
         }
         co_return;

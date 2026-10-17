@@ -16,9 +16,11 @@ RUN apk add --no-cache \
     git \
     cmake \
     samurai \
+    openssl \
     openssl-dev \
     zlib-dev \
     pkgconfig \
+    python3 \
     ca-certificates-bundle
 
 WORKDIR /src

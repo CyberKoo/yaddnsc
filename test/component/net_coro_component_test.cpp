@@ -173,7 +173,7 @@ protected:
         char directory[] = "/tmp/yaddnsc_net_coro_tls_XXXXXX";
         auto* created = ::mkdtemp(directory);
         if (created == nullptr) {
-            GTEST_SKIP() << "mkdtemp failed";
+            FAIL() << "mkdtemp failed";
         }
         directory_ = created;
         const std::string cert = directory_ + "/cert.pem";
@@ -183,13 +183,13 @@ protected:
                                     " -days 1 -nodes -subj /CN=127.0.0.1 "
                                     "-addext subjectAltName=IP:127.0.0.1 2>/dev/null";
         if (::system(command.c_str()) != 0) {
-            GTEST_SKIP() << "failed to generate a throwaway certificate";
+            FAIL() << "failed to generate a throwaway certificate — component tests require the openssl CLI";
         }
         cert_path_ = cert;
 
         pid_ = ::fork();
         if (pid_ < 0) {
-            GTEST_SKIP() << "fork() failed";
+            FAIL() << "fork() failed";
         }
         if (pid_ == 0) {
             ::setpgid(0, 0);
@@ -198,9 +198,9 @@ protected:
             ::_exit(127);
         }
 
-        if (!TlsEchoServerTest::wait_until_accepting()) {
+        if (!wait_until_accepting()) {
             stop();
-            GTEST_SKIP() << "TLS echo server did not start";
+            FAIL() << "TLS echo server did not start — component tests require python3";
         }
     }
 
@@ -224,11 +224,17 @@ protected:
     }
 
 private:
-    [[nodiscard]] static bool wait_until_accepting() {
+    [[nodiscard]] bool wait_until_accepting() {
         // Generous budget and short interval: fork/exec of python3 plus
-        // interpreter startup can take seconds on a loaded CI runner.
+        // interpreter startup can take seconds on a loaded CI runner. A
+        // child that already exited (missing python3) never accepts — bail
+        // at once instead of burning the whole budget on a guaranteed skip.
         const auto deadline = std::chrono::steady_clock::now() + 30s;
         while (std::chrono::steady_clock::now() < deadline) {
+            if (pid_ > 0 && ::waitpid(pid_, nullptr, WNOHANG) == pid_) {
+                pid_ = -1;  // Reaped; stop() must not kill a recycled pid.
+                return false;
+            }
             const int probe = ::socket(AF_INET, SOCK_STREAM, 0);
             if (probe < 0) {
                 return false;

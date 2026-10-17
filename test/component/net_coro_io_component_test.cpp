@@ -197,7 +197,7 @@ public:
     PythonServer() = default;
 
     /// Fork and exec the server. Returns false when python3/the script is not
-    /// usable, so the caller can GTEST_SKIP() itself (a constructor cannot).
+    /// usable, so the caller can FAIL() itself (a constructor cannot).
     [[nodiscard]] bool start(const std::string& script, const std::vector<std::string>& args) {
         const std::string path = std::string{TEST_DATA_DIR} + "/" + script;
         if (::access(path.c_str(), R_OK) != 0) {
@@ -235,10 +235,16 @@ public:
 
     /// Probe a TCP listener until it accepts or the budget runs out. The
     /// budget is generous: fork/exec of python3 plus interpreter startup can
-    /// take seconds on a loaded CI runner.
-    [[nodiscard]] static bool wait_for_tcp(const std::uint16_t port, const std::chrono::milliseconds budget = 30s) {
+    /// take seconds on a loaded CI runner. A child that already exited
+    /// (missing python3, a failing script) never accepts — bail at once
+    /// instead of burning the whole budget on a guaranteed skip.
+    [[nodiscard]] bool wait_for_tcp(const std::uint16_t port, const std::chrono::milliseconds budget = 30s) {
         const auto deadline = std::chrono::steady_clock::now() + budget;
         while (std::chrono::steady_clock::now() < deadline) {
+            if (pid_ > 0 && ::waitpid(pid_, nullptr, WNOHANG) == pid_) {
+                pid_ = -1;  // Reaped; the destructor must not kill a recycled pid.
+                return false;
+            }
             const int probe = ::socket(AF_INET, SOCK_STREAM, 0);
             if (probe < 0) {
                 return false;
@@ -310,10 +316,10 @@ TEST(NetCoroHttp, persistentClient_twoExchanges_reuseOneConnection) {
 TEST(NetCoroDns, classic_resolvesOverUdpAndOverTcpOnTruncation) {
     PythonServer server;
     if (!server.start("dns_server.py", {std::to_string(CLASSIC_PORT)})) {
-        GTEST_SKIP() << "dns_server.py could not be started";
+        FAIL() << "dns_server.py could not be started — component tests require python3";
     }
-    if (!PythonServer::wait_for_tcp(CLASSIC_PORT)) {
-        GTEST_SKIP() << "dns_server.py did not start";
+    if (!server.wait_for_tcp(CLASSIC_PORT)) {
+        FAIL() << "dns_server.py did not start — component tests require python3";
     }
 
     dns::ClassicResolver resolver{loopback_v4(), CLASSIC_PORT};
@@ -335,10 +341,10 @@ TEST(NetCoroDns, classic_acceptsTcpAnswersBeyondTheLegacyCap) {
     // 65535 the two-byte prefix allows (RFC 1035 §4.2.2).
     PythonServer server;
     if (!server.start("dns_server.py", {std::to_string(CLASSIC_PORT)})) {
-        GTEST_SKIP() << "dns_server.py could not be started";
+        FAIL() << "dns_server.py could not be started — component tests require python3";
     }
-    if (!PythonServer::wait_for_tcp(CLASSIC_PORT)) {
-        GTEST_SKIP() << "dns_server.py did not start";
+    if (!server.wait_for_tcp(CLASSIC_PORT)) {
+        FAIL() << "dns_server.py did not start — component tests require python3";
     }
 
     dns::ClassicResolver resolver{loopback_v4(), CLASSIC_PORT};
@@ -358,10 +364,10 @@ TEST(NetCoroDns, classic_rejectsTcpAnswersBeyondTheAcceptedBound) {
     // dispatcher can fall over to the next server.
     PythonServer server;
     if (!server.start("dns_server.py", {std::to_string(CLASSIC_PORT)})) {
-        GTEST_SKIP() << "dns_server.py could not be started";
+        FAIL() << "dns_server.py could not be started — component tests require python3";
     }
-    if (!PythonServer::wait_for_tcp(CLASSIC_PORT)) {
-        GTEST_SKIP() << "dns_server.py did not start";
+    if (!server.wait_for_tcp(CLASSIC_PORT)) {
+        FAIL() << "dns_server.py did not start — component tests require python3";
     }
 
     dns::ClassicResolver resolver{loopback_v4(), CLASSIC_PORT};
@@ -380,10 +386,10 @@ TEST(NetCoroDns, classic_oversizedUdpDatagramWithoutTc_FallsBackToTcp) {
     // (MSG_TRUNC) falls back to TCP instead of failing to parse.
     PythonServer server;
     if (!server.start("dns_server.py", {std::to_string(CLASSIC_PORT)})) {
-        GTEST_SKIP() << "dns_server.py could not be started";
+        FAIL() << "dns_server.py could not be started — component tests require python3";
     }
-    if (!PythonServer::wait_for_tcp(CLASSIC_PORT)) {
-        GTEST_SKIP() << "dns_server.py did not start";
+    if (!server.wait_for_tcp(CLASSIC_PORT)) {
+        FAIL() << "dns_server.py did not start — component tests require python3";
     }
 
     dns::ClassicResolver resolver{loopback_v4(), CLASSIC_PORT};
@@ -404,14 +410,14 @@ TEST(NetCoroDns, doh_resolvesThroughThePersistentHttpSession) {
     std::string directory;
     const auto cert = make_self_signed_cert(directory);
     if (!cert.has_value()) {
-        GTEST_SKIP() << "failed to generate a throwaway certificate";
+        FAIL() << "failed to generate a throwaway certificate — component tests require the openssl CLI";
     }
     PythonServer server;
     if (!server.start("doh_server.py", {std::to_string(DOH_PORT), *cert, directory + "/key.pem"})) {
-        GTEST_SKIP() << "doh_server.py could not be started";
+        FAIL() << "doh_server.py could not be started — component tests require python3";
     }
-    if (!PythonServer::wait_for_tcp(DOH_PORT)) {
-        GTEST_SKIP() << "doh_server.py did not start";
+    if (!server.wait_for_tcp(DOH_PORT)) {
+        FAIL() << "doh_server.py did not start — component tests require python3";
     }
 
     http::Options options;
@@ -433,14 +439,14 @@ TEST(NetCoroDns, doh_enforcesResponseSemantics) {
     std::string directory;
     const auto cert = make_self_signed_cert(directory);
     if (!cert.has_value()) {
-        GTEST_SKIP() << "failed to generate a throwaway certificate";
+        FAIL() << "failed to generate a throwaway certificate — component tests require the openssl CLI";
     }
     PythonServer server;
     if (!server.start("doh_server.py", {std::to_string(DOH_PORT), *cert, directory + "/key.pem"})) {
-        GTEST_SKIP() << "doh_server.py could not be started";
+        FAIL() << "doh_server.py could not be started — component tests require python3";
     }
-    if (!PythonServer::wait_for_tcp(DOH_PORT)) {
-        GTEST_SKIP() << "doh_server.py did not start";
+    if (!server.wait_for_tcp(DOH_PORT)) {
+        FAIL() << "doh_server.py did not start — component tests require python3";
     }
 
     http::Options options;
@@ -473,8 +479,8 @@ TEST(NetCoroDns, doh_enforcesResponseSemantics) {
     EXPECT_EQ(results[3].error().code, domain::DnsError::PARSE);
 
     PythonServer classic;
-    if (!classic.start("dns_server.py", {std::to_string(CLASSIC_PORT)}) || !PythonServer::wait_for_tcp(CLASSIC_PORT)) {
-        GTEST_SKIP() << "dns_server.py did not start";
+    if (!classic.start("dns_server.py", {std::to_string(CLASSIC_PORT)}) || !classic.wait_for_tcp(CLASSIC_PORT)) {
+        FAIL() << "dns_server.py did not start — component tests require python3";
     }
     std::vector<std::unique_ptr<dns::Resolver>> resolvers;
     resolvers.push_back(
@@ -490,14 +496,14 @@ TEST(NetCoroDns, dot_resolvesOverTlsWithPadding) {
     std::string directory;
     const auto cert = make_self_signed_cert(directory);
     if (!cert.has_value()) {
-        GTEST_SKIP() << "failed to generate a throwaway certificate";
+        FAIL() << "failed to generate a throwaway certificate — component tests require the openssl CLI";
     }
     PythonServer server;
     if (!server.start("dot_server.py", {std::to_string(DOT_PORT), *cert, directory + "/key.pem"})) {
-        GTEST_SKIP() << "dot_server.py could not be started";
+        FAIL() << "dot_server.py could not be started — component tests require python3";
     }
-    if (!PythonServer::wait_for_tcp(DOT_PORT)) {
-        GTEST_SKIP() << "dot_server.py did not start";
+    if (!server.wait_for_tcp(DOT_PORT)) {
+        FAIL() << "dot_server.py did not start — component tests require python3";
     }
 
     dns::EndpointOptions options;
@@ -524,16 +530,16 @@ TEST(NetCoroDns, dot_peerClosesWithoutAnswering_FailsCleanly) {
     std::string directory;
     const auto cert = make_self_signed_cert(directory);
     if (!cert.has_value()) {
-        GTEST_SKIP() << "failed to generate a throwaway certificate";
+        FAIL() << "failed to generate a throwaway certificate — component tests require the openssl CLI";
     }
     // dot_server.py accepts this name and then closes the connection without an
     // answer: the resolver must report a connection failure, not hang.
     PythonServer server;
     if (!server.start("dot_server.py", {std::to_string(DOT_TIMEOUT_PORT), *cert, directory + "/key.pem"})) {
-        GTEST_SKIP() << "dot_server.py could not be started";
+        FAIL() << "dot_server.py could not be started — component tests require python3";
     }
-    if (!PythonServer::wait_for_tcp(DOT_TIMEOUT_PORT)) {
-        GTEST_SKIP() << "dot_server.py did not start";
+    if (!server.wait_for_tcp(DOT_TIMEOUT_PORT)) {
+        FAIL() << "dot_server.py did not start — component tests require python3";
     }
 
     dns::EndpointOptions options;
@@ -552,14 +558,14 @@ TEST(NetCoroDns, doh_scopeTimeout_abortsTheQuery) {
     std::string directory;
     const auto cert = make_self_signed_cert(directory);
     if (!cert.has_value()) {
-        GTEST_SKIP() << "failed to generate a throwaway certificate";
+        FAIL() << "failed to generate a throwaway certificate — component tests require the openssl CLI";
     }
     PythonServer server;
     if (!server.start("doh_server.py", {std::to_string(DOH_PORT), *cert, directory + "/key.pem"})) {
-        GTEST_SKIP() << "doh_server.py could not be started";
+        FAIL() << "doh_server.py could not be started — component tests require python3";
     }
-    if (!PythonServer::wait_for_tcp(DOH_PORT)) {
-        GTEST_SKIP() << "doh_server.py did not start";
+    if (!server.wait_for_tcp(DOH_PORT)) {
+        FAIL() << "doh_server.py did not start — component tests require python3";
     }
 
     http::Options options;
@@ -593,10 +599,10 @@ TEST(NetCoroDns, doh_scopeTimeout_abortsTheQuery) {
 TEST(NetCoroDns, dispatcher_concurrentRaceAgainstRealBackends) {
     PythonServer server;
     if (!server.start("dns_server.py", {std::to_string(CLASSIC_PORT)})) {
-        GTEST_SKIP() << "dns_server.py could not be started";
+        FAIL() << "dns_server.py could not be started — component tests require python3";
     }
-    if (!PythonServer::wait_for_tcp(CLASSIC_PORT)) {
-        GTEST_SKIP() << "dns_server.py did not start";
+    if (!server.wait_for_tcp(CLASSIC_PORT)) {
+        FAIL() << "dns_server.py did not start — component tests require python3";
     }
 
     // One backend that cannot answer (a closed port) racing one that can: the
@@ -623,15 +629,15 @@ TEST(NetCoroDns, bootstrap_nodataAnswerFallsThroughToTheNextServer) {
     // the second instance holds the record.
     PythonServer first;
     if (!first.start("dns_server.py", {std::to_string(BOOTSTRAP_FIRST_PORT)})) {
-        GTEST_SKIP() << "dns_server.py could not be started";
+        FAIL() << "dns_server.py could not be started — component tests require python3";
     }
     PythonServer second;
     if (!second.start("dns_server.py", {std::to_string(BOOTSTRAP_SECOND_PORT),
                                         R"(--records={"nodata.yaddnsc.test":{"A":"198.51.100.77"}})"})) {
-        GTEST_SKIP() << "dns_server.py could not be started";
+        FAIL() << "dns_server.py could not be started — component tests require python3";
     }
-    if (!PythonServer::wait_for_tcp(BOOTSTRAP_FIRST_PORT) || !PythonServer::wait_for_tcp(BOOTSTRAP_SECOND_PORT)) {
-        GTEST_SKIP() << "dns_server.py did not start";
+    if (!first.wait_for_tcp(BOOTSTRAP_FIRST_PORT) || !second.wait_for_tcp(BOOTSTRAP_SECOND_PORT)) {
+        FAIL() << "dns_server.py did not start — component tests require python3";
     }
 
     const std::vector<domain::DnsServer> servers{{"127.0.0.1", static_cast<std::uint16_t>(BOOTSTRAP_FIRST_PORT)},
@@ -648,8 +654,8 @@ TEST(NetCoroDns, bootstrap_nodataAnswerFallsThroughToTheNextServer) {
 TEST(NetCoroDns, bootstrap_configErrorSurvivesNxdomainButDoesNotHideSuccess) {
     PythonServer server;
     if (!server.start("dns_server.py", {std::to_string(BOOTSTRAP_FIRST_PORT)}) ||
-        !PythonServer::wait_for_tcp(BOOTSTRAP_FIRST_PORT)) {
-        GTEST_SKIP() << "dns_server.py did not start";
+        !server.wait_for_tcp(BOOTSTRAP_FIRST_PORT)) {
+        FAIL() << "dns_server.py did not start — component tests require python3";
     }
 
     const domain::DnsServer valid{"127.0.0.1", static_cast<std::uint16_t>(BOOTSTRAP_FIRST_PORT)};
@@ -676,15 +682,15 @@ TEST(NetCoroDns, bootstrap_nxdomainFromOneServerStillTriesTheNext) {
     // record. NXDOMAIN is authoritative for one server, not for the search.
     PythonServer first;
     if (!first.start("dns_server.py", {std::to_string(BOOTSTRAP_FIRST_PORT)})) {
-        GTEST_SKIP() << "dns_server.py could not be started";
+        FAIL() << "dns_server.py could not be started — component tests require python3";
     }
     PythonServer second;
     if (!second.start("dns_server.py", {std::to_string(BOOTSTRAP_SECOND_PORT),
                                         R"(--records={"v6fallback.yaddnsc.test":{"AAAA":"2001:db8::77"}})"})) {
-        GTEST_SKIP() << "dns_server.py could not be started";
+        FAIL() << "dns_server.py could not be started — component tests require python3";
     }
-    if (!PythonServer::wait_for_tcp(BOOTSTRAP_FIRST_PORT) || !PythonServer::wait_for_tcp(BOOTSTRAP_SECOND_PORT)) {
-        GTEST_SKIP() << "dns_server.py did not start";
+    if (!first.wait_for_tcp(BOOTSTRAP_FIRST_PORT) || !second.wait_for_tcp(BOOTSTRAP_SECOND_PORT)) {
+        FAIL() << "dns_server.py did not start — component tests require python3";
     }
 
     const std::vector<domain::DnsServer> servers{{"127.0.0.1", static_cast<std::uint16_t>(BOOTSTRAP_FIRST_PORT)},
