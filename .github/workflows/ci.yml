@@ -2,14 +2,14 @@ name: CI tests
 
 on:
   push:
-    branches: [master, dev, v0.x]
+    branches: [master, dev, v0.x, "v*.x"]
     paths-ignore:
       - "**.md"
       - ".gitignore"
       - "LICENSE"
       - ".github/**"
   pull_request:
-    branches: [master, dev, v0.x]
+    branches: [master, dev, v0.x, "v*.x"]
     paths-ignore:
       - "**.md"
       - ".gitignore"
