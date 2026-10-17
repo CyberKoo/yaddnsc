@@ -248,7 +248,7 @@ jobs:
       # gcov plugin on the instrumented build tree and merges test/
       # coverage (with its own branch numbering) into the totals.
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: coverage.info
           disable_search: true
