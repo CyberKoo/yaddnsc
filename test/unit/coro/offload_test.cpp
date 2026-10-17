@@ -109,29 +109,32 @@ TEST(Offload, offload_AbandonedWhileRunning_JobStillFinishes) {
     coro::Loop loop;
     std::atomic<bool> started{false};
     std::atomic<bool> finished{false};
-    bool timed_out = false;
 
-    auto task = [&started, &finished, &timed_out]() -> coro::Task<void> {
-        auto outcome = co_await coro::with_timeout(20ms, [&started, &finished, &timed_out]() -> coro::Task<void> {
-            try {
-                co_await coro::offload([&started, &finished]() -> int {
-                    started.store(true);
-                    std::this_thread::sleep_for(200ms);
-                    finished.store(true);
-                    return 1;
-                });
-            } catch (const coro::Cancelled&) {
-                timed_out = true;
-                throw;
-            }
-            co_return;
+    auto worker = [&]() -> coro::Task<void> {
+        co_await coro::offload([&]() -> int {
+            started.store(true);
+            std::this_thread::sleep_for(200ms);
+            finished.store(true);
+            return 1;
         });
-        EXPECT_TRUE(outcome.timed_out);
-        co_return;
+    };
+    auto task = [&]() -> coro::Task<void> {
+        auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+            // Cancellation is unreachable until the callable is running: a job
+            // whose pool worker has not started yet is dropped without running
+            // it, so a deadline armed at admission would abandon nothing.
+            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                group.spawn(worker());
+                while (!started.load()) {
+                    co_await coro::checkpoint();
+                }
+                scope.cancel();
+            });
+        });
+        EXPECT_TRUE(outcome.cancelled);
     };
 
     coro::run(loop, task());
-    EXPECT_TRUE(timed_out);
     EXPECT_TRUE(started.load());
     // Abandon ended the await, but run() must drain the actual worker. Do not
     // poll after return: that would hide a broken runtime lifetime guarantee.
