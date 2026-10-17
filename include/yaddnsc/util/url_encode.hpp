@@ -1,8 +1,8 @@
 #ifndef YADDNSC_UTIL_URL_ENCODE_HPP
 #define YADDNSC_UTIL_URL_ENCODE_HPP
 
-/// Percent-encoding (RFC 3986 §2.1) — the single implementation shared by the
-/// host (Uri::url_encode) and driver plugins (yaddnsc/sdk/url_encode.hpp).
+/// Percent-encoding (RFC 3986 §2.1) — the single implementation, exposed to
+/// driver plugins through <yaddnsc/sdk/url_encode.hpp>.
 
 #include <array>
 #include <cctype>

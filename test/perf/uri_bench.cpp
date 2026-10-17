@@ -5,6 +5,8 @@
 #include <string_view>
 
 #include <benchmark/benchmark.h>
+#include <yaddnsc/util/url_decode.hpp>
+#include <yaddnsc/util/url_encode.hpp>
 
 #include "infrastructure/uri/uri.h"
 
@@ -81,32 +83,32 @@ BENCHMARK(BM_UriGetOrigin);
 // Percent-encoding benchmarks
 // =============================================================================
 
-static void BM_UriEncodeUnreserved(benchmark::State& state) {
+static void BM_UrlEncodeUnreserved(benchmark::State& state) {
     constexpr std::string_view input = "simple-hostname-local";
     for (auto _ : state) {
-        auto encoded = Uri::url_encode(input);
+        auto encoded = yaddnsc::util::url_encode(input);
         benchmark::DoNotOptimize(encoded);
     }
 }
 
-BENCHMARK(BM_UriEncodeUnreserved);
+BENCHMARK(BM_UrlEncodeUnreserved);
 
-static void BM_UriEncodeMixed(benchmark::State& state) {
+static void BM_UrlEncodeMixed(benchmark::State& state) {
     constexpr std::string_view input = "hello world! @example.com/path?query=value&x=1";
     for (auto _ : state) {
-        auto encoded = Uri::url_encode(input);
+        auto encoded = yaddnsc::util::url_encode(input);
         benchmark::DoNotOptimize(encoded);
     }
 }
 
-BENCHMARK(BM_UriEncodeMixed);
+BENCHMARK(BM_UrlEncodeMixed);
 
-static void BM_UriDecode(benchmark::State& state) {
+static void BM_UrlDecode(benchmark::State& state) {
     constexpr std::string_view input = "hello%20world%21%20%40example.com%2Fpath%3Fquery%3Dvalue";
     for (auto _ : state) {
-        auto decoded = Uri::url_decode(input);
+        auto decoded = yaddnsc::util::url_decode(input);
         benchmark::DoNotOptimize(decoded);
     }
 }
 
-BENCHMARK(BM_UriDecode);
+BENCHMARK(BM_UrlDecode);

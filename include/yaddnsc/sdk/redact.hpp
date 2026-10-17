@@ -10,23 +10,14 @@
 /// src/infrastructure/config/config.cpp.
 
 #include <algorithm>
-#include <cctype>
 #include <optional>
 #include <string>
 #include <string_view>
 
 #include <glaze/glaze.hpp>
+#include <yaddnsc/util/string_util.hpp>
 
 namespace yaddnsc::sdk::redact {
-
-/// Lowercase a string (ASCII).
-[[nodiscard]] inline std::string to_lower(std::string_view s) {
-    std::string out(s);
-    for (auto& ch : out) {
-        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-    }
-    return out;
-}
 
 /// Whether an HTTP header key carries credentials (case-insensitive).
 [[nodiscard]] inline bool is_sensitive_header(std::string_view key) {
@@ -34,7 +25,7 @@ namespace yaddnsc::sdk::redact {
         "authorization", "proxy-authorization", "cookie",      "x-api-key",
         "x-auth-token",  "x-access-token",      "x-api-token", "x-amz-security-token",
     };
-    const auto lower = to_lower(key);
+    const auto lower = util::to_lower_copy(key);
     return std::ranges::find(SENSITIVE_HEADERS, lower) != std::end(SENSITIVE_HEADERS);
 }
 
@@ -59,7 +50,7 @@ namespace yaddnsc::sdk::redact {
         "passwd",
         "signature",
     };
-    const auto lower = to_lower(key);
+    const auto lower = util::to_lower_copy(key);
     if (std::ranges::find(SENSITIVE_PARAMS, lower) != std::end(SENSITIVE_PARAMS)) {
         return true;
     }
@@ -182,7 +173,7 @@ inline void redact_json(glz::generic& value) {
     const auto first = body.find_first_not_of(" \t\r\n");
     if (first == std::string_view::npos)
         return "***";
-    const auto media_type = to_lower(content_type.substr(0, content_type.find(';')));
+    const auto media_type = util::to_lower_copy(content_type.substr(0, content_type.find(';')));
     const bool json = media_type == "application/json" || media_type.ends_with("+json");
     if (json || (media_type.empty() && (body[first] == '{' || body[first] == '[' || body[first] == '"'))) {
         glz::generic value;

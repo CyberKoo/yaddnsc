@@ -1,4 +1,4 @@
-// Unit tests for uri.h / uri.cpp — percent-encoding and decoding.
+// Unit tests for yaddnsc::util percent codec (url_encode.hpp / url_decode.hpp).
 //
 // Verifies:
 //   - Unreserved characters pass through without encoding.
@@ -10,27 +10,29 @@
 // =============================================================================
 
 #include <string>
-#include <string_view>
 
 #include <gtest/gtest.h>
+#include <yaddnsc/util/url_decode.hpp>
+#include <yaddnsc/util/url_encode.hpp>
 
-#include "infrastructure/uri/uri.h"
+using yaddnsc::util::url_decode;
+using yaddnsc::util::url_encode;
 
 // ===========================================================================
 // Percent encoding
 // ===========================================================================
 
 TEST(UriEncodeTest, UnreservedPassthrough) {
-    EXPECT_EQ(Uri::url_encode("abcABC123-._~"), "abcABC123-._~");
+    EXPECT_EQ(url_encode("abcABC123-._~"), "abcABC123-._~");
 }
 
 TEST(UriEncodeTest, Space) {
-    EXPECT_EQ(Uri::url_encode(" "), "%20");
+    EXPECT_EQ(url_encode(" "), "%20");
 }
 
 TEST(UriEncodeTest, SpecialChars) {
-    EXPECT_EQ(Uri::url_encode("hello world"), "hello%20world");
-    EXPECT_EQ(Uri::url_encode("a/b"), "a%2Fb");
+    EXPECT_EQ(url_encode("hello world"), "hello%20world");
+    EXPECT_EQ(url_encode("a/b"), "a%2Fb");
 }
 
 // ===========================================================================
@@ -38,33 +40,33 @@ TEST(UriEncodeTest, SpecialChars) {
 // ===========================================================================
 
 TEST(UriDecodeTest, Simple) {
-    EXPECT_EQ(Uri::url_decode("hello%20world"), "hello world");
+    EXPECT_EQ(url_decode("hello%20world"), "hello world");
 }
 
 TEST(UriDecodeTest, UnencodedPassthrough) {
-    EXPECT_EQ(Uri::url_decode("hello world"), "hello world");
+    EXPECT_EQ(url_decode("hello world"), "hello world");
 }
 
 TEST(UriDecodeTest, MalformedPercentPreserved) {
-    EXPECT_EQ(Uri::url_decode("%GG"), "%GG");
+    EXPECT_EQ(url_decode("%GG"), "%GG");
 }
 
 TEST(UriDecodeTest, PartialHexPreserved) {
     // '4' parses as hex but 'G' does not — partial parse is still malformed.
-    EXPECT_EQ(Uri::url_decode("%4G"), "%4G");
+    EXPECT_EQ(url_decode("%4G"), "%4G");
 }
 
 TEST(UriDecodeTest, MalformedSequenceDoesNotConsumeNextPercent) {
     // The '%' of the following valid sequence must not be eaten.
-    EXPECT_EQ(Uri::url_decode("%4%41"), "%4A");
+    EXPECT_EQ(url_decode("%4%41"), "%4A");
 }
 
 TEST(UriDecodeTest, TrailingPercentPreserved) {
-    EXPECT_EQ(Uri::url_decode("end%"), "end%");
+    EXPECT_EQ(url_decode("end%"), "end%");
 }
 
 TEST(UriDecodeTest, Empty) {
-    EXPECT_TRUE(Uri::url_decode("").empty());
+    EXPECT_TRUE(url_decode("").empty());
 }
 
 // ===========================================================================
@@ -73,7 +75,7 @@ TEST(UriDecodeTest, Empty) {
 
 TEST(UriCodecTest, EncodeDecodeRoundTrip) {
     const std::string original = "hello world!@#$%^&*()";
-    auto encoded = Uri::url_encode(original);
-    auto decoded = Uri::url_decode(encoded);
+    auto encoded = url_encode(original);
+    auto decoded = url_decode(encoded);
     EXPECT_EQ(decoded, original);
 }

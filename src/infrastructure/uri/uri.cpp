@@ -1,11 +1,10 @@
 #include "infrastructure/uri/uri.h"
 
 #include <algorithm>
-#include <array>
-#include <cctype>
 #include <charconv>
 #include <cstddef>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -14,7 +13,8 @@
 #include <vector>
 
 #include <expected>
-#include <yaddnsc/util/url_encode.hpp>
+#include <yaddnsc/util/string_util.hpp>
+#include <yaddnsc/util/url_decode.hpp>
 
 #include "domain/network/inet_address.h"
 
@@ -88,9 +88,9 @@ constexpr std::string_view DEFAULT_PATH = "/";
 void lowercase_range(std::string& s, std::size_t pos, std::size_t len) noexcept {
     if (len == 0)
         return;
-    auto start = s.begin() + static_cast<std::ptrdiff_t>(pos);
-    std::transform(start, start + static_cast<std::ptrdiff_t>(len), start,
-                   [](unsigned char c) -> char { return static_cast<char>(std::tolower(c)); });
+    const auto offset = static_cast<std::ptrdiff_t>(pos);
+    std::span window{s.begin() + offset, len};
+    yaddnsc::util::to_lower(window);
 }
 
 /// RFC 3986 §5.2.4: move segments verbatim so empty segments and escapes survive.
@@ -526,7 +526,7 @@ std::vector<std::pair<std::string, std::string>> Uri::get_query_params(bool plus
                 if (plus_to_space) {
                     std::replace(raw.begin(), raw.end(), '+', ' ');
                 }
-                return Uri::url_decode(raw);
+                return yaddnsc::util::url_decode(raw);
             };
 
             params.emplace_back(decode_query(key_view), decode_query(value_view));
@@ -539,39 +539,4 @@ std::vector<std::pair<std::string, std::string>> Uri::get_query_params(bool plus
     }
 
     return params;
-}
-
-// ---------------------------------------------------------------------------
-// Static utilities
-// ---------------------------------------------------------------------------
-
-std::string Uri::url_encode(std::string_view input, bool encode_slash) {
-    return yaddnsc::util::url_encode(input, encode_slash);
-}
-
-std::string Uri::url_decode(std::string_view input) {
-    std::string result;
-    result.reserve(input.size());
-
-    for (std::size_t i = 0; i < input.size(); ++i) {
-        if (auto const c = input[i]; c == '%' && i + 2 < input.size()) {
-            auto const hex_pair = std::array{input[i + 1], input[i + 2]};
-            unsigned int val{};
-            // from_chars reports success on a partial parse ("%4G" parses
-            // '4' and stops), so the consumed range must cover both digits —
-            // otherwise the sequence is malformed and preserved as-is.
-            if (auto [p, ec] = std::from_chars(hex_pair.data(), hex_pair.data() + hex_pair.size(), val, 16);
-                ec == std::errc{} && p == hex_pair.data() + hex_pair.size()) {
-                result += static_cast<char>(val);
-                i += 2;
-            } else {
-                // Malformed percent-encoding – keep as-is
-                result += c;
-            }
-        } else {
-            result += c;
-        }
-    }
-
-    return result;
 }

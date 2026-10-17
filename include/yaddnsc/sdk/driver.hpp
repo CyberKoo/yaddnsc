@@ -43,6 +43,7 @@
 
 #include <expected>
 #include <glaze/glaze.hpp>
+#include <yaddnsc/util/string_util.hpp>
 
 #include "yaddnsc/sdk/driver_abi.h"
 #include "yaddnsc/sdk/format.hpp"  // IWYU pragma: keep — clangd misses fmt:: usage in uninstantiated template bodies
@@ -417,32 +418,6 @@ inline void log_lazy(GetServices&& get_services, Log&& log) noexcept {
     }
 }
 
-[[nodiscard]] inline int ascii_lower(unsigned char c) noexcept {
-    return (c >= 'A' && c <= 'Z') ? c - 'A' + 'a' : static_cast<int>(c);
-}
-
-[[nodiscard]] inline bool iequals(std::string_view left, std::string_view right) noexcept {
-    if (left.size() != right.size()) {
-        return false;
-    }
-    for (std::size_t i = 0; i < left.size(); ++i) {
-        if (ascii_lower(static_cast<unsigned char>(left[i])) != ascii_lower(static_cast<unsigned char>(right[i]))) {
-            return false;
-        }
-    }
-    return true;
-}
-
-[[nodiscard]] inline std::string_view trim_ws(std::string_view value) noexcept {
-    while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) {
-        value.remove_prefix(1);
-    }
-    while (!value.empty() && (value.back() == ' ' || value.back() == '\t')) {
-        value.remove_suffix(1);
-    }
-    return value;
-}
-
 /// Howard Hinnant's public-domain civil-from-days companion, inverted:
 /// days since 1970-01-01 for a Gregorian date.
 [[nodiscard]] inline int days_from_civil(int year, unsigned month, unsigned day) noexcept {
@@ -458,7 +433,7 @@ inline void log_lazy(GetServices&& get_services, Log&& log) noexcept {
     constexpr std::array<std::string_view, 12> months = {"jan", "feb", "mar", "apr", "may", "jun",
                                                          "jul", "aug", "sep", "oct", "nov", "dec"};
     for (std::size_t i = 0; i < months.size(); ++i) {
-        if (iequals(name, months[i])) {
+        if (util::iequals(name, months[i])) {
             return static_cast<int>(i) + 1;
         }
     }
@@ -472,7 +447,7 @@ inline void log_lazy(GetServices&& get_services, Log&& log) noexcept {
         return std::nullopt;
     }
     text.remove_prefix(comma + 1);
-    text = trim_ws(text);
+    text = util::trim(text);
 
     unsigned day = 0;
     const auto [day_end, day_ec] = std::from_chars(text.data(), text.data() + text.size(), day);
@@ -515,8 +490,8 @@ inline void log_lazy(GetServices&& get_services, Log&& log) noexcept {
         return std::nullopt;
     }
     text.remove_prefix(8);
-    text = trim_ws(text);
-    if (!iequals(text, "GMT")) {
+    text = util::trim(text);
+    if (!util::iequals(text, "GMT")) {
         return std::nullopt;
     }
 
@@ -530,10 +505,10 @@ inline void log_lazy(GetServices&& get_services, Log&& log) noexcept {
 /// becomes seconds from now; a past date or an unparsable value is 0.
 [[nodiscard]] inline std::uint32_t retry_after_seconds(const HttpResponse& response) noexcept {
     for (const auto& header : response.headers) {
-        if (!iequals(header.name, "retry-after")) {
+        if (!util::iequals(header.name, "retry-after")) {
             continue;
         }
-        const auto value = trim_ws(header.value);
+        const auto value = util::trim(header.value);
         std::uint32_t seconds = 0;
         const char* const begin = value.data();
         const char* const end = begin + value.size();

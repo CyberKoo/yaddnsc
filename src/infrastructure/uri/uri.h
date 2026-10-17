@@ -128,23 +128,6 @@ public:
     /// @return The raw URI string passed to Uri::parse().
     [[nodiscard]] std::string_view get_raw_uri() const noexcept;
 
-    /// Percent-encode a string per RFC 3986 §2.1.
-    ///
-    /// Unreserved characters (A-Z, a-z, 0-9, '-', '.', '_', '~') are passed through;
-    /// all other bytes are encoded as "%XX" (uppercase hex).
-    ///
-    /// When @p encode_slash is false, '/' is preserved instead of being encoded as
-    /// "%2F".  This is needed for the canonical URI in AWS SigV4 signing, where
-    /// each path segment is encoded separately and '/' is the segment delimiter.
-    [[nodiscard]] static std::string url_encode(std::string_view input, bool encode_slash = true);
-
-    /// Percent-decode a string per RFC 3986 §2.1.
-    /// Each "%XX" sequence is replaced with the corresponding byte.
-    /// Malformed sequences (e.g. "%GG", trailing "%") are preserved as-is.
-    /// Note: '+' is NOT decoded as space; that convention belongs to
-    /// application/x-www-form-urlencoded and is handled by get_query_params().
-    [[nodiscard]] static std::string url_decode(std::string_view input);
-
 private:
     Uri() = default;
 

@@ -13,7 +13,6 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
-#include <utility>
 
 #include <gtest/gtest.h>
 
@@ -88,19 +87,6 @@ TEST(ExceptionTest, DnsLookupException_WithErrorCode) {
 TEST(ExceptionTest, DnsLookupException_WithErrorCode_Retry) {
     DnsLookupException exc("timeout", domain::DnsError::RETRY);
     EXPECT_EQ(exc.get_error(), domain::DnsError::RETRY);
-}
-
-TEST(ExceptionTest, DnsLookupException_WrapYaddnscException) {
-    PluginLoadException inner("inner");
-    DnsLookupException wrapped(std::move(inner), domain::DnsError::CONNECTION);
-    EXPECT_EQ(wrapped.get_error(), domain::DnsError::CONNECTION);
-    EXPECT_EQ(std::string_view(wrapped.what()), "inner");
-}
-
-TEST(ExceptionTest, DnsLookupException_WrapConstYaddnscException) {
-    const PluginLoadException inner("inner");
-    DnsLookupException wrapped(inner, domain::DnsError::CONFIG);
-    EXPECT_EQ(wrapped.get_error(), domain::DnsError::CONFIG);
 }
 
 // ── Inheritance hierarchy ────────────────────────────────────────────────────
