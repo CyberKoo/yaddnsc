@@ -82,5 +82,21 @@ target_link_libraries(bench_builder PRIVATE yaddnsc_dns_classic)
 add_benchmark(coro_offload)
 target_link_libraries(bench_coro_offload PRIVATE yaddnsc_coro yaddnsc_ip_source_infrastructure)
 
+# ============================================================================
+#  Coroutine lifecycle benchmarks (the baseline the coro v2 refactoring is
+#  compared against).
+#
+#  bench_coro_lifecycle includes test/mocks/allocation_fault.h for its
+#  allocations/op counter, so it links the test_allocation_fault object library
+#  (replaced global operator new/delete) and names the test/ include root
+#  itself rather than inheriting it from test_support.
+# ============================================================================
+
+add_benchmark(coro_lifecycle)
+target_include_directories(bench_coro_lifecycle PRIVATE
+    ${PROJECT_SOURCE_DIR}/test
+)
+target_link_libraries(bench_coro_lifecycle PRIVATE yaddnsc_coro test_allocation_fault)
+
 add_benchmark(tcp_prefix)
 target_link_libraries(bench_tcp_prefix PRIVATE yaddnsc_net)

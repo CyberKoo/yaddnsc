@@ -1,6 +1,7 @@
 //
-// allocation_fault — replaced global operator new/delete family plus the
-// armed-hook dispatch. See mocks/allocation_fault.h for the API.
+// allocation_fault — replaced global operator new/delete family, the
+// armed-hook dispatch and the count-only mode. See mocks/allocation_fault.h
+// for the API.
 //
 // The replacement family lives in its own translation unit by design:
 //  - ASan consistency: a malloc-backed operator new paired with the default
@@ -21,6 +22,8 @@
 namespace {
 
 std::atomic<test::AllocationFaultHook> armed_hook{nullptr};
+std::atomic<bool> count_allocations{false};
+std::atomic<std::size_t> allocations{0};
 
 }  // namespace
 
@@ -28,6 +31,19 @@ namespace test {
 
 void set_allocation_fault_hook(AllocationFaultHook hook) noexcept {
     armed_hook.store(hook, std::memory_order_relaxed);
+}
+
+AllocationCounter::AllocationCounter() noexcept {
+    allocations.store(0, std::memory_order_relaxed);
+    count_allocations.store(true, std::memory_order_relaxed);
+}
+
+AllocationCounter::~AllocationCounter() noexcept {
+    count_allocations.store(false, std::memory_order_relaxed);
+}
+
+std::size_t AllocationCounter::count() noexcept {
+    return allocations.load(std::memory_order_relaxed);
 }
 
 }  // namespace test
@@ -40,6 +56,9 @@ namespace {
 void* allocate(std::size_t size) {
     if (const auto hook = armed_hook.load(std::memory_order_relaxed); hook != nullptr) {
         hook(size);
+    }
+    if (count_allocations.load(std::memory_order_relaxed)) {
+        allocations.fetch_add(1, std::memory_order_relaxed);
     }
     if (void* result = std::malloc(size == 0 ? 1 : size)) {
         return result;
