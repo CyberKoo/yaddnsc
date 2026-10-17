@@ -51,8 +51,12 @@ execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} describe --all 
         OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET)
 
-# Transform "heads/branch-0-gsha" → "branch~gsha"
-string(REGEX REPLACE "^heads\\/(.*)-0-(g.*)$" "\\1~\\2" GIT_DESCRIBE "${GIT_RAW}")
+# Transform "<ref-path>-0-g<sha>" → "<name>~g<sha>", keeping only the ref's
+# final path segment. A PR checkout is a detached HEAD at
+# refs/remotes/pull/N/merge with no local branch, so describe yields e.g.
+# "remotes/pull/1/merge-0-g4159b7f"; the full path would put '/' into the
+# package version, which both dpkg and the CPack DEB file name reject.
+string(REGEX REPLACE "^([^ ]*/)?([^/]*)-0-(g.*)$" "\\2~\\3" GIT_DESCRIBE "${GIT_RAW}")
 
 # Determine dirty status
 if (GIT_DESCRIBE MATCHES "-dirty$")
