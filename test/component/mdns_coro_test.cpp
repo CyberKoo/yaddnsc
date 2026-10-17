@@ -123,7 +123,10 @@ void expect_structured_failure(const domain::RecordKind type) {
         // hung past it.
         EXPECT_GE(elapsed, 400ms);
     }
-    EXPECT_LT(elapsed, 5s);
+    // Watchdog only: the production response window is 2s (mdns.cpp), and a
+    // broken resolve would hang far past it. Runner scheduling slack must not
+    // trip this bound, so it is not a latency measurement.
+    EXPECT_LT(elapsed, 30s);
 }
 
 }  // namespace

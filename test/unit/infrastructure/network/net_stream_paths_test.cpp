@@ -279,13 +279,20 @@ private:
             const Utils::UniqueFd connection{raw};
             if (mode_ == Mode::RESET) {
                 // Abort only after the client's first byte lands, so the reset
-                // never races the connect itself; the poll budget just bounds a
-                // client that goes away without writing.
-                pollfd descriptor{connection.get(), POLLIN, 0};
-                if (::poll(&descriptor, 1, 1000) > 0) {
-                    std::array<char, 64> chunk{};
-                    (void) ::recv(connection.get(), chunk.data(), chunk.size(), MSG_DONTWAIT);
+                // never races the connect itself. Wait without a total budget:
+                // a loaded runner may take arbitrarily long to schedule the
+                // client's write, and stop_ still bounds the wait at teardown.
+                for (;;) {
+                    pollfd descriptor{connection.get(), POLLIN, 0};
+                    if (::poll(&descriptor, 1, 50) > 0) {
+                        break;
+                    }
+                    if (stop_.load()) {
+                        return;
+                    }
                 }
+                std::array<char, 64> chunk{};
+                (void) ::recv(connection.get(), chunk.data(), chunk.size(), MSG_DONTWAIT);
                 const struct linger abort_linger {
                     .l_onoff = 1, .l_linger = 0
                 };
@@ -303,18 +310,26 @@ private:
         }
     }
 
-    /// Record until the client closes or stops talking. The poll budget only
-    /// bounds a client that writes nothing at all: the first write arrives right
-    /// after its connect() completes, so the quiet tail ends the capture.
+    /// Record until the client closes or stops talking. Silence only ends the
+    /// capture once at least one byte was received: before the first write the
+    /// client is still paying its connect and scheduling latency, which a
+    /// loaded runner stretches arbitrarily, and the quiet window then absorbs
+    /// fragmented writes. The budget only bounds a client that never writes.
     void capture(const int fd) {
-        constexpr auto QUIET = 20ms;
-        constexpr auto BUDGET = 500ms;
+        constexpr auto QUIET = 100ms;
+        constexpr auto BUDGET = 2s;
         const auto deadline = std::chrono::steady_clock::now() + BUDGET;
         std::array<char, 1024> chunk{};
         int quiet_polls = 0;
         while (quiet_polls < 2 && std::chrono::steady_clock::now() < deadline) {
             pollfd descriptor{fd, POLLIN, 0};
             if (::poll(&descriptor, 1, static_cast<int>(QUIET.count())) <= 0) {
+                {
+                    const std::lock_guard guard(mutex_);
+                    if (captured_.empty()) {
+                        continue;
+                    }
+                }
                 ++quiet_polls;
                 continue;
             }
@@ -647,10 +662,12 @@ TEST(TcpStreamPaths, connected_AfterPeerReset_ReportsFalseWithASocketError) {
         if (!co_await stream.send_all(go)) {
             co_return;
         }
-        // The abort may land just after the write; poll until the probe sees
+        // The abort may land just after the write; wait until the probe sees
         // it. A reset is neither EOF (0) nor "nothing queued yet" (EAGAIN):
-        // the pending socket error settles it.
-        for (int attempt = 0; attempt < 500 && stream.connected(); ++attempt) {
+        // the pending socket error settles it. The attempt cap is only a
+        // watchdog — the RST normally lands within microseconds — so a loaded
+        // runner delaying the peer thread must not exhaust it.
+        for (int attempt = 0; attempt < 30000 && stream.connected(); ++attempt) {
             std::this_thread::sleep_for(1ms);
         }
         connected_after_reset = stream.connected();

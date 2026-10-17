@@ -442,8 +442,11 @@ TEST(CancelScope, with_timeout_BusyReadyQueue_TimerStillFires) {
     // continuation, so a loop that only fires timers once the ready queue is
     // empty would report this 1ms timeout tens of milliseconds late — after
     // the churn ends. The timeout must win while the churn still runs.
+    // The churn is sized so it cannot drain inside the 1ms window even on the
+    // fastest machine: two million frame round-trips never fit in 1ms, while
+    // the passing path cancels the churn right at the timeout either way.
     coro::Loop loop;
-    constexpr int churn_steps = 100000;
+    constexpr int churn_steps = 2000000;
     int churned = 0;
     int churned_when_timed_out = -1;
     bool timed_out = false;

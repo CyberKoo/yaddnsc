@@ -144,19 +144,31 @@ TEST(Offload, offload_AbandonedWhileRunning_JobStillFinishes) {
 TEST(Offload, offload_AbandonedWhileQueued_DropsJob) {
     coro::Loop loop;
     loop.set_offload_workers(1);
+    std::atomic<bool> blocker_started{false};
+    std::atomic<bool> release{false};
     std::atomic<bool> second_ran{false};
     bool timed_out = false;
 
-    auto blocker = []() -> coro::Task<void> {
-        co_await coro::offload([]() { std::this_thread::sleep_for(300ms); });
+    auto blocker = [&]() -> coro::Task<void> {
+        co_await coro::offload([&]() {
+            blocker_started.store(true);
+            while (!release.load()) {
+                std::this_thread::sleep_for(1ms);
+            }
+        });
         co_return;
     };
-    auto second = [&second_ran, &timed_out]() -> coro::Task<void> {
-        // Let the only worker become busy with the blocker.
-        co_await coro::sleep_for(20ms);
-        auto outcome = co_await coro::with_timeout(20ms, [&second_ran, &timed_out]() -> coro::Task<void> {
+    auto second = [&]() -> coro::Task<void> {
+        // The only worker must be busy with the blocker first, otherwise the
+        // second job is admitted and runs instead of being abandoned in the
+        // queue. The blocker holds the worker until released below, so the
+        // abandonment window never closes on a slow machine.
+        while (!blocker_started.load()) {
+            co_await coro::checkpoint();
+        }
+        auto outcome = co_await coro::with_timeout(20ms, [&]() -> coro::Task<void> {
             try {
-                co_await coro::offload([&second_ran]() { second_ran.store(true); });
+                co_await coro::offload([&]() { second_ran.store(true); });
             } catch (const coro::Cancelled&) {
                 timed_out = true;
                 throw;
@@ -164,10 +176,11 @@ TEST(Offload, offload_AbandonedWhileQueued_DropsJob) {
             co_return;
         });
         EXPECT_TRUE(outcome.timed_out);
+        release.store(true);
         co_return;
     };
-    auto task = [&blocker, &second]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&blocker, &second](coro::TaskGroup& group) -> coro::Task<void> {
+    auto task = [&]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
             group.spawn(blocker());
             group.spawn(second());
             co_return;
@@ -254,22 +267,35 @@ TEST(Offload, loop_DestroyedWithAbandonedWorker_JoinsBeforeClosingWakePipe) {
 TEST(Offload, Joined_CancellationWaitsForWorkerBeforeUnwindingBorrowedResources) {
     std::atomic<bool> started{false};
     std::atomic<bool> finished{false};
+
+    auto worker = [&]() -> coro::Task<void> {
+        int borrowed = 42;
+        try {
+            co_await coro::offload_joined([&] {
+                started.store(true);
+                std::this_thread::sleep_for(60ms);
+                EXPECT_EQ(borrowed, 42);
+                finished.store(true);
+            });
+        } catch (const coro::Cancelled&) {
+            EXPECT_TRUE(finished.load());
+            throw;
+        }
+    };
     auto root = [&]() -> coro::Task<void> {
-        auto outcome = co_await coro::with_timeout(20ms, [&]() -> coro::Task<void> {
-            int borrowed = 42;
-            try {
-                co_await coro::offload_joined([&] {
-                    started.store(true);
-                    std::this_thread::sleep_for(60ms);
-                    EXPECT_EQ(borrowed, 42);
-                    finished.store(true);
-                });
-            } catch (const coro::Cancelled&) {
-                EXPECT_TRUE(finished.load());
-                throw;
-            }
+        auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+            // Cancellation must land while the worker is running: a job still
+            // queued is dropped without running it, which would leave the
+            // borrowed-resource ordering untested.
+            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                group.spawn(worker());
+                while (!started.load()) {
+                    co_await coro::checkpoint();
+                }
+                scope.cancel();
+            });
         });
-        EXPECT_TRUE(outcome.timed_out);
+        EXPECT_TRUE(outcome.cancelled);
         EXPECT_TRUE(finished.load());
     };
     coro::run(root());
@@ -277,17 +303,31 @@ TEST(Offload, Joined_CancellationWaitsForWorkerBeforeUnwindingBorrowedResources)
 }
 
 TEST(Offload, Joined_CooperativeWorkerReceivesStopAndIsJoined) {
+    std::atomic<bool> started{false};
     std::atomic<bool> stopped{false};
+
+    auto worker = [&]() -> coro::Task<void> {
+        co_await coro::offload_joined([&](const std::stop_token& token) {
+            started.store(true);
+            while (!token.stop_requested()) {
+                std::this_thread::sleep_for(1ms);
+            }
+            stopped.store(true);
+        });
+    };
     auto root = [&]() -> coro::Task<void> {
-        auto outcome = co_await coro::with_timeout(20ms, [&]() -> coro::Task<void> {
-            co_await coro::offload_joined([&](const std::stop_token& token) {
-                while (!token.stop_requested()) {
-                    std::this_thread::sleep_for(1ms);
+        auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+            // Cancel only after the worker is running: a queued job is dropped
+            // without running it, and no stop token would be observed.
+            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                group.spawn(worker());
+                while (!started.load()) {
+                    co_await coro::checkpoint();
                 }
-                stopped.store(true);
+                scope.cancel();
             });
         });
-        EXPECT_TRUE(outcome.timed_out);
+        EXPECT_TRUE(outcome.cancelled);
         EXPECT_TRUE(stopped.load());
     };
     coro::run(root());
@@ -311,11 +351,17 @@ TEST(Offload, Joined_AdmissionCancellation_SkipsWorkWithoutWaitingForBusyWorker)
     loop.set_offload_workers(1);
     std::atomic<bool> blocker_started{false};
     std::atomic<bool> blocker_finished{false};
+    std::atomic<bool> release{false};
     bool ran = false;
     auto blocker = [&]() -> coro::Task<void> {
         co_await coro::offload([&] {
             blocker_started.store(true);
-            std::this_thread::sleep_for(60ms);
+            // Hold the only worker until the joined job's admission deadline
+            // below has fired; a fixed sleep would reopen a race between the
+            // deadline and the blocker's remaining runtime on a slow machine.
+            while (!release.load()) {
+                std::this_thread::sleep_for(1ms);
+            }
             blocker_finished.store(true);
         });
     };
@@ -329,6 +375,7 @@ TEST(Offload, Joined_AdmissionCancellation_SkipsWorkWithoutWaitingForBusyWorker)
                 10ms, [&]() -> coro::Task<void> { co_await coro::offload_joined([&] { ran = true; }); });
             EXPECT_TRUE(outcome.timed_out);
             EXPECT_FALSE(blocker_finished.load());
+            release.store(true);
         });
     };
     coro::run(loop, root());

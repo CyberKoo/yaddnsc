@@ -523,6 +523,9 @@ TEST(DnsDispatcher, concurrent_freedSlotLaunchesTheNextBackendImmediately) {
     // A slow answer occupies one slot while two fast transient failures free
     // theirs: the fourth backend launches at the first failure and beats the
     // slow answer. Wave semantics would let the slow answer win instead.
+    // The manual clock makes the race deterministic: virtual deadlines order
+    // the refill (fired at virtual 1ms, answered at 2ms) strictly before the
+    // slow answer (30ms), no matter how long the host stalls the loop thread.
     Fakes fakes;
     [[maybe_unused]] FakeResolver& down_a = fakes.add("down-a", {error_step(domain::DnsError::RETRY, "down", 1ms)});
     FakeResolver& slow = fakes.add("slow-answer", {response_step(a_response("yaddnsc.test", 2), 30ms)});
@@ -530,7 +533,11 @@ TEST(DnsDispatcher, concurrent_freedSlotLaunchesTheNextBackendImmediately) {
     FakeResolver& answers = fakes.add("answers", {response_step(a_response("yaddnsc.test", 7), 1ms)});
     dns::Dispatcher dispatcher{fakes.take(), Strategy::CONCURRENT};
 
-    const auto result = run_query(dispatcher);
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    const auto result = coro::run(loop, [&dispatcher]() -> coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> {
+        co_return co_await dispatcher.resolve("yaddnsc.test", domain::RecordKind::A);
+    }());
 
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(*result, (std::vector<std::string>{"198.51.100.7"}));

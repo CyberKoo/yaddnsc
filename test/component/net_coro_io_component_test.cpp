@@ -233,8 +233,10 @@ public:
     PythonServer(const PythonServer&) = delete;
     PythonServer& operator=(const PythonServer&) = delete;
 
-    /// Probe a TCP listener until it accepts or the budget runs out.
-    [[nodiscard]] static bool wait_for_tcp(const std::uint16_t port, const std::chrono::milliseconds budget = 10s) {
+    /// Probe a TCP listener until it accepts or the budget runs out. The
+    /// budget is generous: fork/exec of python3 plus interpreter startup can
+    /// take seconds on a loaded CI runner.
+    [[nodiscard]] static bool wait_for_tcp(const std::uint16_t port, const std::chrono::milliseconds budget = 30s) {
         const auto deadline = std::chrono::steady_clock::now() + budget;
         while (std::chrono::steady_clock::now() < deadline) {
             const int probe = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -250,7 +252,7 @@ public:
             if (ready) {
                 return true;
             }
-            std::this_thread::sleep_for(100ms);
+            std::this_thread::sleep_for(25ms);
         }
         return false;
     }
@@ -710,7 +712,12 @@ coro::Task<void> answer_udp(net::UdpSocket& server, const UdpReplyCase kind) {
     if (kind == UdpReplyCase::MALFORMED) {
         reply.resize(5);  // Matching ID, incomplete header.
     } else if (kind == UdpReplyCase::LATE_TC) {
-        co_await coro::sleep_for(900ms);
+        // The TC reply must land inside (attempt_budget - wire_budget,
+        // wire_budget) = (500ms, 1000ms): late enough that the outer attempt
+        // budget fires while the TCP fallback is still waiting (so the error
+        // names the fallback), early enough that UDP does not time out first.
+        // 750ms centres that window.
+        co_await coro::sleep_for(750ms);
         reply[2] |= 2;
     } else {
         auto stray = reply;
@@ -735,7 +742,7 @@ TEST(NetCoroDns, udpDistinguishesInvalidLocalMalformedRemoteAndStrayPackets) {
             co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
                 group.spawn(answer_udp(server, kind));
                 auto outcome = co_await coro::with_timeout(
-                    250ms, [&]() { return dns::detail::query_udp(loopback_v4(), port, query); });
+                    1s, [&]() { return dns::detail::query_udp(loopback_v4(), port, query); });
                 timed_out = outcome.timed_out;
                 if (!timed_out)
                     result.emplace(std::move(*outcome));

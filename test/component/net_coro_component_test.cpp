@@ -225,7 +225,9 @@ protected:
 
 private:
     [[nodiscard]] static bool wait_until_accepting() {
-        const auto deadline = std::chrono::steady_clock::now() + 10s;
+        // Generous budget and short interval: fork/exec of python3 plus
+        // interpreter startup can take seconds on a loaded CI runner.
+        const auto deadline = std::chrono::steady_clock::now() + 30s;
         while (std::chrono::steady_clock::now() < deadline) {
             const int probe = ::socket(AF_INET, SOCK_STREAM, 0);
             if (probe < 0) {
@@ -240,7 +242,7 @@ private:
             if (ready) {
                 return true;
             }
-            std::this_thread::sleep_for(100ms);
+            std::this_thread::sleep_for(25ms);
         }
         return false;
     }

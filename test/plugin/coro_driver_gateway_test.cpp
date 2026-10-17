@@ -602,7 +602,7 @@ TEST(Bridge, CancelBeforeScopePublication_DoesNotStartHttp) {
 }
 
 TEST(Bridge, WorkerDeadline_CancelsRunningExchangeWithoutSlack) {
-    LoopbackHttpServer server{500ms};
+    LoopbackHttpServer server{2s};
     coro::Loop loop;
     auto root = [&]() -> coro::Task<void> {
         co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
@@ -614,7 +614,9 @@ TEST(Bridge, WorkerDeadline_CancelsRunningExchangeWithoutSlack) {
             EXPECT_FALSE(result.has_value());
             EXPECT_EQ(result.error().code, YADDNSC_STATUS_NETWORK_ERROR);
             co_await group.join();
-            EXPECT_LT(std::chrono::steady_clock::now() - start, 200ms);
+            // Well past the 30ms deadline, yet nowhere near the server's 2s
+            // hold: the exchange died at its deadline, not with the response.
+            EXPECT_LT(std::chrono::steady_clock::now() - start, 1s);
         });
     };
     coro::run(loop, root());
@@ -794,9 +796,10 @@ TEST_F(CoroDriverGatewayTest, AbandonedQueuedCycle_DoesNotEnterTheDriver) {
     PluginControl control{std::string(PLUGIN_PATH)};
     control.reset();
 
-    // One offload worker: the first cycle's exchange holds it for 200ms, so the
-    // second update is still queued on the pool when its 20ms budget abandons it.
-    LoopbackHttpServer server{200ms};
+    // One offload worker: the first cycle's exchange holds it for 1s, so the
+    // second update is still queued on the pool when its 20ms budget abandons
+    // it.
+    LoopbackHttpServer server{1s};
     coro::Loop loop;
     loop.set_offload_workers(1);
     std::expected<void, domain::DriverError> first_result;
@@ -810,8 +813,14 @@ TEST_F(CoroDriverGatewayTest, AbandonedQueuedCycle_DoesNotEnterTheDriver) {
             plugin::DriverGateway gateway(catalog_, logger_, loop, group, default_options());
             co_await group.with_children([&]() -> coro::Task<void> {
                 auto first = group.spawn(gateway.update(DRIVER_NAME, make_command(params)));
-                // Let the first cycle reach the worker before queueing the second.
-                co_await coro::sleep_for(20ms);
+                // Queue the second update only once the first cycle's request
+                // has reached the server: that proves the single worker is busy
+                // mid-exchange, so the 20ms budget abandons a queued job. A
+                // fixed delay can lose that race on a slow runner and admit the
+                // second cycle instead.
+                while (server.request_count() < 1) {
+                    co_await coro::checkpoint();
+                }
                 const auto outcome = co_await coro::with_timeout(20ms, [&]() -> coro::Task<void> {
                     co_await gateway.update(DRIVER_NAME, make_command(params));
                     abandoned_returned = true;
