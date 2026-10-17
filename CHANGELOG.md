@@ -7,7 +7,7 @@ than repeat it. The plugin C ABI stability promise is defined in that same
 document. Release bodies on GitHub Releases are copied from the matching
 section here.
 
-## [Unreleased]
+## [1.0.0-alpha.7] - 2026-10-17
 
 This revision keeps the plugin C ABI at **1.0** (frozen at 1.0.0-alpha.5;
 entry points and struct layouts are unchanged, so plugin binaries built
