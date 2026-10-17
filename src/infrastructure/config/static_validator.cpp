@@ -27,8 +27,8 @@ void push_error(std::vector<domain::ConfigError>& errors, Code code, std::string
     errors.push_back(domain::ConfigError{.code = code, .message = std::move(message)});
 }
 
-/// Static IP source checks for a subdomain. Messages are verbatim copies
-/// of the legacy ConfigValidator ones.
+/// Static IP source checks for a subdomain. Messages are a compatibility
+/// contract; keep them verbatim.
 void validate_ip_source(std::vector<domain::ConfigError>& errors, const std::string& domain_name,
                         const SubdomainConfig& subdomain) {
     const auto fqdn = domain::make_fqdn(domain_name, subdomain.name);

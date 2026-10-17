@@ -40,7 +40,7 @@ namespace Cli {
 [[nodiscard]] int present_interface_list(const std::vector<app::InterfaceListItem>& items);
 
 /// `interface ip` — addresses of one interface; a missing interface prints
-/// the legacy "Error: Interface <name> not found" line and exits FAILURE.
+/// the compatibility-stable "Error: Interface <name> not found" line and exits FAILURE.
 [[nodiscard]] int present_interface_ip(const std::string& name,
                                        const std::optional<std::vector<domain::InetAddress>>& addresses);
 

@@ -34,8 +34,8 @@ using UpdateCycleOutcome = std::expected<UpdateCycleResult, domain::UpdateError>
 /// current records (unless forced), decide, and hand the change to the gateway.
 ///
 /// Cancellation propagates as `coro::Cancelled` from port checkpoints. Failure: expected failures are UpdateError
-/// values (logged in place with the legacy wording); allocation failure is a defect and propagates, because it is not a
-/// retryable condition.
+/// values (logged in place with compatibility-stable wording); allocation failure is a defect and propagates, because
+/// it is not a retryable condition.
 [[nodiscard]] coro::Task<UpdateCycleOutcome> update_task(const domain::UpdateTask& task, const Services& services);
 
 }  // namespace app

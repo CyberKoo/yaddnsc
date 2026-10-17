@@ -17,7 +17,7 @@ enum class IpSource;
 /// Configuration data types.
 ///
 /// This is the RAW JSON DTO (file format): it may carry Glaze types and
-/// legacy fields. The normalised, glaze-free runtime model consumed by the
+/// backward-compatibility fields. The normalised, glaze-free runtime model consumed by the
 /// business layers lives in src/domain/config/runtime_config.h.
 namespace Config {
 
@@ -40,7 +40,7 @@ struct SubdomainConfig {
     std::string name{};  ///< Subdomain label (e.g. "www", "@" for apex)
     /// DNS record type to update. Disengaged when the key is absent from
     /// the config file — the normaliser then falls back to A (with a
-    /// warning) so legacy configs keep working.
+    /// warning) so configs that predate the key keep working.
     std::optional<domain::RecordKind> type{};
     std::string interface{};  ///< Network interface name (for INTERFACE IP source)
     /// IP source backend. Disengaged when the key is absent from the config

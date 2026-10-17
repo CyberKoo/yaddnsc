@@ -68,8 +68,8 @@ coro::Task<std::expected<std::unique_ptr<net::Stream>, Error>> connect_stream(
             co_return co_await stream->ensure_connected();
         };
         if (options.connect_timeout.count() > 0) {
-            // The per-address connect budget is the legacy transport connect
-            // timeout: expiry skips to the next candidate as CONNECT_FAILED.
+            // The per-address connect budget: expiry skips to the next
+            // candidate as CONNECT_FAILED.
             auto bounded = co_await coro::with_timeout(options.connect_timeout, std::move(attempt));
             if (bounded.timed_out) {
                 last = Error{ErrorCode::CONNECT_FAILED, fmt::format(R"(Connection to "{}" timed out)", host)};

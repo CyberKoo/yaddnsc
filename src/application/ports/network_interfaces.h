@@ -23,9 +23,10 @@ struct InterfaceInfo {
 /// is allowed to call getifaddrs() directly from the application layer.
 ///
 /// Error contract: a missing interface is a routine outcome, reported as
-/// std::nullopt from addresses() — never an exception. The legacy
-/// "Interface <name> not found" wording is preserved verbatim by the CLI
-/// presenter and by InterfaceIpSource. names() and list() never fail.
+/// std::nullopt from addresses() — never an exception. The
+/// "Interface <name> not found" wording is a compatibility contract,
+/// preserved verbatim by the CLI presenter and by InterfaceIpSource.
+/// names() and list() never fail.
 class NetworkInterfacesPort {
 public:
     virtual ~NetworkInterfacesPort() = default;

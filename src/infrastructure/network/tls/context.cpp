@@ -18,7 +18,9 @@
 #include <vector>
 
 #include <expected>
+#include <openssl/opensslv.h>
 #include <openssl/prov_ssl.h>
+#include <openssl/safestack.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 #include <spdlog/spdlog.h>
@@ -40,8 +42,8 @@ void free_object_stack(STACK_OF(X509_OBJECT)* stack) {
 #endif
 
 /// The bundle to trust: the explicit path when set, otherwise discovery. Returns
-/// nullopt when no usable bundle exists; the caller then eagerly loads the
-/// OpenSSL default cert dir (the legacy fallback) before failing closed.
+/// nullopt when no usable bundle exists; the caller then falls back to the
+/// OpenSSL default cert dir before failing closed.
 [[nodiscard]] std::optional<std::string> resolve_ca_bundle(const TlsTrustOptions& options) {
     if (options.ca_bundle) {
         return options.ca_bundle;

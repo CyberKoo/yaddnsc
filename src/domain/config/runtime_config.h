@@ -16,7 +16,7 @@
 /// (src/infrastructure/config/normalizer + static_validator). Unlike the raw DTO in
 /// src/infrastructure/config/config.h, this model contains:
 ///   - no glz::generic (driver_params is opaque JSON text),
-///   - no legacy file-format fields (resolver is already a server list),
+///   - no file-format compatibility fields (resolver is already a server list),
 ///   - no CLI11 types and no environment probe results.
 /// Effective values (e.g. the per-subdomain update interval after applying
 /// the domain fallback) are precomputed during normalisation.

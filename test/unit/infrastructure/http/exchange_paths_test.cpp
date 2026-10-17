@@ -164,7 +164,7 @@ TEST(HttpWireSerialize, methodNamesMatchTheRequestLine) {
     EXPECT_EQ(http::protocol::method_name(http::Method::GET), "GET");
     EXPECT_EQ(http::protocol::method_name(http::Method::POST), "POST");
     EXPECT_EQ(http::protocol::method_name(http::Method::PUT), "PUT");
-    EXPECT_EQ(http::protocol::method_name(http::Method::DEL), "DELETE");
+    EXPECT_EQ(http::protocol::method_name(http::Method::DELETE), "DELETE");
     EXPECT_EQ(http::protocol::method_name(http::Method::PATCH), "PATCH");
     EXPECT_EQ(http::protocol::method_name(http::Method::HEAD), "HEAD");
     EXPECT_EQ(http::protocol::method_name(http::Method::OPTIONS), "OPTIONS");

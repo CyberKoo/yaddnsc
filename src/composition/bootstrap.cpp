@@ -3,7 +3,6 @@
 #include <cstdlib>
 #include <exception>
 #include <optional>
-#include <string_view>
 #include <variant>
 
 #include <spdlog/spdlog.h>

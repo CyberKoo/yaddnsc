@@ -87,7 +87,7 @@ void write_error(yaddnsc_error* out_error, yaddnsc_status status, std::string_vi
         case YADDNSC_HTTP_PUT:
             return http::Method::PUT;
         case YADDNSC_HTTP_DELETE:
-            return http::Method::DEL;
+            return http::Method::DELETE;
         case YADDNSC_HTTP_PATCH:
             return http::Method::PATCH;
         case YADDNSC_HTTP_HEAD:

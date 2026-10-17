@@ -8,7 +8,6 @@
 #include <optional>
 #include <span>
 #include <string>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <string_view>
 #include <utility>
 
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not

@@ -5,7 +5,7 @@
 #include "update_task.h"
 
 #include <chrono>
-#include <exception>
+#include <exception>  // IWYU pragma: keep — std::exception is caught below
 #include <new>
 #include <optional>
 #include <string>
@@ -168,7 +168,7 @@ coro::Task<UpdateCycleOutcome> update_task(const domain::UpdateTask& task, const
                     break;
                 case domain::DriverError::Code::UNKNOWN:
                     // Exception escaped the driver (e.g. parameter parse failure) —
-                    // same wording the legacy catch-all produced.
+                    // the log wording is kept stable for compatibility.
                     YLOG_ERROR(services.logger, "Unhandled exception during update of \"{}\": {}", task.fqdn,
                                result.error().message);
                     break;

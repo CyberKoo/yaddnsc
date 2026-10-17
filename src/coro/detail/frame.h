@@ -6,6 +6,7 @@
 
 #include <coroutine>
 
+#include "coro/cancelled.h"
 #include "coro/fwd.h"
 
 namespace coro::detail {
@@ -67,6 +68,20 @@ struct PromiseBase {
 
     /// True when the frame captured a defect.
     [[nodiscard]] bool failed() const noexcept { return static_cast<bool>(error) && !cancellation; }
+
+    /// No-throw boundary: a defect is captured, never propagated out of resume.
+    /// Inherited by every task promise; the compiler's promise lookup accepts
+    /// base-class members.
+    void unhandled_exception() noexcept {
+        error = std::current_exception();
+        try {
+            std::rethrow_exception(error);
+        } catch (const Cancelled&) {
+            cancellation = true;
+        } catch (...) {
+            // All other exceptions retain their defect classification.
+        }
+    }
 };
 
 }  // namespace coro::detail

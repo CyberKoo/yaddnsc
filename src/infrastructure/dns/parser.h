@@ -109,9 +109,10 @@ private:
     // ── RDATA formatting ──
     [[nodiscard]] static std::string rdata_to_string(const ResourceRecord& rr, std::span<const std::uint8_t> wire);
 
-    [[nodiscard]] static std::string format_a(std::span<const std::uint8_t> rdata);
-
-    [[nodiscard]] static std::string format_aaaa(std::span<const std::uint8_t> rdata);
+    /// Shared A/AAAA formatter: validates the RDATA length and renders the
+    /// address with inet_ntop. `family` is AF_INET/AF_INET6.
+    [[nodiscard]] static std::string format_inet(std::span<const std::uint8_t> rdata, int family,
+                                                 std::size_t expected_size, std::string_view label);
 
     [[nodiscard]] static std::string format_txt(std::span<const std::uint8_t> rdata);
 

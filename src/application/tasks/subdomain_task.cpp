@@ -7,7 +7,6 @@
 #include <chrono>
 #include <compare>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <exception>
-#include <ratio>
 #include <string>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
@@ -77,10 +76,10 @@ coro::Task<void> subdomain_task(const domain::DomainConfig& domain, const domain
         force_interval > 0 ? co_await coro::current_time() - std::chrono::seconds(force_interval) : coro::TimePoint{};
 
     for (;;) {
-        // The interval is anchored at the cycle start, as the legacy queue's
-        // pop-and-reschedule did: a slow cycle shortens the following wait and
-        // a cycle that overran its interval is followed by an immediate one,
-        // so the long-run cadence does not drift by the cycle duration.
+        // The interval is anchored at the cycle start: a slow cycle shortens
+        // the following wait and a cycle that overran its interval is followed
+        // by an immediate one, so the long-run cadence does not drift by the
+        // cycle duration.
         const auto cycle_start = co_await coro::current_time();
         try {
             task.force_update = evaluate_force(force_interval, last_force, cycle_start);

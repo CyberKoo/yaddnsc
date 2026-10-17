@@ -3,8 +3,7 @@
 //
 // A session is bound to one origin and keeps its connection alive across
 // exchanges (keep-alive count and deadline included). Concurrent callers are
-// serialized by an AsyncMutex — the waiting semantics of the redesign, not the
-// legacy "overlapping call is an error" rejection.
+// serialized by an AsyncMutex: overlapping calls queue instead of failing.
 //
 
 #ifndef YADDNSC_INFRASTRUCTURE_HTTP_SESSION_H

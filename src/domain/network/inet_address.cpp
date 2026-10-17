@@ -16,6 +16,19 @@ namespace domain {
 // inet_pton/inet_ntop are platform codecs only: this value object performs no
 // socket operation, DNS lookup, interface enumeration, or other network I/O.
 
+namespace {
+
+/// Shared inet_ntop wrapper: address text, or "<invalid>" when conversion fails.
+[[nodiscard]] std::string ntop_or_invalid(const void* addr, const int family) {
+    std::array<char, INET6_ADDRSTRLEN> buf{};  // large enough for both families
+    if (inet_ntop(family, addr, buf.data(), buf.size()) == nullptr) {
+        return "<invalid>";
+    }
+    return buf.data();
+}
+
+}  // namespace
+
 // ===========================================================================
 // Inet4Address
 // ===========================================================================
@@ -49,11 +62,7 @@ Inet4Address Inet4Address::from_array(const AddrType& addr) noexcept {
 }
 
 std::string Inet4Address::to_string() const {
-    std::array<char, INET_ADDRSTRLEN> buf{};
-    if (inet_ntop(AF_INET, addr_.data(), buf.data(), buf.size()) == nullptr) {
-        return "<invalid>";
-    }
-    return buf.data();
+    return ntop_or_invalid(addr_.data(), AF_INET);
 }
 
 // ===========================================================================
@@ -110,11 +119,7 @@ Inet6Address Inet6Address::from_array(const AddrType& addr) noexcept {
 }
 
 std::string Inet6Address::to_string() const {
-    std::array<char, INET6_ADDRSTRLEN> buf{};
-    if (inet_ntop(AF_INET6, addr_.data(), buf.data(), buf.size()) == nullptr) {
-        return "<invalid>";
-    }
-    return buf.data();
+    return ntop_or_invalid(addr_.data(), AF_INET6);
 }
 
 // ===========================================================================

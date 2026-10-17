@@ -75,8 +75,8 @@ struct DriverError {
 ///   - DRIVER_FAILED — the driver gateway rejected the update (message and,
 ///     retry_after_seconds are copied from DriverError; the subdomain task
 ///     feeds retry_after into the next delay for backoff rescheduling);
-///   - UNKNOWN — an unexpected exception escaped the workflow (the legacy
-///     catch-all boundary, now mapped to an error value).
+///   - UNKNOWN — an unexpected exception escaped the workflow (mapped to an
+///     error value at the catch-all boundary).
 struct UpdateError {
     enum class Code { DRIVER_FAILED, SKIPPED_NO_ADDRESS, UNKNOWN };
     Code code;

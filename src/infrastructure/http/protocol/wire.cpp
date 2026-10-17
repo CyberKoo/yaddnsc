@@ -16,7 +16,7 @@ std::string_view method_name(const Method method) noexcept {
             return "POST";
         case Method::PUT:
             return "PUT";
-        case Method::DEL:
+        case Method::DELETE:
             return "DELETE";
         case Method::PATCH:
             return "PATCH";

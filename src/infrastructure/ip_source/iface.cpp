@@ -4,7 +4,7 @@
 
 #include "iface.h"
 
-#include <exception>
+#include <exception>  // IWYU pragma: keep — std::exception is caught below
 #include <new>
 #include <optional>
 #include <string>

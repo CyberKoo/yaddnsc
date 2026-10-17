@@ -21,8 +21,7 @@ namespace ipsource {
 /// Native coroutine implementation: the multicast socket is configured through
 /// net::detail socket options, the query/response wire logic is the shared DNS
 /// builder and parser, and the response window is a cancel scope
-/// (`with_timeout`) rather than a blocking poll — the equivalent of the legacy
-/// deadline, now 2 s.
+/// (`with_timeout`, 2 s) rather than a blocking poll.
 /// Cancellation: awaits are scope checkpoints and propagate coro::Cancelled.
 /// Thread safety: loop thread only.
 class MdnsIpSource final {

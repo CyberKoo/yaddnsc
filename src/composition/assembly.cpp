@@ -85,8 +85,8 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
 
 /// Shared coroutine HTTP policy for the commands that build coroutine HTTP
 /// clients (driver gateway, HTTP IP source). The coroutine client has its own
-/// Options type; it carries the same information as the legacy one (user agent,
-/// bootstrap DNS), plus the TLS and connect policy defaults.
+/// Options type; it carries the user agent and bootstrap DNS, plus the TLS and
+/// connect policy defaults.
 [[nodiscard]] http::Options make_coro_http_options(const domain::ResolverSettings& resolver,
                                                    std::shared_ptr<const net::TlsContext> tls_context) {
     http::Options opts;

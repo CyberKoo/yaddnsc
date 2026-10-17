@@ -8,7 +8,7 @@
 ///
 /// The parser fills these structs and nothing else: no configuration,
 /// plugin, DNS, network or logging side effects happen while parsing.
-/// Defaults match the legacy CLI11 option defaults ("config.json", "A").
+/// Defaults match the established command-line defaults ("config.json", "A").
 namespace Cli {
 
 struct RunCommand {

@@ -60,8 +60,8 @@ struct DnsResolveOutcome {
 };
 
 /// Coroutine `dns resolve`: match the record type string case-insensitively
-/// (legacy behaviour for direct invocations; the CLI parser already restricts
-/// --type to A/AAAA/TXT) and look the name up through the resolver port.
+/// (for direct invocations; the CLI parser already restricts --type to
+/// A/AAAA/TXT) and look the name up through the resolver port.
 ///
 /// A nullopt `lookup` means `type_text` was not a known record kind. Failure:
 /// the lookup's DnsErrorInfo value; a defect (allocation) propagates.
@@ -113,7 +113,8 @@ struct ConfigValidationOutcome {
                                                                           ConfigValidationMode mode,
                                                                           coro::Duration budget);
 
-/// Error of a `config test` run; `kind` selects the legacy message prefix.
+/// Error of a `config test` run; `kind` selects the message prefix (wording is
+/// a compatibility contract).
 struct ConfigTestError {
     enum class Kind {
         VERIFICATION,  ///< "Configuration verification failed: ..."

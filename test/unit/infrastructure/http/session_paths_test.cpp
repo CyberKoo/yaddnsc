@@ -214,7 +214,7 @@ TEST(HttpSessionReplay, idempotentMethods_AreReplayedOnARebuiltConnection) {
     // RFC 9110 §9.2.2: GET/HEAD/OPTIONS/PUT/DELETE may be replayed after a
     // connection is lost, so a rebuilt connection retries the request once.
     for (const auto method :
-         {http::Method::GET, http::Method::HEAD, http::Method::OPTIONS, http::Method::PUT, http::Method::DEL}) {
+         {http::Method::GET, http::Method::HEAD, http::Method::OPTIONS, http::Method::PUT, http::Method::DELETE}) {
         SCOPED_TRACE(static_cast<int>(method));
         auto factory = factory_for({Behaviour{.incoming = EMPTY}, Behaviour{.incoming = OK}});
         const Options options = options_for(factory);

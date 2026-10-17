@@ -109,7 +109,7 @@ struct InterfaceMetadata {
         }
     } else if (family == domain::AddressFamily::IPV6) {
         // A link-local multicast join needs an explicit scope: with no interface
-        // configured, pick the default one (legacy behaviour). IPv4 stays on
+        // configured, pick the default one. IPv4 stays on
         // INADDR_ANY and lets the kernel routing table choose.
         if (const auto default_index = get_default_interface_index(domain::AddressFamily::IPV6);
             default_index.has_value()) {
@@ -177,7 +177,7 @@ private:
 };
 
 /// Best-effort option write; a failure is logged at DEBUG and never aborts the
-/// lookup (matching the legacy socket configuration).
+/// lookup.
 void set_int_option(const int fd, const int level, const int option, const int value, const char* name,
                     const std::string& hostname) {
     if (auto result = net::detail::set_socket_option(fd, level, option, &value, sizeof(value)); !result) {
@@ -187,9 +187,9 @@ void set_int_option(const int fd, const int level, const int option, const int v
 
 /// Bind the socket, apply multicast options and join the group.
 ///
-/// Mirrors the legacy socket configuration: SO_REUSEPORT for coexistence, the
-/// optional SO_BINDTODEVICE, IPV6_V6ONLY, the multicast output interface and
-/// TTL/hop limit, then the group join (whose failure is the one hard error).
+/// Socket setup: SO_REUSEPORT for coexistence, the optional SO_BINDTODEVICE,
+/// IPV6_V6ONLY, the multicast output interface and TTL/hop limit, then the
+/// group join (whose failure is the one hard error).
 [[nodiscard]] std::expected<void, domain::IpSourceError> configure_socket(
     const int fd, const domain::AddressFamily family, const std::string& interface, const std::string& hostname,
     MembershipGuard& guard, const InterfaceMetadata& metadata) {
@@ -265,7 +265,7 @@ void set_int_option(const int fd, const int level, const int option, const int v
 #endif
     }
     // Without an explicit interface the kernel routing table picks the output
-    // interface, which is the legacy behaviour too.
+    // interface.
     set_int_option(fd, IPPROTO_IP, IP_MULTICAST_TTL, 255, "IP_MULTICAST_TTL", hostname);
 
     ip_mreq membership{};

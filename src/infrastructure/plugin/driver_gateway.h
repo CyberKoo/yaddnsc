@@ -39,8 +39,8 @@ class Bridge;
 /// ABI guarantees that distinct driver instances may run in parallel, and every
 /// cycle creates a fresh instance. The offload pool's worker count is the bound.
 ///
-/// Status mapping (yaddnsc_status → domain::DriverError) is the legacy one: the
-/// capability gate runs before create() and returns UPDATE_FAILED directly.
+/// Status mapping: yaddnsc_status → domain::DriverError. The capability gate
+/// runs before create() and returns UPDATE_FAILED directly.
 ///
 /// Implements app::GatewayPort, so the application layer reaches it through the
 /// port instead of this concrete type.

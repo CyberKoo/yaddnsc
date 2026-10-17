@@ -20,13 +20,12 @@
 /// The application layer sees the catalog through the app::DriverCatalogPort
 /// interface (loaded_drivers / describe); load/unload stay on this class.
 ///
-/// @note Not thread-safe for mutation, same as the legacy DriverManager: the
-///       catalog is populated during initialisation and read-only during the
-///       run loop.
+/// @note Not thread-safe for mutation: the catalog is populated during
+///       initialisation and read-only during the run loop.
 class DriverCatalog : public app::DriverCatalogPort {
 public:
     /// Load a driver plugin from the given filesystem path.
-    /// A duplicate driver name is skipped with a warning (kept behaviour).
+    /// A duplicate driver name is skipped with a warning.
     /// @throws PluginLoadException  When the library fails to load or fails
     ///                              the ABI checks.
     void load_driver(const std::string& path);

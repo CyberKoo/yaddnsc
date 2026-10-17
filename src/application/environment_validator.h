@@ -30,7 +30,7 @@ class NetworkInterfacesPort;
 /// Collect-all: every violated constraint is reported, in configuration order,
 /// so one startup surfaces one broken configuration instead of one mistake per
 /// restart. An empty error list means the configuration is usable here.
-/// Message wording is unchanged from the legacy ConfigValidator.
+/// Message wording is a compatibility contract — do not reword.
 [[nodiscard]] std::expected<void, std::vector<domain::ConfigError>> validate_environment(
     const domain::RuntimeConfig& config, const DriverCatalogPort& catalog, const NetworkInterfacesPort& interfaces);
 

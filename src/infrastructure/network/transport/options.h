@@ -1,11 +1,11 @@
 //
 // net — construction-time options for transport streams.
 //
-// Deliberately small. Compared with the legacy Transport::Options:
-//   - connect_timeout / read_timeout / write_timeout are gone: a deadline is the
-//     caller's cancel scope (`with_timeout(...)`), never an I/O parameter;
-//   - bootstrap_dns is gone: HTTP receives an injected hostname resolver;
-//   - address_family is gone: the connection target is an already-resolved
+// Deliberately small:
+//   - no connect/read/write timeouts: a deadline is the caller's cancel scope
+//     (`with_timeout(...)`), never an I/O parameter;
+//   - no bootstrap_dns: HTTP receives an injected hostname resolver;
+//   - no address_family: the connection target is an already-resolved
 //     InetAddress, so the family is carried by the value itself.
 // Nothing is silently accepted and ignored.
 //

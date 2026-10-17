@@ -3,8 +3,7 @@
 // response parser.
 //
 // is_token / is_field_value validate header field-name (RFC 9110 §5.1) and
-// field-value characters. Carried over from the legacy HTTP client, where they
-// lived in an anonymous-namespace-adjacent helper header.
+// field-value characters.
 //
 
 #ifndef YADDNSC_INFRASTRUCTURE_HTTP_PROTOCOL_FIELD_CHARS_HPP

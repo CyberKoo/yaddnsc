@@ -102,8 +102,8 @@ std::expected<void, IoError> bind_to_interface([[maybe_unused]] const int fd, co
     }
     return {};
 #else
-    // Best-effort on platforms without SO_BINDTODEVICE, matching the legacy
-    // transport: the capability is process-wide, so it is reported once.
+    // Best-effort on platforms without SO_BINDTODEVICE: the capability is
+    // process-wide, so it is reported once.
     static std::once_flag warned;
     std::call_once(warned, [interface] {
         SPDLOG_WARN(R"(Interface binding is not supported on this platform ("{}"), ignoring)", interface);

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <chrono>
 #include <expected>
+#include <ranges>
 #include <set>
 #include <string>
 #include <string_view>

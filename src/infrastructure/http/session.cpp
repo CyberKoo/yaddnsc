@@ -33,7 +33,7 @@ namespace {
 /// Methods safe to replay after a rebuilt connection (RFC 9110 §9.2.2).
 [[nodiscard]] bool is_idempotent(const Method method) noexcept {
     return method == Method::GET || method == Method::HEAD || method == Method::OPTIONS || method == Method::PUT ||
-           method == Method::DEL;
+           method == Method::DELETE;
 }
 
 }  // namespace

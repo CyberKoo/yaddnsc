@@ -71,18 +71,6 @@ struct TaskPromise : PromiseBase {
 
     /// Allocates (emplace of T) and may throw if T's move constructor throws.
     void return_value(T result) { value.emplace(std::move(result)); }
-
-    /// No-throw boundary: a defect is captured, never propagated out of resume.
-    void unhandled_exception() noexcept {
-        error = std::current_exception();
-        try {
-            std::rethrow_exception(error);
-        } catch (const Cancelled&) {
-            cancellation = true;
-        } catch (...) {
-            // All other exceptions retain their defect classification.
-        }
-    }
 };
 
 /// Promise for Task<void>: identical, without a value slot.
@@ -98,18 +86,6 @@ struct TaskPromise<void> : PromiseBase {
     FinalSuspend final_suspend() noexcept { return {}; }
 
     void return_void() noexcept {}
-
-    /// No-throw boundary: a defect is captured, never propagated out of resume.
-    void unhandled_exception() noexcept {
-        error = std::current_exception();
-        try {
-            std::rethrow_exception(error);
-        } catch (const Cancelled&) {
-            cancellation = true;
-        } catch (...) {
-            // All other exceptions retain their defect classification.
-        }
-    }
 };
 
 /// Awaiter for an inline `co_await task`.

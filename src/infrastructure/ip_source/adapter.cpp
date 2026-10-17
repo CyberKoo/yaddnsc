@@ -6,7 +6,7 @@
 #include "adapter.h"
 
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <exception>
+#include <exception>  // IWYU pragma: keep — std::exception is caught below
 #include <expected>
 #include <new>
 #include <string>

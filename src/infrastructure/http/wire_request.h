@@ -55,8 +55,8 @@ namespace http {
 [[nodiscard]] Error connection_error(std::string_view stage);
 
 /// Construct a connect failure naming the target host. The stream bundles TCP
-/// connect and TLS handshake into one call, so no phase is distinguished — the
-/// legacy stack did the same and reported both as CONNECT_FAILED.
+/// connect and TLS handshake into one call, so no phase is distinguished — both
+/// are reported as CONNECT_FAILED.
 [[nodiscard]] Error connect_error(std::string_view host);
 
 /// Render a transport failure as a short lowercase reason phrase for log

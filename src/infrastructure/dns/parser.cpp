@@ -173,26 +173,17 @@ std::string dns::RecordParser::decompress_name(const std::span<const std::uint8_
 // RDATA format helpers
 // =============================================================================
 
-std::string dns::RecordParser::format_a(const std::span<const std::uint8_t> rdata) {
-    if (rdata.size() != 4) [[unlikely]] {
-        throw DnsLookupException(fmt::format("Invalid A record: RDATA is {} byte(s) (expected 4)", rdata.size()),
+std::string dns::RecordParser::format_inet(const std::span<const std::uint8_t> rdata, const int family,
+                                           const std::size_t expected_size, const std::string_view label) {
+    if (rdata.size() != expected_size) [[unlikely]] {
+        throw DnsLookupException(
+            fmt::format("Invalid {} record: RDATA is {} byte(s) (expected {})", label, rdata.size(), expected_size),
+            domain::DnsError::PARSE);
+    }
+    std::array<char, INET6_ADDRSTRLEN> buf{};  // large enough for both families
+    if (inet_ntop(family, rdata.data(), buf.data(), buf.size()) == nullptr) [[unlikely]] {
+        throw DnsLookupException(fmt::format("Invalid {} record: address conversion failed", label),
                                  domain::DnsError::PARSE);
-    }
-    std::array<char, INET_ADDRSTRLEN> buf{};
-    if (inet_ntop(AF_INET, rdata.data(), buf.data(), buf.size()) == nullptr) [[unlikely]] {
-        throw DnsLookupException("Invalid A record: address conversion failed", domain::DnsError::PARSE);
-    }
-    return buf.data();
-}
-
-std::string dns::RecordParser::format_aaaa(const std::span<const std::uint8_t> rdata) {
-    if (rdata.size() != 16) [[unlikely]] {
-        throw DnsLookupException(fmt::format("Invalid AAAA record: RDATA is {} byte(s) (expected 16)", rdata.size()),
-                                 domain::DnsError::PARSE);
-    }
-    std::array<char, INET6_ADDRSTRLEN> buf{};
-    if (inet_ntop(AF_INET6, rdata.data(), buf.data(), buf.size()) == nullptr) [[unlikely]] {
-        throw DnsLookupException("Invalid AAAA record: address conversion failed", domain::DnsError::PARSE);
     }
     return buf.data();
 }
@@ -370,14 +361,14 @@ std::string dns::RecordParser::rdata_to_string(const ResourceRecord& rr, const s
                 throw DnsLookupException(fmt::format("Invalid A record RDATA length: {}", rdlen),
                                          domain::DnsError::PARSE);
             }
-            return format_a(rdata);
+            return format_inet(rdata, AF_INET, 4, "A");
 
         case static_cast<std::uint16_t>(RecordType::AAAA):
             if (rdlen != 16) [[unlikely]] {
                 throw DnsLookupException(fmt::format("Invalid AAAA record RDATA length: {}", rdlen),
                                          domain::DnsError::PARSE);
             }
-            return format_aaaa(rdata);
+            return format_inet(rdata, AF_INET6, 16, "AAAA");
 
         case static_cast<std::uint16_t>(RecordType::TXT):
             return format_txt(rdata);

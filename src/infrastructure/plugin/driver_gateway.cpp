@@ -465,8 +465,8 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::update(std::
             scope.throw_if_cancelled();
         }
         // A driver-reported cancellation on a live scope is one failed cycle,
-        // not the end of the subdomain loop: the legacy stack mapped it to an
-        // error value and the schedule retried on the next interval.
+        // not the end of the subdomain loop: it becomes an error value and the
+        // schedule retries on the next interval.
         SPDLOG_WARN(R"(Driver '{}' reported cancellation for "{}"; the cycle fails and retries on schedule)",
                     driver_name, fqdn);
         co_return std::unexpected(

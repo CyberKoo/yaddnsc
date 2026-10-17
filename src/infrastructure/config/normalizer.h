@@ -18,7 +18,7 @@ struct AppConfig;
 ///  - driver_params is dumped to opaque JSON text ("{}" when unset).
 ///
 /// A missing subdomain record type falls back to A with a warning (never an
-/// error) so legacy configs that rely on the default keep working.
+/// error) so configs that rely on the default keep working.
 auto normalize(const AppConfig& raw) -> domain::RuntimeConfig;
 
 }  // namespace Config

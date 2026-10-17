@@ -33,7 +33,7 @@ enum class Method {
     GET,
     POST,
     PUT,
-    DEL,
+    DELETE,
     PATCH,
     HEAD,
     OPTIONS,

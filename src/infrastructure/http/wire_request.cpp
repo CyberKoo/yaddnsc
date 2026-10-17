@@ -129,7 +129,7 @@ Error connection_error(const std::string_view stage) {
 
 Error connect_error(const std::string_view host) {
     // TCP refusal and TLS handshake failure are not distinguished (the stream
-    // reports one CONNECTION_FAILED for both), matching the legacy mapping.
+    // reports one CONNECTION_FAILED for both).
     return {ErrorCode::CONNECT_FAILED, fmt::format(R"(Cannot connect to "{}")", host)};
 }
 

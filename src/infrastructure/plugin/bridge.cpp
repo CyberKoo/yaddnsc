@@ -14,7 +14,6 @@
 #include <ratio>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <type_traits>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <utility>
 

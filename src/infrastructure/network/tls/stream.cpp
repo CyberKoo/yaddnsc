@@ -16,7 +16,6 @@
 #include <expected>
 #include <limits>
 #include <string>
-#include <string_view>
 #include <system_error>
 #include <utility>
 #include <optional>
@@ -235,7 +234,7 @@ coro::Task<std::expected<void, IoError>> TlsStream::handshake() {
         const int error = SSL_get_error(ssl_.get(), result);
         if (error != SSL_ERROR_WANT_READ && error != SSL_ERROR_WANT_WRITE) {
             // A verification or handshake failure is worth an ERROR with the
-            // peer's identity — the legacy stack logged both.
+            // peer's identity.
             SPDLOG_ERROR(R"(TLS handshake failed for "{}": {})", peer_label(), detail::ssl_errors());
             co_return std::unexpected(IoError::CONNECTION_FAILED);
         }

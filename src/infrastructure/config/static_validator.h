@@ -12,8 +12,8 @@ namespace Config {
 struct AppConfig;
 
 /// Runs every static (environment-independent) configuration check and
-/// collects ALL violations as values, in the same order the legacy
-/// fail-fast ConfigValidator visited them. Messages are kept verbatim.
+/// collects ALL violations as values, in one stable configuration order.
+/// Message wording is a compatibility contract and stays verbatim.
 ///
 /// Environment-dependent checks (driver loaded, interface exists, driver
 /// supports a configured record type) are NOT performed here; they remain in
