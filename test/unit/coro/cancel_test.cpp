@@ -8,6 +8,7 @@
 #include <atomic>
 #include <chrono>
 #include <compare>
+#include <coroutine>
 #include <exception>
 #include <initializer_list>
 #include <ratio>
@@ -17,8 +18,6 @@
 #include <string_view>
 #include <type_traits>
 #include <vector>
-
-#include <coroutine>
 
 #include <gtest/gtest.h>
 
@@ -437,26 +436,23 @@ TEST(Sleep, sleep_until_AbsoluteDeadline_WakesAtDeadline) {
 // ---------------------------------------------------------------------------
 
 TEST(CancelScope, with_timeout_BusyReadyQueue_TimerStillFires) {
-    // A self-re-filling ready queue must not starve the timer heap: every
-    // co_await below enqueues a child frame and every completion enqueues the
-    // continuation, so a loop that only fires timers once the ready queue is
-    // empty would report this 1ms timeout tens of milliseconds late — after
-    // the churn ends. The timeout must win while the churn still runs.
-    // The churn must satisfy three constraints: large enough that it never
-    // drains inside the 1ms window even on the fastest machine; cancellable,
-    // so the passing path ends right at the timeout instead of paying every
-    // step; and finite, so a loop that starves timers still terminates and is
-    // caught by the assertion below. A checkpoint loop gets all three.
-    coro::Loop loop;
-    constexpr int churn_steps = 2000000;
+    // Advance time with a ready chain still live. Even a runtime that starves
+    // timers drains this finite chain, then fails the mid-churn assertion.
+    coro::ManualClock clock;
+    coro::Loop loop(clock);
+    constexpr int churn_steps = 1000;
+    constexpr int advance_after = 10;
     int churned = 0;
     int churned_when_timed_out = -1;
     bool timed_out = false;
 
-    auto churn = [&churned]() -> coro::Task<void> {
+    auto churn = [&]() -> coro::Task<void> {
         for (int i = 0; i < churn_steps; ++i) {
             co_await coro::checkpoint();
             ++churned;
+            if (churned == advance_after) {
+                clock.advance(1ms);
+            }
         }
         co_return;
     };
@@ -464,8 +460,9 @@ TEST(CancelScope, with_timeout_BusyReadyQueue_TimerStillFires) {
     auto task = [&]() -> coro::Task<void> {
         co_await coro::with_nursery(
             [&](coro::Nursery& group) -> coro::Task<void> {
-                group.spawn(churn());
-                const auto outcome = co_await coro::with_timeout(1ms, []() -> coro::Task<void> {
+                const auto outcome = co_await coro::with_timeout(1ms, [&]() -> coro::Task<void> {
+                    // The timeout is armed before the ready chain starts.
+                    group.spawn(churn());
                     co_await coro::sleep_for(10s);
                     co_return;
                 });
@@ -481,7 +478,7 @@ TEST(CancelScope, with_timeout_BusyReadyQueue_TimerStillFires) {
     coro::run(loop, task());
     EXPECT_TRUE(timed_out);
     // The timer fired mid-churn, not after the ready queue finally drained.
-    EXPECT_GE(churned_when_timed_out, 0);
+    EXPECT_GE(churned_when_timed_out, advance_after);
     EXPECT_LT(churned_when_timed_out, churn_steps);
 }
 

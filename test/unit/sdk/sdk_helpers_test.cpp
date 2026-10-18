@@ -593,6 +593,18 @@ HttpResponse response_with(uint32_t status, std::initializer_list<HttpHeaderView
 
 }  // namespace
 
+TEST(SdkHelpersTest, HttpResponseRemainsAThreeFieldBorrowedAggregate) {
+    static_assert(std::is_aggregate_v<HttpResponse>);
+    const std::string body = "borrowed";
+    const HttpResponse response{200, {{"Content-Type", "text/plain"}}, body};
+    const auto& [status, headers, content] = response;
+    static_assert(std::is_same_v<decltype(HttpResponse::headers), std::vector<HttpHeaderView>>);
+    static_assert(std::is_same_v<decltype(HttpResponse::body), std::string_view>);
+    EXPECT_EQ(status, 200u);
+    ASSERT_EQ(headers.size(), 1u);
+    EXPECT_EQ(content.data(), body.data());
+}
+
 TEST(SdkHelpersTest, ClassifyUpstreamFailure_AuthAndRateLimit) {
     EXPECT_EQ(classify_upstream_failure(response_with(401, {})).status, YADDNSC_STATUS_AUTHENTICATION_FAILED);
     EXPECT_EQ(classify_upstream_failure(response_with(403, {})).status, YADDNSC_STATUS_AUTHENTICATION_FAILED);

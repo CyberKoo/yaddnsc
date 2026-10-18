@@ -2,10 +2,11 @@
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_PLUGIN_LOADER_H
 
 #include <cstdint>
+#include <expected>
 #include <string>
 #include <string_view>
+#include <variant>
 
-#include <expected>
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "infrastructure/plugin/plugin_error.h"
@@ -23,19 +24,46 @@ struct DriverDescriptor {
     std::uint16_t abi_minor = 0;
 };
 
-/// PluginModule — one loaded driver plugin: the shared library handle, its
-/// four resolved required entry points, the optional validate entry, and the
-/// validated descriptor.
+/// The execution protocol selected for one loaded module. The mode is fixed
+/// at load; it is decided from the exported entry groups and the descriptor,
+/// never from abi_minor alone.
+enum class ExecutionMode { Sync, Async };
+
+struct SyncEntryPoints {
+    decltype(&yaddnsc_driver_create) create = nullptr;
+    decltype(&yaddnsc_driver_destroy) destroy = nullptr;
+    decltype(&yaddnsc_driver_update) update = nullptr;
+    decltype(&yaddnsc_driver_validate) validate = nullptr;
+};
+
+struct AsyncEntryPoints {
+    decltype(&yaddnsc_driver_async_create) create = nullptr;
+    decltype(&yaddnsc_driver_async_destroy) destroy = nullptr;
+    decltype(&yaddnsc_driver_update_async_begin) begin = nullptr;
+    decltype(&yaddnsc_driver_update_async_resume) resume = nullptr;
+    decltype(&yaddnsc_driver_async_validate) validate = nullptr;
+};
+
+using EntryPoints = std::variant<SyncEntryPoints, AsyncEntryPoints>;
+
+/// PluginModule — one loaded driver plugin: the shared library handle, the
+/// validated descriptor, and exactly one verified execution entry group.
 ///
 /// Loading follows the ABI protocol order: dlopen(RTLD_NOW|RTLD_LOCAL) →
-/// resolve all required entry points → get_descriptor() → version prefix →
+/// resolve the candidate entry symbols → get_descriptor() → version prefix →
 /// abi_major/abi_minor (`yaddnsc_abi_provides`) → minor baseline struct_size →
-/// magic, strings, and capability bits → copy descriptor fields. Only then
-/// may create() be called. The fifth entry (validate) is optional: it is
-/// dlsym-probed and simply stays nullptr when the plugin does not export it.
+/// magic, strings, and capability bits → mode selection → copy descriptor
+/// fields. Only then may the selected group be called. The sync validate and
+/// async validate entries are optional; a missing one leaves that mode's
+/// validate pointer null.
 ///
-/// @note Thread-safe for concurrent create/update/destroy calls (they only
-///       read the entry-point table); load is single-threaded startup work.
+/// Mode selection is fixed at load. A complete sync group with minimum minor 0
+/// keeps the legacy sync path even when async names are also exported. Async
+/// mode requires a complete async group, no sync execution symbol, and
+/// minimum minor >= 1. New-protocol modules may not mix groups.
+///
+/// @note Thread-safe for concurrent calls on the selected entry group (they
+///       only read the entry-point table); load is single-threaded startup work.
 class PluginModule {
 public:
     /// Load and validate the plugin at @p path.
@@ -50,6 +78,11 @@ public:
     [[nodiscard]] const DriverDescriptor& descriptor() const noexcept { return descriptor_; }
 
     [[nodiscard]] const std::string& path() const noexcept { return library_.path(); }
+
+    /// The execution protocol fixed at load.
+    [[nodiscard]] ExecutionMode mode() const noexcept {
+        return std::holds_alternative<AsyncEntryPoints>(entries_) ? ExecutionMode::Async : ExecutionMode::Sync;
+    }
 
     /// Entry-point trampolines — thin forwards into the plugin, behind an
     /// exception firewall: the ABI forbids exceptions, but a misbehaving
@@ -73,7 +106,12 @@ public:
     /// (optional since ABI 1.0). A plugin that does not export it still
     /// loads. `config test` fails, because the host cannot confirm
     /// driver_params.
-    [[nodiscard]] bool supports_validate() const noexcept { return validate_ != nullptr; }
+    [[nodiscard]] bool supports_validate() const noexcept {
+        if (const auto* sync = std::get_if<SyncEntryPoints>(&entries_)) {
+            return sync->validate != nullptr;
+        }
+        return std::get<AsyncEntryPoints>(entries_).validate != nullptr;
+    }
 
     /// Validate a driver_params JSON against the plugin's schema, behind the
     /// same exception firewall as the other trampolines. When the plugin does
@@ -84,6 +122,24 @@ public:
     /// first (DriverGateway::validate_config does).
     [[nodiscard]] yaddnsc_status validate(yaddnsc_driver* driver, yaddnsc_string driver_param_json,
                                           yaddnsc_error& out_error) const;
+
+    /// Async-group trampolines. Each returns INVALID_ARGUMENT when the module
+    /// was loaded in sync mode; the host gateway must branch on mode() first.
+    /// Failed async_create handles are destroyed exactly once before returning,
+    /// even if diagnostic logging fails; destroy failure is fatal. Valid error
+    /// messages are copied before cleanup (at most 511 bytes), preserving empty
+    /// messages and retry hints. Malformed reports remain invalid to the caller.
+    /// Copied messages use host thread-local storage until the next entry error
+    /// on that thread; callers must capture them before another plugin call.
+    [[nodiscard]] yaddnsc_status async_create(const yaddnsc_async_services& services, yaddnsc_async_driver** out_driver,
+                                              yaddnsc_error& out_error) const;
+    void async_destroy(yaddnsc_async_driver* driver) const noexcept;
+    [[nodiscard]] yaddnsc_status async_begin(yaddnsc_async_driver* driver, const yaddnsc_update_request& request,
+                                             yaddnsc_error& out_error) const;
+    [[nodiscard]] yaddnsc_status async_resume(yaddnsc_async_driver* driver, const yaddnsc_event& event,
+                                              yaddnsc_error& out_error) const;
+    [[nodiscard]] yaddnsc_status async_validate(yaddnsc_async_driver* driver, yaddnsc_string driver_param_json,
+                                                yaddnsc_error& out_error) const;
 
 private:
     PluginModule() = default;
@@ -97,10 +153,7 @@ private:
 
     SharedLibrary library_;
     decltype(&yaddnsc_driver_get_descriptor) get_descriptor_ = nullptr;
-    decltype(&yaddnsc_driver_create) create_ = nullptr;
-    decltype(&yaddnsc_driver_destroy) destroy_ = nullptr;
-    decltype(&yaddnsc_driver_update) update_ = nullptr;
-    decltype(&yaddnsc_driver_validate) validate_ = nullptr;
+    EntryPoints entries_{SyncEntryPoints{}};
     DriverDescriptor descriptor_;
 };
 

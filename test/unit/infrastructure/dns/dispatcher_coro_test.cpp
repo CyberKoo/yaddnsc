@@ -466,11 +466,15 @@ TEST(DnsDispatcher, concurrent_fastestAnswerWins) {
     [[maybe_unused]] FakeResolver& fast = fakes.add("fast", {response_step(a_response("yaddnsc.test", 2), 1ms)});
     dns::Dispatcher dispatcher{fakes.take(), Strategy::CONCURRENT};
 
-    const auto result = run_query(dispatcher);
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    const auto result = coro::run(loop, dispatcher.resolve("yaddnsc.test", domain::RecordKind::A));
 
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(*result, (std::vector<std::string>{"198.51.100.2"}));
+    EXPECT_EQ(slow.calls(), 1);
     EXPECT_EQ(fast.calls(), 1);
+    EXPECT_EQ(clock.now(), (coro::TimePoint{1ms}));
 }
 
 TEST(DnsDispatcher, concurrent_structuralDiagnosisSurvivesATransientOne) {

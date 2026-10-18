@@ -1,8 +1,8 @@
 //
 // Coroutine runtime — offload.
 //
-// These tests use the system clock and real worker threads. Timing margins are
-// generous so the assertions do not depend on machine speed.
+// These tests use real worker threads; explicit gates hold running work across
+// cancellation and root retirement without machine-speed-dependent windows.
 //
 // NOTE: ASSERT_* macros expand to `return;`, which is ill-formed inside a
 // coroutine body; these tests use EXPECT_* only.
@@ -12,6 +12,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <coroutine>
 #include <cstddef>
 #include <exception>
 #include <functional>
@@ -25,17 +26,29 @@
 #include <utility>
 #include <vector>
 
-#include <coroutine>
-
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
 #include "coro/detail/access.h"
+#include "coro/detail/execution_record.h"
 #include "coro/detail/offload_job.h"
+#include "coro/detail/result_state.hpp"
+#include "coro/detail/task_promise.hpp"
 
 namespace {
 
 using namespace std::chrono_literals;
+
+struct ReleaseOnExit {
+    std::atomic<bool>& gate;
+
+    void release() const noexcept {
+        gate.store(true);
+        gate.notify_all();
+    }
+
+    ~ReleaseOnExit() noexcept { release(); }
+};
 
 coro::Task<void> run_pooled_job(std::function<void()> job) {
     co_await coro::offload(std::move(job));
@@ -109,16 +122,18 @@ TEST(Offload, offload_AbandonedWhileRunning_JobStillFinishes) {
     coro::Loop loop;
     std::atomic<bool> started{false};
     std::atomic<bool> finished{false};
+    std::atomic<bool> release{false};
 
     auto worker = [&]() -> coro::Task<void> {
         co_await coro::offload([&]() -> int {
             started.store(true);
-            std::this_thread::sleep_for(200ms);
+            release.wait(false);
             finished.store(true);
             return 1;
         });
     };
     auto task = [&]() -> coro::Task<void> {
+        const ReleaseOnExit unblock{release};
         auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
             // Cancellation is unreachable until the callable is running: a job
             // whose pool worker has not started yet is dropped without running
@@ -128,10 +143,13 @@ TEST(Offload, offload_AbandonedWhileRunning_JobStillFinishes) {
                 while (!started.load()) {
                     co_await coro::checkpoint();
                 }
+                EXPECT_FALSE(finished.load());
                 scope.cancel();
+                EXPECT_FALSE(finished.load());
             });
         });
         EXPECT_TRUE(outcome.cancelled);
+        EXPECT_FALSE(finished.load());
     };
 
     coro::run(loop, task());
@@ -242,23 +260,28 @@ TEST(Offload, offload_DeferredLvalueCallable_CopiesBeforeCallerChangesIt) {
 TEST(Offload, loop_DestroyedWithAbandonedWorker_JoinsBeforeClosingWakePipe) {
     std::atomic<bool> started{false};
     std::atomic<bool> finished{false};
+    std::atomic<bool> release{false};
     {
         coro::Loop loop;
         auto root = [&]() -> coro::Task<void> {
+            const ReleaseOnExit unblock{release};
             auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
                 co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
-                    group.spawn(run_pooled_job([&started, &finished] {
+                    group.spawn(run_pooled_job([&started, &finished, &release] {
                         started.store(true);
-                        std::this_thread::sleep_for(50ms);
+                        release.wait(false);
                         finished.store(true);
                     }));
                     while (!started.load()) {
                         co_await coro::checkpoint();
                     }
+                    EXPECT_FALSE(finished.load());
                     scope.cancel();
+                    EXPECT_FALSE(finished.load());
                 });
             });
             EXPECT_TRUE(outcome.cancelled);
+            EXPECT_FALSE(finished.load());
         };
         coro::run(loop, root());
     }
@@ -267,40 +290,63 @@ TEST(Offload, loop_DestroyedWithAbandonedWorker_JoinsBeforeClosingWakePipe) {
 }
 
 TEST(Offload, Joined_CancellationWaitsForWorkerBeforeUnwindingBorrowedResources) {
+    coro::ManualClock clock;
+    coro::Loop loop(clock);
     std::atomic<bool> started{false};
     std::atomic<bool> finished{false};
+    std::atomic<bool> release{false};
+    coro::CancelScope* worker_scope = nullptr;
+    bool unwound = false;
 
     auto worker = [&]() -> coro::Task<void> {
-        int borrowed = 42;
-        try {
-            co_await coro::offload_joined([&] {
-                started.store(true);
-                std::this_thread::sleep_for(60ms);
-                EXPECT_EQ(borrowed, 42);
-                finished.store(true);
-            });
-        } catch (const coro::Cancelled&) {
-            EXPECT_TRUE(finished.load());
-            throw;
-        }
-    };
-    auto root = [&]() -> coro::Task<void> {
-        auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
-            // Cancellation must land while the worker is running: a job still
-            // queued is dropped without running it, which would leave the
-            // borrowed-resource ordering untested.
-            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
-                group.spawn(worker());
-                while (!started.load()) {
-                    co_await coro::checkpoint();
-                }
-                scope.cancel();
-            });
+        const auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+            worker_scope = &scope;
+            auto borrowed = std::make_shared<int>(42);
+            try {
+                co_await coro::offload_joined([&, weak = std::weak_ptr<int>{borrowed}] {
+                    started.store(true);
+                    release.wait(false);
+                    // Do not dereference a destroyed frame even if joining is
+                    // broken: the weak borrow still detects premature unwind.
+                    const auto resource = weak.lock();
+                    EXPECT_NE(resource, nullptr);
+                    if (resource) {
+                        EXPECT_EQ(*resource, 42);
+                    }
+                    finished.store(true);
+                });
+            } catch (const coro::Cancelled&) {
+                EXPECT_TRUE(finished.load());
+                unwound = true;
+                throw;
+            }
         });
         EXPECT_TRUE(outcome.cancelled);
-        EXPECT_TRUE(finished.load());
+        worker_scope = nullptr;
     };
-    coro::run(root());
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
+            const ReleaseOnExit unblock{release};
+            auto handle = group.spawn(worker());
+            while (!started.load()) {
+                co_await coro::checkpoint();
+            }
+            EXPECT_FALSE(finished.load());
+            worker_scope->cancel();
+            // The join cannot complete while the worker is held. A virtual
+            // deadline drains all ready cancellation work before releasing it.
+            const auto held = co_await coro::with_timeout(1ms, [&]() -> coro::Task<void> { co_await handle; });
+            EXPECT_TRUE(held.timed_out);
+            EXPECT_FALSE(held.completed);
+            EXPECT_FALSE(unwound);
+            EXPECT_FALSE(finished.load());
+            unblock.release();
+            co_await handle;
+            EXPECT_TRUE(unwound);
+            EXPECT_TRUE(finished.load());
+        });
+    };
+    coro::run(loop, root());
     EXPECT_TRUE(started.load());
 }
 
@@ -389,14 +435,35 @@ TEST(Offload, RootExit_PumpsInboxUntilAbandonedWorkersFinish) {
     std::atomic<bool> callback{false};
     std::atomic<bool> worker_started{false};
     std::atomic<bool> worker_done{false};
+    std::atomic<bool> release{false};
+    const ReleaseOnExit unblock{release};
+    const ReleaseOnExit unblock_callback{callback};
+    coro::CancelScope root_scope;
+    coro::detail::ExecutionRecord root_record;
+    coro::detail::ResultState<void> root_result;
+
+    struct Retirement {
+        const ReleaseOnExit& unblock;
+        bool retired = false;
+
+        static void on_retired(void* context, coro::detail::ExecutionRecord& record) noexcept {
+            auto& self = *static_cast<Retirement*>(context);
+            self.retired = record.phase() == coro::detail::ExecutionPhase::RETIRED;
+            self.unblock.release();
+        }
+    } retirement{unblock};
+
     auto worker = [&]() -> coro::Task<void> {
         co_await coro::offload([&] {
             worker_started.store(true);
-            std::this_thread::sleep_for(30ms);
-            loop.post([&] { callback.store(true); });
-            while (!callback.load()) {
-                std::this_thread::sleep_for(1ms);
-            }
+            release.wait(false);
+            loop.post([&] {
+                EXPECT_TRUE(retirement.retired);
+                EXPECT_EQ(root_record.phase(), coro::detail::ExecutionPhase::RETIRED);
+                callback.store(true);
+                callback.notify_all();
+            });
+            callback.wait(false);
             worker_done.store(true);
         });
     };
@@ -411,12 +478,23 @@ TEST(Offload, RootExit_PumpsInboxUntilAbandonedWorkersFinish) {
                 while (!worker_started.load()) {
                     co_await coro::checkpoint();
                 }
+                EXPECT_FALSE(worker_done.load());
                 scope.cancel();
+                EXPECT_FALSE(worker_done.load());
             });
         });
         EXPECT_TRUE(outcome.cancelled);
     };
-    coro::run(loop, root());
+    auto task = root();
+    coro::detail::TaskAccess::start_root(task, root_record, root_result, loop, root_scope);
+    // Unlike a body-return flag, this callback runs only after frame destruction,
+    // result publication and the root's transition to RETIRED.
+    root_record.bind_completion<nullptr, &Retirement::on_retired>(&retirement);
+    loop.run();
+    EXPECT_EQ(root_record.phase(), coro::detail::ExecutionPhase::RETIRED);
+    EXPECT_TRUE(root_result.ready());
+    EXPECT_EQ(root_result.content(), coro::detail::ResultContent::VALUE);
+    EXPECT_TRUE(retirement.retired);
     // Abandon ended the child's await, but run() must keep pumping the inbox
     // for the still-running worker. Do not poll after return: that would hide a
     // broken runtime lifetime guarantee.

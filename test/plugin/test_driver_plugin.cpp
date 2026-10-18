@@ -20,6 +20,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -28,7 +29,6 @@
 #include <utility>
 #include <vector>
 
-#include <expected>
 #include <glaze/glaze.hpp>
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
@@ -70,6 +70,9 @@ std::atomic<uint64_t> g_last_destroy_seq{0};
 std::atomic<uint64_t> g_thread_violations{0};
 std::atomic<bool> g_validation_started{false};
 std::atomic<bool> g_release_validation{false};
+// Keep failures across later successful exchanges so wind-down tests can
+// distinguish caller cancellation from the bridge worker's deadline fallback.
+std::atomic<yaddnsc_status> g_last_failed_exchange_status{YADDNSC_STATUS_OK};
 
 void tick(std::atomic<uint64_t>& slot) {
     const uint64_t seq = g_clock.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -160,11 +163,15 @@ public:
             HttpRequest request;
             request.url = config.url.value_or("http://127.0.0.1/");
             auto first = context.exchange(request);
+            if (!first) {
+                g_last_failed_exchange_status.store(first.error().status, std::memory_order_relaxed);
+            }
             if (first || first.error().status != YADDNSC_STATUS_NETWORK_ERROR) {
                 return std::unexpected(Error{YADDNSC_STATUS_INTERNAL_ERROR, "first exchange must time out", 0});
             }
             auto second = context.exchange(request);
             if (!second) {
+                g_last_failed_exchange_status.store(second.error().status, std::memory_order_relaxed);
                 return std::unexpected(
                     Error{second.error().status, second.error().message, second.error().retry_after_seconds});
             }
@@ -261,6 +268,7 @@ private:
             }
             auto response = context.exchange(request);
             if (!response) {
+                g_last_failed_exchange_status.store(response.error().status, std::memory_order_relaxed);
                 return std::unexpected(Error{response.error().status,
                                              fmt::format("exchange failed: {}", response.error().message),
                                              response.error().retry_after_seconds});
@@ -327,6 +335,7 @@ extern "C" YADDNSC_SDK_EXPORT void test_plugin_set_create_failures(int count) {
 }
 
 extern "C" YADDNSC_SDK_EXPORT void test_plugin_reset_state() {
+    g_last_failed_exchange_status.store(YADDNSC_STATUS_OK, std::memory_order_relaxed);
     g_thread_violations.store(0);
     g_validation_started.store(false);
     g_release_validation.store(false);
@@ -338,6 +347,10 @@ extern "C" YADDNSC_SDK_EXPORT void test_plugin_reset_state() {
     g_last_create_seq.store(0, std::memory_order_relaxed);
     g_last_update_seq.store(0, std::memory_order_relaxed);
     g_last_destroy_seq.store(0, std::memory_order_relaxed);
+}
+
+extern "C" YADDNSC_SDK_EXPORT yaddnsc_status test_plugin_last_failed_exchange_status() {
+    return g_last_failed_exchange_status.load(std::memory_order_relaxed);
 }
 
 extern "C" YADDNSC_SDK_EXPORT uint64_t test_plugin_thread_violations() {

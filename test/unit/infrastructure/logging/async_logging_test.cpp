@@ -13,14 +13,12 @@
 
 #include <algorithm>
 #include <atomic>
-#include <chrono>
 #include <cstddef>
 #include <memory>
 #include <mutex>
 #include <source_location>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -33,7 +31,6 @@
 
 namespace {
 
-using namespace std::chrono_literals;
 
 /// spdlog sink that records every payload it receives.
 class CollectingSink final : public spdlog::sinks::base_sink<std::mutex> {
@@ -53,14 +50,14 @@ protected:
 class GatedSink final : public spdlog::sinks::base_sink<std::mutex> {
 public:
     std::vector<std::string> messages;
+    std::atomic<bool> entered{false};
     std::atomic<bool> released{false};
 
 protected:
     void sink_it_(const spdlog::details::log_msg& msg) override {
-        // Bounded spin: a broken gate must not hang the test binary.
-        for (int i = 0; !released.load(std::memory_order_acquire) && i < 50000; ++i) {
-            std::this_thread::sleep_for(100us);
-        }
+        entered.store(true, std::memory_order_release);
+        entered.notify_all();
+        released.wait(false, std::memory_order_acquire);
         messages.emplace_back(msg.payload.data(), msg.payload.size());
     }
 
@@ -111,11 +108,28 @@ TEST(AsyncLogging, Overflow_IsCountedAndReportedAtShutdown) {
 
     logging::initialize();
 
+    struct PipelineGuard {
+        std::shared_ptr<GatedSink> sink;
+        bool drained = false;
+
+        void drain() noexcept {
+            if (!drained) {
+                sink->released.store(true, std::memory_order_release);
+                sink->released.notify_all();
+                logging::shutdown();
+                drained = true;
+            }
+        }
+
+        ~PipelineGuard() { drain(); }
+    } pipeline{sink};
+
     // Park the drain thread on the first write, then flood past the queue
     // capacity (8192): the excess must be dropped — counted on the discard
     // counter under discard_new, on the overrun counter under the overrun_oldest
     // fallback (spdlog < 1.15).
     SPDLOG_INFO("hold-the-drain-thread");
+    sink->entered.wait(false, std::memory_order_acquire);
     constexpr std::size_t flood = 8192 + 200;
     for (std::size_t i = 0; i < flood; ++i) {
         SPDLOG_INFO("flood-{}", i);
@@ -133,8 +147,7 @@ TEST(AsyncLogging, Overflow_IsCountedAndReportedAtShutdown) {
     }
     EXPECT_GT(dropped, 0u);
 
-    sink->released.store(true, std::memory_order_release);
-    logging::shutdown();
+    pipeline.drain();
 
     // The drop must be visible: shutdown reports the discarded count at WARN.
     const auto reported = std::any_of(sink->messages.begin(), sink->messages.end(), [](const std::string& message) {

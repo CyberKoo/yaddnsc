@@ -253,6 +253,60 @@ and behavior changes. Bundled drivers reuse their checked parser in
 validate and update, rejecting missing/wrong-type/null/empty required strings
 before HTTP. Supplied TTL values cannot be negative.
 
+### Async entry points (ABI 1.1)
+
+ABI 1.1 adds an optional async execution group. The only export common to
+both modes is `yaddnsc_driver_get_descriptor`. A plugin using the new
+negotiation rules must use exactly one complete group and must not export a
+symbol from the other group; the min-0 case below is the legacy compatibility
+exception:
+
+- sync: `yaddnsc_driver_create`, `yaddnsc_driver_destroy`,
+  `yaddnsc_driver_update`, optional `yaddnsc_driver_validate`;
+- async: `yaddnsc_driver_async_create`, `yaddnsc_driver_async_destroy`,
+  `yaddnsc_driver_update_async_begin`, `yaddnsc_driver_update_async_resume`,
+  optional `yaddnsc_driver_async_validate`.
+
+A plugin whose descriptor requires minor 0 and exports a complete sync group
+stays sync, even if it also exports async names; the host keeps it on the
+sync path and never supplies the async table. Async mode requires a
+descriptor minimum minor of at least 1 and a complete async group. A plugin
+requiring minor 1 or newer may still choose the sync group: the declared
+minimum alone does not select async mode. Such a plugin must export exactly
+one complete group, including the matching validate entry and no symbol from
+the other group. The mode is fixed at load; a failed async step never falls
+back to sync update, and a failed sync entry never falls back to async.
+
+The async table never carries the sync exchange callback, and neither table
+exposes a conversion to the other. The async instance lifecycle, PENDING/event
+rules and callback borrow periods are defined in
+`<yaddnsc/sdk/driver_abi.h>`. This host loads and runs both modes. Sync
+drivers receive the sync table; async drivers receive the async table, and the
+gateway drives begin/resume while HTTP waits stay on the loop instead of
+occupying a worker. The C++ async SDK
+(`<yaddnsc/sdk/async_driver.hpp>`) provides `AsyncDriver`, `AsyncServices`,
+`AsyncUpdateContext`, one sequential exchange awaitable, and the async driver
+macro; it emits only the async group. Concurrent fan-out is not part of this
+SDK revision. `co_await context.exchange(...)` returns `AsyncExchangeResult`
+(`std::expected<AsyncHttpResponse, HttpError>`). `AsyncHttpResponse` owns its
+`std::string` body and `std::vector<HttpHeader>` header strings, preserving
+binary bytes, header order, casing and duplicates. The SDK copies the ABI
+payload before business code resumes and moves the result out of the
+awaitable. Copies own independent storage; moves transfer ownership, so neither
+the event nor the awaitable needs to remain alive. Async response checkers must
+accept `const AsyncHttpResponse&`, not `const HttpResponse&`.
+
+The synchronous API is unchanged: `ExchangeResult` contains the original
+three-field `HttpResponse` aggregate (`status_code`, `headers`, `body`), whose
+header/body views borrow the host arena until `yaddnsc_driver_update` returns.
+There is no shared owner or conversion between the two response types. No C ABI
+layout or version changes are required by this source-level distinction. An
+exception from `yaddnsc_driver_async_destroy` is a fatal host cleanup failure:
+the host cannot prove the instance was released and will not release the
+module or services. The bundled drivers use this async SDK and therefore
+require ABI 1.1; their package versions and provider configuration are
+unchanged.
+
 ## Recommended build
 
 Third-party drivers build against the installed SDK — the `yaddnsc-dev`
@@ -592,13 +646,20 @@ Source changes for this SDK revision:
 - Named formatting scans the original template only. `{{`/`}}` escape braces,
   unknown/unclosed placeholders are preserved, and the last duplicate name wins.
 - Logging macros protect service lookup, argument evaluation, formatting and
-  callbacks from exceptions, and skip arguments if no logger exists. No runtime
-  log-level query is added in ABI 1.0.
+  callbacks from exceptions, and skip arguments if no logger exists. ABI 1.1
+  adds the optional `log_enabled` query in `yaddnsc_host_services_v1_1`: the
+  macros evaluate the level, consult the query, and only then evaluate the log
+  arguments and format. A disabled level therefore skips argument evaluation
+  and formatting, not the level expression; without a log callback neither is
+  evaluated. The macros fall back to the original unconditional path when the
+  host does not provide the query or the query fails.
 - Request logs include a redacted URL. JSON bodies are parsed recursively;
   malformed/unrecognised content is hidden. Form/query values end only at `&`;
   encoded keys are classified after decoding. Standard sensitive headers remain
   protected. Arbitrary provider log strings still require author review.
 
-The plugin C ABI remains 1.0, with unchanged layout and entry points. Sensitive
-field metadata and a fail-closed default for old plugins' `config show` output
-are future ABI work, not implemented by this revision.
+The plugin C ABI is now 1.1. The 1.0 type layouts, entry points and
+`sizeof(yaddnsc_host_services)` are unchanged; the new host-services extension
+is optional and old hosts keep working. Sensitive field metadata and a
+fail-closed default for old plugins' `config show` output are future ABI work,
+not implemented by this revision.

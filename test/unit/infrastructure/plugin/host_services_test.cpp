@@ -199,7 +199,9 @@ public:
         std::string function;
     };
 
-    [[nodiscard]] bool is_enabled(app::LogLevel) const override { return true; }
+    [[nodiscard]] bool is_enabled(app::LogLevel level) const override {
+        return !(disable_debug && level == app::LogLevel::DEBUG);
+    }
 
     void log(app::LogLevel level, std::string_view message, const std::source_location&) const override {
         log_explicit(level, message, {}, 0, {});
@@ -216,6 +218,7 @@ public:
     [[nodiscard]] const std::vector<Record>& records() const { return records_; }
 
     mutable bool armed = false;
+    mutable bool disable_debug = false;
 
 private:
     mutable std::vector<Record> records_;
@@ -254,6 +257,24 @@ TEST_F(HostServicesTest, MakeServices_BindsThisContextAndTheHostAbiVersion) {
     EXPECT_EQ(services.is_cancelled(services.context), 0);
 }
 
+TEST_F(HostServicesTest, MakeServicesV11_ExposesTheOptionalQuery) {
+    const auto services = context_->make_services_v1_1();
+
+    EXPECT_EQ(services.base.struct_size, sizeof(yaddnsc_host_services_v1_1));
+    EXPECT_EQ(services.base.abi_major, YADDNSC_DRIVER_ABI_MAJOR);
+    EXPECT_EQ(services.base.abi_minor, YADDNSC_DRIVER_ABI_MINOR);
+    EXPECT_EQ(static_cast<const void*>(services.base.context), static_cast<const void*>(context_.get()));
+    EXPECT_NE(services.base.log, nullptr);
+    EXPECT_NE(services.base.http_exchange, nullptr);
+    EXPECT_NE(services.base.is_cancelled, nullptr);
+    ASSERT_NE(services.log_enabled, nullptr);
+    EXPECT_EQ(services.log_enabled(services.base.context, YADDNSC_LOG_INFO), 1);
+
+    logger_.disable_debug = true;
+    EXPECT_EQ(services.log_enabled(services.base.context, YADDNSC_LOG_DEBUG), 0);
+    EXPECT_EQ(services.log_enabled(nullptr, YADDNSC_LOG_INFO), 0);
+}
+
 // ===========================================================================
 //  log() — level mapping and the C-frame firewall
 // ===========================================================================
@@ -285,6 +306,19 @@ TEST_F(HostServicesTest, Log_MapsEveryAbiLevelAndRecordsUnknownLevelsAsInfo) {
         EXPECT_EQ(logger_.records()[i].line, 42);
         EXPECT_EQ(logger_.records()[i].function, "update");
     }
+}
+
+TEST_F(HostServicesTest, Log_DisabledLevelIsDroppedBeforeLogExplicit) {
+    const auto services = context_->make_services();
+    logger_.disable_debug = true;
+
+    services.log(services.context, YADDNSC_LOG_DEBUG, yaddnsc_string{"hidden", 6}, nullptr);
+    EXPECT_TRUE(logger_.records().empty());
+
+    services.log(services.context, YADDNSC_LOG_INFO, yaddnsc_string{"visible", 7}, nullptr);
+    ASSERT_EQ(logger_.records().size(), 1u);
+    EXPECT_EQ(logger_.records()[0].level, app::LogLevel::INFO);
+    EXPECT_EQ(logger_.records()[0].message, "visible");
 }
 
 TEST_F(HostServicesTest, Log_WithoutLocation_StillRecordsTheMessage) {

@@ -17,6 +17,10 @@
 ///   - YADDNSC_DEFINE_DRIVER, which emits the four required C entry points
 ///     plus the optional validate entry,
 ///
+/// The async SDK is a separate source surface in
+/// <yaddnsc/sdk/async_driver.hpp>; the two service/context families do not
+/// convert into each other.
+///
 /// Plugins must not include host-internal headers; this layer plus
 /// the public SDK/util headers form the supported source surface.
 
@@ -104,10 +108,12 @@ struct HttpHeaderView {
     std::string_view value;
 };
 
-/// A borrowed HTTP response. All views point into the host arena and stay
-/// valid until the current yaddnsc_driver_update() call returns, across
-/// multiple exchanges. Header names keep the peer's casing and may repeat;
-/// compare them case-insensitively.
+/// A borrowed synchronous HTTP response. Every view points into the host
+/// arena and stays valid until the current yaddnsc_driver_update() call
+/// returns, across multiple exchanges. Copying the response does not extend
+/// that lifetime.
+/// Header names keep the peer's casing and may repeat; compare them
+/// case-insensitively.
 struct HttpResponse {
     uint32_t status_code = 0;
     std::vector<HttpHeaderView> headers;
@@ -191,6 +197,28 @@ template<std::size_t N>
     return result;
 }
 
+/// First host-services minor that carries the appended log_enabled field.
+inline constexpr uint16_t HOST_SERVICES_V1_1_MINOR = 1;
+
+/// Copy the 1.0 prefix and, only when the provider advertises a complete ABI
+/// 1.1 container, the optional log query. The source must point at the base
+/// subobject of a yaddnsc_host_services_v1_1; the version and size checks are
+/// the provider's contract, not something the SDK can verify for a raw table.
+[[nodiscard]] inline yaddnsc_host_services_v1_1 copy_services_v1_1(const yaddnsc_host_services& source) noexcept {
+    yaddnsc_host_services_v1_1 result{};
+    result.base = copy_services(source);
+    if (yaddnsc_struct_has_field(source.struct_size, YADDNSC_HOST_SERVICES_V1_1_MIN_SIZE) &&
+        yaddnsc_abi_provides(source.abi_major, source.abi_minor, YADDNSC_DRIVER_ABI_MAJOR,
+                             HOST_SERVICES_V1_1_MINOR)) {
+        // A complete 1.1 provider passed &container.base. Copy only the known
+        // field; a larger provider tail stays unread.
+        const auto* extended = reinterpret_cast<const yaddnsc_host_services_v1_1*>(&source);  // NOLINT
+        result.log_enabled = extended->log_enabled;
+        result.base.struct_size = static_cast<uint32_t>(sizeof(yaddnsc_host_services_v1_1));
+    }
+    return result;
+}
+
 [[nodiscard]] inline yaddnsc_string make_view(std::string_view view) noexcept {
     return {view.data(), view.size()};
 }
@@ -268,9 +296,18 @@ inline void write_error(yaddnsc_error* out_error, yaddnsc_status status, std::st
 /// table is host-owned and valid from create() until the matching destroy().
 class Services {
 public:
+    using LogEnabledFn = int32_t (*)(void* context, yaddnsc_log_level level);
+
     explicit Services(const yaddnsc_host_services* services) noexcept : services_(services) {}
 
+    /// Internal SDK path: carries the optional query validated by the factory.
+    /// The one-argument constructor never probes a raw table's tail.
+    Services(const yaddnsc_host_services* services, LogEnabledFn log_enabled) noexcept
+        : services_(services), log_enabled_(log_enabled) {}
+
     [[nodiscard]] const yaddnsc_host_services* get() const noexcept { return services_; }
+
+    [[nodiscard]] LogEnabledFn log_enabled_fn() const noexcept { return log_enabled_; }
 
     [[nodiscard]] bool is_cancelled() const noexcept {
         return services_ != nullptr && services_->is_cancelled != nullptr &&
@@ -340,6 +377,7 @@ public:
 
 private:
     const yaddnsc_host_services* services_;
+    LogEnabledFn log_enabled_ = nullptr;
 };
 
 /// The update parameters. All views are host-owned and valid for the
@@ -357,12 +395,19 @@ struct UpdateRequest {
 /// access to the host services (logging, HTTP, cancellation).
 class UpdateContext {
 public:
+    using LogEnabledFn = Services::LogEnabledFn;
+
     UpdateContext(const UpdateRequest& request, const yaddnsc_host_services* services) noexcept
-        : request_(request), services_(services) {}
+        : UpdateContext(request, services, nullptr) {}
+
+    /// Internal SDK path: carries the optional log query from the factory.
+    UpdateContext(const UpdateRequest& request, const yaddnsc_host_services* services,
+                  LogEnabledFn log_enabled) noexcept
+        : request_(request), services_(services), log_enabled_(log_enabled) {}
 
     [[nodiscard]] const UpdateRequest& request() const noexcept { return request_; }
 
-    [[nodiscard]] Services services() const noexcept { return Services{services_}; }
+    [[nodiscard]] Services services() const noexcept { return Services{services_, log_enabled_}; }
 
     [[nodiscard]] ExchangeResult exchange(const HttpRequest& request) const { return services().exchange(request); }
 
@@ -371,21 +416,10 @@ public:
 private:
     UpdateRequest request_;
     const yaddnsc_host_services* services_;
+    LogEnabledFn log_enabled_ = nullptr;
 };
 
 namespace detail {
-
-[[nodiscard]] inline const yaddnsc_host_services* to_services(const yaddnsc_host_services* services) noexcept {
-    return services;
-}
-
-[[nodiscard]] inline const yaddnsc_host_services* to_services(const Services& services) noexcept {
-    return services.get();
-}
-
-[[nodiscard]] inline const yaddnsc_host_services* to_services(const UpdateContext& context) noexcept {
-    return context.services().get();
-}
 
 template<typename... Args>
 inline void log_message(const yaddnsc_host_services* services, yaddnsc_log_level level, std::string_view file,
@@ -404,16 +438,48 @@ inline void log_message(const yaddnsc_host_services* services, yaddnsc_log_level
     }
 }
 
-/// Best-effort diagnostic boundary including service lookup and argument evaluation.
-/// The callable runs only when a log callback exists. All diagnostic failures
-/// are discarded; they never change the business-operation result.
-template<typename GetServices, typename Log>
-inline void log_lazy(GetServices&& get_services, Log&& log) noexcept {
+struct LogTarget {
+    const yaddnsc_host_services* services = nullptr;
+    Services::LogEnabledFn log_enabled = nullptr;
+};
+
+[[nodiscard]] inline LogTarget to_log_target(const yaddnsc_host_services* services) noexcept {
+    return {services, nullptr};
+}
+
+[[nodiscard]] inline LogTarget to_log_target(const Services& services) noexcept {
+    return {services.get(), services.log_enabled_fn()};
+}
+
+[[nodiscard]] inline LogTarget to_log_target(const UpdateContext& context) noexcept {
+    return to_log_target(context.services());
+}
+
+/// Best-effort diagnostic boundary including service lookup, level evaluation,
+/// the optional level query, argument evaluation and formatting. The log
+/// callable runs only when a log callback exists and the host did not disable
+/// the level. All diagnostic failures are discarded; they never change the
+/// business-operation result.
+template<typename GetLevel, typename GetServices, typename Log>
+inline void log_lazy(GetLevel&& get_level, GetServices&& get_services, Log&& log) noexcept {
     try {
-        const auto* services = to_services(get_services());
-        if (services != nullptr && services->log != nullptr) {
-            log(services);
+        const LogTarget target = to_log_target(get_services());
+        if (target.services == nullptr || target.services->log == nullptr) {
+            return;
         }
+        const yaddnsc_log_level level = get_level();
+        if (target.log_enabled != nullptr) {
+            bool enabled = true;
+            try {
+                enabled = target.log_enabled(target.services->context, level) != 0;
+            } catch (...) {
+                enabled = true;  // best effort: an unusable query keeps the log
+            }
+            if (!enabled) {
+                return;
+            }
+        }
+        log(target.services, level);
     } catch (...) {
     }
 }
@@ -501,9 +567,12 @@ inline void log_lazy(GetServices&& get_services, Log&& log) noexcept {
     return std::chrono::sys_seconds{std::chrono::seconds{secs}};
 }
 
-/// First Retry-After on @p response. Delay-seconds win. An IMF-fix date
-/// becomes seconds from now; a past date or an unparsable value is 0.
-[[nodiscard]] inline std::uint32_t retry_after_seconds(const HttpResponse& response) noexcept {
+/// First Retry-After relative to @p now. Delay-seconds win; a past date or
+/// an unparsable value is 0. The explicit clock sample keeps date arithmetic
+/// independent of wall-clock changes between parsing and comparison.
+template<typename Response>
+[[nodiscard]] inline std::uint32_t retry_after_seconds(const Response& response,
+                                                       std::chrono::sys_seconds now) noexcept {
     for (const auto& header : response.headers) {
         if (!util::iequals(header.name, "retry-after")) {
             continue;
@@ -523,7 +592,6 @@ inline void log_lazy(GetServices&& get_services, Log&& log) noexcept {
         if (!date.has_value()) {
             return 0;
         }
-        const auto now = std::chrono::time_point_cast<std::chrono::seconds>(std::chrono::system_clock::now());
         if (*date <= now) {
             return 0;
         }
@@ -536,6 +604,14 @@ inline void log_lazy(GetServices&& get_services, Log&& log) noexcept {
     return 0;
 }
 
+/// Production boundary: sample the clock once, then use the same pure
+/// calculation exercised with fixed timestamps in the SDK tests.
+template<typename Response>
+[[nodiscard]] inline std::uint32_t retry_after_seconds(const Response& response) noexcept {
+    return retry_after_seconds(response,
+                               std::chrono::time_point_cast<std::chrono::seconds>(std::chrono::system_clock::now()));
+}
+
 struct UpstreamFailure {
     yaddnsc_status status = YADDNSC_STATUS_UPSTREAM_REJECTED;
     std::uint32_t retry_after_seconds = 0;
@@ -544,7 +620,8 @@ struct UpstreamFailure {
 /// Status for an exchange the driver has already rejected. 401/403 are
 /// authentication failures. 429 carries Retry-After. Everything else stays
 /// an upstream rejection with no retry hint.
-[[nodiscard]] inline UpstreamFailure classify_upstream_failure(const HttpResponse& response) noexcept {
+template<typename Response>
+[[nodiscard]] inline UpstreamFailure classify_upstream_failure(const Response& response) noexcept {
     if (response.status_code == 401 || response.status_code == 403) {
         return {YADDNSC_STATUS_AUTHENTICATION_FAILED, 0};
     }
@@ -566,25 +643,8 @@ struct UpstreamFailure {
 
 /* ── Driver base class ────────────────────────────────────────────────────*/
 
-class Driver {
-public:
-    virtual ~Driver() noexcept = default;
-
-    /// Perform one DNS record update. Return {} on success or an Error
-    /// describing the failure. Implementations must be prepared for
-    /// concurrent update() calls on distinct instances.
-    virtual Result update(UpdateContext& context) = 0;
-
-    /// Validate a driver_param JSON against this driver's schema without
-    /// performing an update. The host calls it from `config test` through the
-    /// OPTIONAL yaddnsc_driver_validate entry (dlsym-probed).
-    /// YADDNSC_DEFINE_DRIVER always exports that entry. Each driver must
-    /// explicitly validate its schema and semantics; parameterless drivers
-    /// may return success. Reuse the same parser in validate and update.
-    /// ConfigParseError maps to YADDNSC_STATUS_INVALID_CONFIG. Validation
-    /// uses a fresh instance and must not perform HTTP exchanges.
-    [[nodiscard]] virtual Result validate(std::string_view driver_param_json) const = 0;
-
+/// Source-level helpers shared by the sync and async driver bases.
+class DriverHelpers {
 protected:
     /// Parse the driver_param JSON into a typed struct with built-in
     /// validation. Requires a glz::meta specialisation for T.
@@ -617,7 +677,28 @@ protected:
 
         return std::nullopt;
     }
+};
 
+class Driver : public DriverHelpers {
+public:
+    virtual ~Driver() noexcept = default;
+
+    /// Perform one DNS record update. Return {} on success or an Error
+    /// describing the failure. Implementations must be prepared for
+    /// concurrent update() calls on distinct instances.
+    virtual Result update(UpdateContext& context) = 0;
+
+    /// Validate a driver_param JSON against this driver's schema without
+    /// performing an update. The host calls it from `config test` through the
+    /// OPTIONAL yaddnsc_driver_validate entry (dlsym-probed).
+    /// YADDNSC_DEFINE_DRIVER always exports that entry. Each driver must
+    /// explicitly validate its schema and semantics; parameterless drivers
+    /// may return success. Reuse the same parser in validate and update.
+    /// ConfigParseError maps to YADDNSC_STATUS_INVALID_CONFIG. Validation
+    /// uses a fresh instance and must not perform HTTP exchanges.
+    [[nodiscard]] virtual Result validate(std::string_view driver_param_json) const = 0;
+
+protected:
     /// Run the canonical update tail shared by the bundled drivers: log the
     /// outgoing request, perform the exchange, and translate transport
     /// failures and upstream rejections into an Error. @p check_response
@@ -636,19 +717,22 @@ protected:
         const auto line = static_cast<int32_t>(location.line());
         const auto function = location.function_name();
 
-        detail::log_lazy([&] { return context.services(); },
-                         [&](const auto* services) {
+        detail::log_lazy([&] { return YADDNSC_LOG_DEBUG; }, [&] { return context.services(); },
+                         [&](const auto* services, yaddnsc_log_level level) {
                              detail::log_message(
-                                 services, YADDNSC_LOG_DEBUG, file, line, function,
+                                 services, level, file, line, function,
                                  "Domain \"{}\" ({}) received DNS record update request from driver '{}', {}",
                                  params.fqdn, params.record_type, driver_name, format_request(request));
                          });
 
         auto response = context.exchange(request);
         if (!response) {
-            detail::log_message(detail::to_services(context), YADDNSC_LOG_WARN, file, line, function,
-                                "Domain \"{}\" ({}) update failed: {}", params.fqdn, params.record_type,
-                                response.error().message);
+            detail::log_lazy([&] { return YADDNSC_LOG_WARN; }, [&] { return context.services(); },
+                             [&](const auto* services, yaddnsc_log_level level) {
+                                 detail::log_message(services, level, file, line, function,
+                                                     "Domain \"{}\" ({}) update failed: {}", params.fqdn,
+                                                     params.record_type, response.error().message);
+                             });
             return std::unexpected(
                 Error{response.error().status, response.error().message, response.error().retry_after_seconds});
         }
@@ -659,8 +743,12 @@ protected:
                 return checked;  // Preserve the checker's detailed parse/provider error.
             }
             const auto failure = detail::classify_upstream_failure(*response);
-            detail::log_message(detail::to_services(context), YADDNSC_LOG_WARN, file, line, function,
-                                "Domain \"{}\" ({}) update rejected by upstream", params.fqdn, params.record_type);
+            detail::log_lazy([&] { return YADDNSC_LOG_WARN; }, [&] { return context.services(); },
+                             [&](const auto* services, yaddnsc_log_level level) {
+                                 detail::log_message(services, level, file, line, function,
+                                                     "Domain \"{}\" ({}) update rejected by upstream",
+                                                     params.fqdn, params.record_type);
+                             });
             return std::unexpected(
                 Error{failure.status,
                       fmt::format("Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type),
@@ -677,7 +765,7 @@ namespace detail {
 
 struct DriverInstance {
     // Driver destruction may log through injected Services; destroy it first.
-    yaddnsc_host_services services{};
+    yaddnsc_host_services_v1_1 services{};
     std::string error_storage;
     std::unique_ptr<Driver> driver;
 };
@@ -704,9 +792,10 @@ inline yaddnsc_status create_driver(const yaddnsc_host_services* services, yaddn
     std::string_view reported;
     try {
         auto instance = std::make_unique<DriverInstance>();
-        instance->services = copy_services(*services);
+        instance->services = copy_services_v1_1(*services);
         if constexpr (std::is_constructible_v<DriverClass, Services>) {
-            instance->driver = std::make_unique<DriverClass>(Services{&instance->services});
+            instance->driver = std::make_unique<DriverClass>(
+                Services{&instance->services.base, instance->services.log_enabled});
         } else {
             instance->driver = std::make_unique<DriverClass>();
         }
@@ -752,7 +841,7 @@ inline yaddnsc_status update_driver(yaddnsc_driver* driver, const yaddnsc_update
             .fqdn = to_view(request->fqdn),
             .driver_param_json = to_view(request->driver_param_json),
         };
-        UpdateContext context{update_request, &instance->services};
+        UpdateContext context{update_request, &instance->services.base, instance->services.log_enabled};
         Result result = instance->driver->update(context);
         if (result.has_value()) {
             return YADDNSC_STATUS_OK;
@@ -829,12 +918,13 @@ inline yaddnsc_status validate_driver(yaddnsc_driver* driver, yaddnsc_string dri
 
 #define YADDNSC_SDK_LOG(svc, level, ...)                                                                             \
     [&](const char* yaddnsc_log_function) {                                                                          \
-        ::yaddnsc::sdk::detail::log_lazy([&]() { return ::yaddnsc::sdk::detail::to_services(svc); },                 \
-                                         [&](const yaddnsc_host_services* yaddnsc_log_services) {                    \
-                                             ::yaddnsc::sdk::detail::log_message(yaddnsc_log_services, level,        \
-                                                                                 __FILE__, __LINE__,                 \
-                                                                                 yaddnsc_log_function, __VA_ARGS__); \
-                                         });                                                                         \
+        ::yaddnsc::sdk::detail::log_lazy(                                                                            \
+            [&]() { return static_cast<yaddnsc_log_level>(level); },                                                 \
+            [&]() { return (svc); },                                                                                 \
+            [&](const yaddnsc_host_services* yaddnsc_log_services, yaddnsc_log_level yaddnsc_log_level_value) {      \
+                ::yaddnsc::sdk::detail::log_message(yaddnsc_log_services, yaddnsc_log_level_value, __FILE__,         \
+                                                    __LINE__, yaddnsc_log_function, __VA_ARGS__);                    \
+            });                                                                                                      \
     }(__FUNCTION__)
 #define YADDNSC_SDK_LOG_TRACE(svc, ...) YADDNSC_SDK_LOG(svc, YADDNSC_LOG_TRACE, __VA_ARGS__)
 #define YADDNSC_SDK_LOG_DEBUG(svc, ...) YADDNSC_SDK_LOG(svc, YADDNSC_LOG_DEBUG, __VA_ARGS__)

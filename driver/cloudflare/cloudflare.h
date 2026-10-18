@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/async_driver.hpp>
 
 struct CloudflareParams;
 
@@ -12,12 +12,12 @@ struct CloudflareParams;
 ///
 /// Implements the Cloudflare API v4 for updating A, AAAA, and TXT records
 /// via their DNS Records endpoint.
-class CloudflareDriver final : public yaddnsc::sdk::Driver {
+class CloudflareDriver final : public yaddnsc::sdk::AsyncDriver {
 public:
     ~CloudflareDriver() override = default;
 
     /// Perform one update: generate-request → HTTP exchange → check-response.
-    [[nodiscard]] yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
+    [[nodiscard]] yaddnsc::sdk::Task<yaddnsc::sdk::Result> update(yaddnsc::sdk::AsyncUpdateContext& context) override;
 
     /// Validate driver_param against the Cloudflare API schema without
     /// updating; schema violations surface as YADDNSC_STATUS_INVALID_CONFIG.
@@ -31,8 +31,8 @@ private:
     static std::string generate_body(const CloudflareParams& cfg, const yaddnsc::sdk::UpdateRequest& request);
 
     /// Validate the Cloudflare API response.
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,
-                                             const yaddnsc::sdk::Services& services);
+    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                             const yaddnsc::sdk::AsyncServices& services);
 };
 
 #endif  // YADDNSC_DRV_CLOUDFLARE_CLOUDFLARE_H

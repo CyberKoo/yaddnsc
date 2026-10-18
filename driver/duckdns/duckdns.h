@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/async_driver.hpp>
 
 struct DuckDnsParams;
 
@@ -14,12 +14,12 @@ struct DuckDnsParams;
 /// via their simple GET-based update endpoint.
 ///
 /// API reference: https://www.duckdns.org/spec.jsp
-class DuckDnsDriver final : public yaddnsc::sdk::Driver {
+class DuckDnsDriver final : public yaddnsc::sdk::AsyncDriver {
 public:
     ~DuckDnsDriver() override = default;
 
     /// Perform one update: generate-request → HTTP exchange → check-response.
-    [[nodiscard]] yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
+    [[nodiscard]] yaddnsc::sdk::Task<yaddnsc::sdk::Result> update(yaddnsc::sdk::AsyncUpdateContext& context) override;
 
     /// Validate driver_param against the DuckDNS API schema without updating;
     /// schema violations surface as YADDNSC_STATUS_INVALID_CONFIG.
@@ -33,8 +33,8 @@ private:
     static std::string generate_url(const DuckDnsParams& cfg, const yaddnsc::sdk::UpdateRequest& params);
 
     /// Validate the DuckDNS API response (expects "OK" or "KO").
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,
-                                             const yaddnsc::sdk::Services& services);
+    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                             const yaddnsc::sdk::AsyncServices& services);
 };
 
 #endif  // YADDNSC_DRV_DUCKDNS_DUCKDNS_H

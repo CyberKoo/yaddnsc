@@ -4,19 +4,19 @@
 #include <string_view>
 
 #include <glaze/json/generic_fwd.hpp>
-#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/async_driver.hpp>
 
 /// Simple HTTP GET driver for DNS record updates.
 ///
 /// The simplest driver implementation — it embeds the IP address into
 /// the URL or request body and doesn't parse the response beyond checking
 /// the HTTP status code.
-class SimpleDriver final : public yaddnsc::sdk::Driver {
+class SimpleDriver final : public yaddnsc::sdk::AsyncDriver {
 public:
     ~SimpleDriver() override = default;
 
     /// Perform one update: generate-request → HTTP exchange → check-response.
-    [[nodiscard]] yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
+    [[nodiscard]] yaddnsc::sdk::Task<yaddnsc::sdk::Result> update(yaddnsc::sdk::AsyncUpdateContext& context) override;
 
     /// Validate driver_param without updating; requires a string "url"
     /// member — the same check the update path performs.
@@ -31,8 +31,8 @@ private:
     static yaddnsc::sdk::HttpRequest generate_request(const yaddnsc::sdk::UpdateRequest& params);
 
     /// Validate the response — returns true for 2xx status codes.
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,
-                                             const yaddnsc::sdk::Services& services);
+    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                             const yaddnsc::sdk::AsyncServices& services);
 };
 
 #endif  // YADDNSC_DRV_SIMPLE_SIMPLE_H

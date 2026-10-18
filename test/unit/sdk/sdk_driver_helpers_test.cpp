@@ -14,9 +14,7 @@
 
 #include <chrono>
 #include <cstdint>
-#include <ctime>
 #include <cwchar>
-#include <format>
 #include <initializer_list>
 #include <limits>
 #include <optional>
@@ -35,7 +33,7 @@ using yaddnsc::sdk::Method;
 
 namespace {
 
-HttpResponse response_with(std::initializer_list<std::pair<std::string, std::string>> headers) {
+HttpResponse response_with(std::initializer_list<std::pair<std::string_view, std::string_view>> headers) {
     HttpResponse response;
     response.status_code = 503;
     for (const auto& [name, value] : headers) {
@@ -205,7 +203,8 @@ TEST(SdkRetryAfter, HeaderNameIsMatchedCaseInsensitively) {
 }
 
 TEST(SdkRetryAfter, FirstMatchingHeaderWins) {
-    EXPECT_EQ(yaddnsc::sdk::detail::retry_after_seconds(response_with({{"Retry-After", "10"}, {"Retry-After", "20"}})), 10u);
+    EXPECT_EQ(yaddnsc::sdk::detail::retry_after_seconds(response_with({{"Retry-After", "10"}, {"Retry-After", "20"}})),
+              10u);
 }
 
 TEST(SdkRetryAfter, NonRetryAfterHeaderBeforeMatch_IsSkipped) {
@@ -227,37 +226,26 @@ TEST(SdkParseHttpDateOnly, NegativeDelaySeconds_FallsBackToDateParse) {
 }
 
 TEST(SdkRetryAfter, PastHttpDate_ReturnsZero) {
-    EXPECT_EQ(yaddnsc::sdk::detail::retry_after_seconds(response_with({{"Retry-After", "Sun, 06 Nov 1994 08:49:37 GMT"}})), 0u);
+    const std::chrono::sys_seconds now = std::chrono::sys_days{std::chrono::year{1994} / 11 / 7};
+    EXPECT_EQ(yaddnsc::sdk::detail::retry_after_seconds(
+                  response_with({{"Retry-After", "Sun, 06 Nov 1994 08:49:37 GMT"}}), now),
+              0u);
 }
 
-/// Render a sys_time as an IMF-fixdate, used to build Retry-After dates
-/// relative to the current clock.
-std::string imf_fixdate(const std::chrono::sys_seconds& when) {
-    static constexpr std::string_view days[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
-    static constexpr std::string_view names[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-    const auto as_time_t = static_cast<std::time_t>(when.time_since_epoch().count());
-    std::tm utc{};
-    ::gmtime_r(&as_time_t, &utc);
-    return std::format("{}, {:02} {} {:04} {:02}:{:02}:{:02} GMT", days[static_cast<size_t>(utc.tm_wday)], utc.tm_mday,
-                       names[static_cast<size_t>(utc.tm_mon)], utc.tm_year + 1900, utc.tm_hour, utc.tm_min,
-                       utc.tm_sec);
-}
-
-TEST(SdkRetryAfter, FutureHttpDateWithinRange_ReturnsPositiveDelay) {
-    const auto now = std::chrono::time_point_cast<std::chrono::seconds>(std::chrono::system_clock::now());
-    const auto delay =
-        yaddnsc::sdk::detail::retry_after_seconds(response_with({{"Retry-After", imf_fixdate(now + std::chrono::hours(2))}}));
-    // Truncation toward now, plus slack for the clock ticking during the call.
-    EXPECT_GE(delay, 7100u);
-    EXPECT_LE(delay, 7200u);
+TEST(SdkRetryAfter, FutureHttpDateWithinRange_ReturnsExactDelay) {
+    const std::chrono::sys_seconds now = std::chrono::sys_days{std::chrono::year{1994} / 11 / 6} +
+                                         std::chrono::hours{6} + std::chrono::minutes{49} + std::chrono::seconds{37};
+    const auto response = response_with({{"Retry-After", "Sun, 06 Nov 1994 08:49:37 GMT"}});
+    EXPECT_EQ(yaddnsc::sdk::detail::retry_after_seconds(response, now), 7200u);
+    EXPECT_EQ(yaddnsc::sdk::detail::retry_after_seconds(response, now + std::chrono::hours{2}), 0u);
+    EXPECT_EQ(yaddnsc::sdk::detail::retry_after_seconds(response, now + std::chrono::hours{3}), 0u);
 }
 
 TEST(SdkRetryAfter, FutureHttpDateBeyondUint32Range_Saturates) {
     // Year 9999 is further away than 2^32-1 seconds, so the delta saturates.
-    EXPECT_EQ(
-        yaddnsc::sdk::detail::retry_after_seconds(response_with({{"Retry-After", "Sun, 06 Nov 9999 08:49:37 GMT"}})),
-        std::numeric_limits<std::uint32_t>::max());
+    EXPECT_EQ(yaddnsc::sdk::detail::retry_after_seconds(
+                  response_with({{"Retry-After", "Sun, 06 Nov 9999 08:49:37 GMT"}}), std::chrono::sys_seconds{}),
+              std::numeric_limits<std::uint32_t>::max());
 }
 
 }  // namespace

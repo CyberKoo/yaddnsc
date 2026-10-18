@@ -971,7 +971,10 @@ services a plugin needs — HTTP, logging, cancellation.
 - Each update runs on a fresh driver instance (`create → update → destroy`).
   Instances of the same module may update concurrently, and each instance
   serves one update at a time. Each instance runs its own `create()`,
-  independent of process lifetime.
+  independent of process lifetime. The loader fixes one execution group per
+  module: the gateway drives the sync group on an offload worker with the
+  sync table, or the async group with loop-side HTTP tasks and the async
+  table. An async wait therefore does not hold a worker.
 - Host Services contexts track create/update/validate/destroy on the cycle's
   worker. HTTP is accepted only during update, even through saved service-table
   copies. Contexts are destroyed after the cycle and must not cross cycles.
@@ -980,7 +983,12 @@ services a plugin needs — HTTP, logging, cancellation.
   arenas last through update, and descriptors last while the module is loaded.
 - Provider HTTP, logging and cancellation reach the plugin through Host
   Services: the host owns the HTTP client (reached through the bridge) and the
-  log sink, forwarding source location to `spdlog::source_loc`.
+  log sink, forwarding source location to `spdlog::source_loc`. ABI 1.1 adds
+  an optional `log_enabled` predicate in the host-services extension container;
+  the SDK macros evaluate the level, query it, then skip argument evaluation
+  and formatting when it is disabled (without a log callback neither is
+  evaluated). The host still filters at `log` and never lets a query defect
+  fail an update.
   `is_cancelled()` reports the host's cancellation state for the current
   operation. See [Custom Drivers](custom-drivers.md) for the SDK guide before
   changing the interface or building a module outside the project build.

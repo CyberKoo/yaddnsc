@@ -5,7 +5,7 @@
 #include <string>
 #include <string_view>
 
-#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/async_driver.hpp>
 
 struct LinodeParams;
 
@@ -15,12 +15,12 @@ struct LinodeParams;
 /// via their domain records endpoint.
 ///
 /// API reference: https://techdocs.akamai.com/linode-api/reference/put-domain-record
-class LinodeDriver final : public yaddnsc::sdk::Driver {
+class LinodeDriver final : public yaddnsc::sdk::AsyncDriver {
 public:
     ~LinodeDriver() override = default;
 
     /// Perform one update: generate-request → HTTP exchange → check-response.
-    [[nodiscard]] yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
+    [[nodiscard]] yaddnsc::sdk::Task<yaddnsc::sdk::Result> update(yaddnsc::sdk::AsyncUpdateContext& context) override;
 
     /// Validate driver_param against the Linode API schema without updating;
     /// schema violations surface as YADDNSC_STATUS_INVALID_CONFIG.
@@ -34,8 +34,8 @@ private:
     static std::string generate_body(const yaddnsc::sdk::UpdateRequest& request, std::optional<int> ttl_sec);
 
     /// Validate the Linode API response.
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,
-                                             const yaddnsc::sdk::Services& services);
+    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                             const yaddnsc::sdk::AsyncServices& services);
 };
 
 #endif  // YADDNSC_DRV_LINODE_LINODE_H

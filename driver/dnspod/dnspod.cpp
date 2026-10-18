@@ -8,7 +8,7 @@
 #include <utility>  // IWYU pragma: keep — ERROR_CODES' braced entries construct std::pair; clangd sees no spelled use
 #include <vector>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::vector member complete; clangd sees no spelled use
 
-#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/async_driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/form_encode.hpp>
 #include <yaddnsc/sdk/format.hpp>
@@ -18,13 +18,14 @@
 #include "response.hpp"
 
 namespace fmt = yaddnsc::sdk::fmt;
+using yaddnsc::sdk::AsyncHttpResponse;
+using yaddnsc::sdk::AsyncServices;
+using yaddnsc::sdk::AsyncUpdateContext;
 using yaddnsc::sdk::Error;
 using yaddnsc::sdk::HttpRequest;
-using yaddnsc::sdk::HttpResponse;
 using yaddnsc::sdk::Method;
 using yaddnsc::sdk::Result;
-using yaddnsc::sdk::Services;
-using yaddnsc::sdk::UpdateContext;
+using yaddnsc::sdk::Task;
 using yaddnsc::sdk::UpdateRequest;
 using yaddnsc::sdk::redact::truncate_for_log;
 
@@ -60,8 +61,8 @@ const std::unordered_map<std::string_view, std::string_view> ERROR_CODES = {
 };
 }  // namespace
 
-YADDNSC_DEFINE_DRIVER(DnsPodDriver, "dnspod", "Updates DNS records via the DNSPod API", "Kotarou", "2.0.0",
-                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA, 0)
+YADDNSC_DEFINE_ASYNC_DRIVER(DnsPodDriver, "dnspod", "Updates DNS records via the DNSPod API", "Kotarou", "2.0.0",
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 DnsPodParams DnsPodDriver::parse_params(std::string_view json) {
     auto cfg = parse_config<DnsPodParams>(json);
@@ -88,7 +89,7 @@ Result DnsPodDriver::validate(std::string_view driver_param_json) const {
     return {};
 }
 
-Result DnsPodDriver::update(UpdateContext& context) {
+Task<Result> DnsPodDriver::update(AsyncUpdateContext& context) {
     const auto& params = context.request();
     const auto cfg = parse_params(params.driver_param_json);
 
@@ -118,14 +119,14 @@ HttpRequest DnsPodDriver::generate_request(const DnsPodParams& cfg, const Update
     return request;
 }
 
-bool DnsPodDriver::check_response(const HttpResponse& response, const Services& services) {
-    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
+bool DnsPodDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
+    YADDNSC_ASYNC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
 
     auto resp = parse_response<DnsPodResponse>(response.body);
     if (resp && resp->status.has_value() && resp->status->code == "1") {
         if (resp->record.has_value()) {
             auto& record = resp->record.value();
-            YADDNSC_SDK_LOG_DEBUG(services, "Record updated successfully, id: {}, name: {}, value: {}", record.id,
+            YADDNSC_ASYNC_SDK_LOG_DEBUG(services, "Record updated successfully, id: {}, name: {}, value: {}", record.id,
                                   record.name, record.value);
         }
         return true;
@@ -133,25 +134,25 @@ bool DnsPodDriver::check_response(const HttpResponse& response, const Services& 
 
     // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
     if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
-        YADDNSC_SDK_LOG_WARN(services, "DNSPod API request failed with HTTP status {}: {}", response.status_code,
+        YADDNSC_ASYNC_SDK_LOG_WARN(services, "DNSPod API request failed with HTTP status {}: {}", response.status_code,
                              truncate_for_log(response.body));
         return false;
     }
 
     if (!resp) {
-        YADDNSC_SDK_LOG_ERROR(services, "Failed to parse DNSPod API response");
+        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Failed to parse DNSPod API response");
         return false;
     }
 
     if (!resp->status.has_value()) {
-        YADDNSC_SDK_LOG_ERROR(services, "Server returned an unknown error, raw response: {}",
+        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Server returned an unknown error, raw response: {}",
                               truncate_for_log(response.body));
         return false;
     }
 
     auto& status = resp->status.value();
     auto description = describe_error_code(status.code);
-    YADDNSC_SDK_LOG_ERROR(services, "DNSPod API error code {} with message {}: {}", status.code, status.message,
+    YADDNSC_ASYNC_SDK_LOG_ERROR(services, "DNSPod API error code {} with message {}: {}", status.code, status.message,
                           description);
 
     return false;

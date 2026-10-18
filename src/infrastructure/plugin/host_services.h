@@ -56,6 +56,25 @@ public:
         };
     }
 
+    /// ABI 1.1 table: the same callbacks plus the optional log-level query.
+    /// The returned container must stay alive for create through destroy;
+    /// callers pass `&table.base` to the unchanged create() entry point.
+    [[nodiscard]] yaddnsc_host_services_v1_1 make_services_v1_1() noexcept {
+        return yaddnsc_host_services_v1_1{
+            .base =
+                {
+                    .struct_size = static_cast<uint32_t>(sizeof(yaddnsc_host_services_v1_1)),
+                    .abi_major = YADDNSC_DRIVER_ABI_MAJOR,
+                    .abi_minor = YADDNSC_DRIVER_ABI_MINOR,
+                    .context = this,
+                    .log = &log_entry,
+                    .http_exchange = &http_exchange_entry,
+                    .is_cancelled = &is_cancelled_entry,
+                },
+            .log_enabled = &log_enabled_entry,
+        };
+    }
+
     enum class Phase { CREATE, UPDATE, VALIDATE, DESTROY };
 
     /// Only the worker running this cycle changes its phase. Saved copies of
@@ -83,6 +102,10 @@ private:
 
     static void log_entry(void* context, yaddnsc_log_level level, yaddnsc_string message,
                           const yaddnsc_source_location* location) noexcept;
+
+    /// ABI 1.1 best-effort level query: 0 disables, non-zero allows. A defect
+    /// falls back to 1 so a broken query never drops a log record.
+    static std::int32_t log_enabled_entry(void* context, yaddnsc_log_level level) noexcept;
 
     static yaddnsc_status http_exchange_entry(void* context, const yaddnsc_http_request* request,
                                               yaddnsc_http_response* out_response, yaddnsc_error* out_error);

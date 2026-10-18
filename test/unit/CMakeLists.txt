@@ -95,8 +95,10 @@ add_unit_test(stop_signals SOURCE coro/stop_signals_test.cpp)
 target_link_libraries(test_stop_signals PRIVATE yaddnsc_coro)
 # Inject handler-installation failures without a production test hook.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    target_link_options(test_stop_signals PRIVATE "LINKER:--wrap=sigaction")
-    target_compile_definitions(test_stop_signals PRIVATE YADDNSC_TEST_WRAP_SIGACTION=1)
+    target_link_options(test_stop_signals PRIVATE
+        "LINKER:--wrap=sigaction" "LINKER:--wrap=poll")
+    target_compile_definitions(test_stop_signals PRIVATE
+        YADDNSC_TEST_WRAP_SIGACTION=1 YADDNSC_TEST_WRAP_STOP_POLL=1)
 endif()
 
 # ============================================================================
@@ -260,6 +262,11 @@ add_dependencies(test_driver_loader simple yaddnsc_bad_driver_fixture)
 # request-view validation and the exception arms, driven through a closed Bridge
 add_unit_test(host_services SOURCE infrastructure/plugin/host_services_test.cpp)
 target_link_libraries(test_host_services PRIVATE yaddnsc_prod_all test_allocation_fault)
+
+# async_services — short request prefixes and op-id clearing in the async
+# HTTP callback boundary.
+add_unit_test(async_services SOURCE infrastructure/plugin/async_services_test.cpp)
+target_link_libraries(test_async_services PRIVATE yaddnsc_prod_all)
 
 # bridge_branch — the Bridge ingress closure arms: closed-group start_cycle,
 # spawn / dispatch allocation failures, and the cancel() no-op arms
@@ -427,6 +434,11 @@ target_link_libraries(test_spdlog_logger PRIVATE yaddnsc_logging_adapter spdlog:
 add_unit_test(async_logging SOURCE infrastructure/logging/async_logging_test.cpp)
 target_link_libraries(test_async_logging PRIVATE yaddnsc_logging_adapter spdlog::spdlog)
 
+# Gates preserve the scenario until an observed event releases them. Only the
+# external runner bounds a broken handshake; expiry must never turn into success.
+set_tests_properties(test_async_logging test_coro test_stop_signals test_main_loop
+    test_net_stream_paths test_bridge_branch PROPERTIES TIMEOUT 120)
+
 # level_enabled — the header-only severity guard: it follows the active spdlog
 # level and reports disabled once shutdown left no default logger. Header-only,
 # so it needs no production module beyond the spdlog the test config provides.
@@ -489,6 +501,17 @@ add_unit_test(sdk_driver_helpers SOURCE sdk/sdk_driver_helpers_test.cpp)
 # a null/truncated/ABI-incompatible services table, a null entry point, an
 # unknown status, an inconsistent error report and a null response body.
 add_unit_test(sdk_host_defense SOURCE sdk/sdk_host_defense_test.cpp)
+
+# sdk_log_query — ABI 1.1 optional log-level query: tail gating, factory
+# propagation and the eager-vs-lazy split in YADDNSC_SDK_LOG.
+add_unit_test(sdk_log_query SOURCE sdk/sdk_log_query_test.cpp)
+
+# sdk_async_separation — compile-time isolation of the sync and async SDKs.
+add_unit_test(sdk_async_separation SOURCE sdk/sdk_async_separation_test.cpp)
+
+# sdk_async_lifecycle — async response ownership, one-shot validate and event
+# payload validation in the SDK instance.
+add_unit_test(sdk_async_lifecycle SOURCE sdk/sdk_async_lifecycle_test.cpp)
 
 # driver_magic — the YADDNSC_DRIVER_MAGIC constant in the v1 ABI header
 add_unit_test(driver_magic SOURCE sdk/driver_magic_test.cpp)

@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/async_driver.hpp>
 
 struct Route53Params;
 
@@ -19,12 +19,12 @@ struct Route53Params;
 ///
 /// Authentication:
 ///   https://docs.aws.amazon.com/general/latest/gr/sigv4_signing.html
-class Route53Driver final : public yaddnsc::sdk::Driver {
+class Route53Driver final : public yaddnsc::sdk::AsyncDriver {
 public:
     ~Route53Driver() override = default;
 
     /// Perform one update: build signed request → HTTP exchange → check-response.
-    [[nodiscard]] yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
+    [[nodiscard]] yaddnsc::sdk::Task<yaddnsc::sdk::Result> update(yaddnsc::sdk::AsyncUpdateContext& context) override;
 
     /// Validate driver_param against the Route53 API schema without updating;
     /// schema violations surface as YADDNSC_STATUS_INVALID_CONFIG.
@@ -35,8 +35,8 @@ private:
     [[nodiscard]] static Route53Params parse_params(std::string_view json);
 
     /// Validate the Route 53 API response (XML with libxml2).
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,
-                                             const yaddnsc::sdk::Services& services);
+    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                             const yaddnsc::sdk::AsyncServices& services);
 
     /// Build the XML request body for a Route 53 UPSERT change batch.
     static std::string build_xml_body(const std::string& fqdn, std::string_view rd_type, std::string_view ip_addr,

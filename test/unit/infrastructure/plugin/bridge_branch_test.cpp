@@ -23,6 +23,7 @@
 #include <gtest/gtest.h>
 
 #include "coro/checkpoint.hpp"
+#include "coro/clock.h"
 #include "coro/loop.h"
 #include "coro/notification.hpp"
 #include "coro/offload.hpp"
@@ -122,7 +123,8 @@ TEST(BridgeIngress, StartCycle_AfterGroupClosed_ThrowsInsteadOfPublishing) {
 }
 
 TEST(BridgeIngress, StartCycle_SlotAllocationFailure_PropagatesAndKeepsTheGroupUsable) {
-    coro::Loop loop;
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
     bool caught = false;
     bool failure_published = false;
     bool failure_notified = false;

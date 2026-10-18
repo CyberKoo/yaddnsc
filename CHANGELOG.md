@@ -9,12 +9,25 @@ section here.
 
 ## [1.1.0] - Unreleased
 
-The plugin C ABI is unchanged. These breaking changes concern the host's
-internal C++ coroutine API, not driver binaries or provider parameters.
-Migration: [coroutine lifecycle migration](docs/architecture.md#coroutine-lifecycle-migration).
+The host now implements plugin ABI 1.1; ABI 1.0 remains frozen and loadable.
+The bundled drivers use the async execution protocol and therefore require a
+1.1 host, while their names, package versions, provider parameters and
+request/response behavior are unchanged. Migration: [coroutine lifecycle
+migration](docs/architecture.md#coroutine-lifecycle-migration) and
+[custom drivers](docs/custom-drivers.md).
 
 ### Breaking
 
+- Async C++ exchanges return owned `AsyncHttpResponse` values through
+  `AsyncExchangeResult`; async response checkers must use the new type. The
+  synchronous three-field borrowed `HttpResponse` / `ExchangeResult` API and
+  C ABI are unchanged. See [custom drivers](docs/custom-drivers.md).
+- Async plugins require a complete async execution group and ABI 1.1; a module
+  cannot mix sync and async execution symbols. ABI 1.0 sync plugins keep their
+  original load and execution path.
+- The bundled drivers emit only the async group, so an older ABI 1.0 host
+  rejects them at load. Their package versions and provider behavior are
+  unchanged.
 - Structured concurrency uses `with_nursery`, `Nursery` and `NurseryPolicy`,
   exposed by `coro/with_nursery.hpp` and `coro/nursery.hpp`; the old
   `group.hpp` and `task_group.hpp` headers are removed, not compatibility aliases.
@@ -41,6 +54,11 @@ Migration: [coroutine lifecycle migration](docs/architecture.md#coroutine-lifecy
 
 ### Added
 
+- Optional ABI 1.1 host-services log-level query, with lazy SDK logging and
+  fallback to the original log path.
+- Async plugin protocol and SDK: an event/PENDING update model, async services
+  table, loader mode selection, create/begin/resume/destroy/validate, and a
+  sequential async exchange API for driver authors.
 - Runner-owned resource scopes with fail-fast or supervisor child policies,
   admission closure and a single cancellation/drain/cleanup path.
 - Explicit execution ownership, independent result storage and shared
@@ -53,6 +71,8 @@ Migration: [coroutine lifecycle migration](docs/architecture.md#coroutine-lifecy
 
 ### Changed
 
+- The bundled drivers use the async SDK and require ABI 1.1; their names and
+  package versions are unchanged.
 - Ready dispatch uses a borrowed frame token to avoid an extra execution-record
   lookup without transferring frame ownership or changing retirement order.
 - Avoid retrying every parked completion consumer when no matching result is
@@ -62,6 +82,23 @@ Migration: [coroutine lifecycle migration](docs/architecture.md#coroutine-lifecy
 
 ### Fixed
 
+- Timing-sensitive regression tests use explicit rendezvous and virtual clocks
+  instead of scheduler-speed assumptions in worker cancellation, signals, TLS,
+  logging overflow and plugin mode coexistence.
+- A completed async exchange stays readable after it returns: the response
+  copies its body and headers before the awaiting coroutine resumes.
+- Async `validate` publishes create and validate failures on every exit path;
+  an exception or an unsubmittable destroy step during async cleanup is fatal
+  instead of releasing an instance that may still be alive.
+- The async host rejects HTTP requests with a short declared prefix and clears
+  the op-id output on failures.
+- Async cancellation wakes a loop-side watcher while a slow plugin step runs,
+  so in-flight HTTP is stopped without waiting for the step to return.
+- Synchronous update warnings honor the host's log-level query instead of
+  bypassing the lazy gate.
+- The async SDK enforces the one-shot validate/update contract, validates the
+  complete cancellation and error event payloads, and copies exception text
+  through the bounded error buffer.
 - Unregistering an fd revokes its pending callback in both readiness and
   poll-failure dispatch, so removing another registration during a callback
   cannot dispatch a stale context afterwards.

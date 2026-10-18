@@ -28,6 +28,30 @@ static int32_t cancelled_entry(void* context) {
     return 0;
 }
 
+static yaddnsc_status async_http_start(void* context, const yaddnsc_http_request* request, uint64_t* out_op_id,
+                                       yaddnsc_error* out_error) {
+    (void) context;
+    (void) request;
+    (void) out_error;
+    if (out_op_id != NULL) {
+        *out_op_id = UINT64_C(1);
+    }
+    return YADDNSC_STATUS_OK;
+}
+
+static yaddnsc_status async_http_cancel(void* context, uint64_t op_id, yaddnsc_error* out_error) {
+    (void) context;
+    (void) op_id;
+    (void) out_error;
+    return YADDNSC_STATUS_OK;
+}
+
+static int32_t async_log_enabled(void* context, yaddnsc_log_level level) {
+    (void) context;
+    (void) level;
+    return 1;
+}
+
 static yaddnsc_status describe(const yaddnsc_driver_descriptor** out_descriptor) {
     static const yaddnsc_driver_descriptor descriptor = {
         .struct_size = sizeof(yaddnsc_driver_descriptor),
@@ -95,6 +119,33 @@ int yaddnsc_c_abi_compile_smoke(void) {
         .http_exchange = exchange_entry,
         .is_cancelled = cancelled_entry,
     };
+    const yaddnsc_host_services_v1_1 extended_services = {
+        .base = services,
+        .log_enabled = NULL,
+    };
+    const yaddnsc_async_services async_services = {
+        .struct_size = sizeof(yaddnsc_async_services),
+        .abi_major = YADDNSC_DRIVER_ABI_MAJOR,
+        .abi_minor = YADDNSC_DRIVER_ABI_MINOR,
+        .context = NULL,
+        .log = log_entry,
+        .is_cancelled = cancelled_entry,
+        .http_start = async_http_start,
+        .http_cancel = async_http_cancel,
+        .log_enabled = async_log_enabled,
+    };
+    const yaddnsc_event event = {
+        .struct_size = sizeof(yaddnsc_event),
+        .abi_major = YADDNSC_DRIVER_ABI_MAJOR,
+        .abi_minor = YADDNSC_DRIVER_ABI_MINOR,
+        .kind = YADDNSC_EVENT_HTTP_FINISHED,
+        .op_id = UINT64_C(1),
+        .status = YADDNSC_STATUS_OK,
+        .response = &response,
+        .error = NULL,
+    };
+    const yaddnsc_async_driver* async_handle = NULL;
+    const yaddnsc_status async_step = YADDNSC_STATUS_PENDING;
 
     yaddnsc_status (*const get_descriptor)(const yaddnsc_driver_descriptor**) = yaddnsc_driver_get_descriptor;
     yaddnsc_status (*const create)(const yaddnsc_host_services*, yaddnsc_driver**, yaddnsc_error*) =
@@ -103,6 +154,15 @@ int yaddnsc_c_abi_compile_smoke(void) {
     yaddnsc_status (*const update_entry)(yaddnsc_driver*, const yaddnsc_update_request*, yaddnsc_error*) =
         yaddnsc_driver_update;
     yaddnsc_status (*const validate)(yaddnsc_driver*, yaddnsc_string, yaddnsc_error*) = yaddnsc_driver_validate;
+    yaddnsc_status (*const async_create)(const yaddnsc_async_services*, yaddnsc_async_driver**, yaddnsc_error*) =
+        yaddnsc_driver_async_create;
+    void (*const async_destroy)(yaddnsc_async_driver*) = yaddnsc_driver_async_destroy;
+    yaddnsc_status (*const async_begin)(yaddnsc_async_driver*, const yaddnsc_update_request*, yaddnsc_error*) =
+        yaddnsc_driver_update_async_begin;
+    yaddnsc_status (*const async_resume)(yaddnsc_async_driver*, const yaddnsc_event*, yaddnsc_error*) =
+        yaddnsc_driver_update_async_resume;
+    yaddnsc_status (*const async_validate)(yaddnsc_async_driver*, yaddnsc_string, yaddnsc_error*) =
+        yaddnsc_driver_async_validate;
 
     const yaddnsc_driver_descriptor* described = NULL;
     return yaddnsc_string_is_valid(text) + yaddnsc_bytes_is_valid(empty_body) + yaddnsc_bytes_is_valid(absent_body) +
@@ -110,7 +170,13 @@ int yaddnsc_c_abi_compile_smoke(void) {
            yaddnsc_http_header_array_is_valid(request.headers, request.header_count) +
            yaddnsc_driver_capabilities_are_valid(YADDNSC_DRIVER_CAPABILITIES_SUPPORTED) +
            yaddnsc_struct_has_field(update.struct_size, YADDNSC_UPDATE_REQUEST_MIN_SIZE) + (location.line > 0) +
-           (response.status_code == 204) + (services.is_cancelled != NULL) + (get_descriptor != NULL) +
+           (response.status_code == 204) + (services.is_cancelled != NULL) + (extended_services.log_enabled == NULL) +
+           (async_services.http_start != NULL) +
+           (yaddnsc_struct_has_field(async_services.struct_size, YADDNSC_ASYNC_SERVICES_MIN_SIZE)) +
+           (event.kind == YADDNSC_EVENT_HTTP_FINISHED) + (async_handle == NULL) +
+           (yaddnsc_async_step_status_is_valid(async_step)) +
+           (get_descriptor != NULL) +
            (create != NULL) + (destroy != NULL) + (update_entry != NULL) + (validate != NULL) +
-           describe(&described);
+           (async_create != NULL) + (async_destroy != NULL) + (async_begin != NULL) + (async_resume != NULL) +
+           (async_validate != NULL) + describe(&described);
 }

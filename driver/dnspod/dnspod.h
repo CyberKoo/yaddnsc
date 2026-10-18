@@ -3,7 +3,7 @@
 
 #include <string_view>
 
-#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/async_driver.hpp>
 
 struct DnsPodParams;
 
@@ -11,12 +11,12 @@ struct DnsPodParams;
 ///
 /// Implements the DNSPod API for updating DNS records via their
 /// Record.Modify endpoint.
-class DnsPodDriver final : public yaddnsc::sdk::Driver {
+class DnsPodDriver final : public yaddnsc::sdk::AsyncDriver {
 public:
     ~DnsPodDriver() override = default;
 
     /// Perform one update: generate-request → HTTP exchange → check-response.
-    [[nodiscard]] yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
+    [[nodiscard]] yaddnsc::sdk::Task<yaddnsc::sdk::Result> update(yaddnsc::sdk::AsyncUpdateContext& context) override;
 
     /// Validate driver_param against the DNSPod API schema without updating;
     /// schema violations surface as YADDNSC_STATUS_INVALID_CONFIG.
@@ -31,8 +31,8 @@ private:
                                                                     const yaddnsc::sdk::UpdateRequest& params);
 
     /// Validate the DNSPod API response.
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,
-                                             const yaddnsc::sdk::Services& services);
+    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                             const yaddnsc::sdk::AsyncServices& services);
 
     /// Convert a DNSPod error code to a human-readable description.
     [[nodiscard]] static std::string_view describe_error_code(std::string_view code);

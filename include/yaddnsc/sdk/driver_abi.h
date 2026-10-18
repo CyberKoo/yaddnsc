@@ -33,13 +33,18 @@
  * structs: yaddnsc_error, yaddnsc_http_request, yaddnsc_http_response,
  * yaddnsc_update_request, yaddnsc_driver_descriptor, yaddnsc_host_services.
  * New callbacks, capability bits, status codes, log levels, and HTTP methods
- * are minor bumps. A host accepts every value introduced by its minor and
- * below. Moving, inserting, or removing a field, growing a leaf type, or
- * adding a required entry point is a major bump.
+ * are minor bumps. An optional host-services field may instead be added as a
+ * new container type whose first member is the unchanged previous table
+ * (yaddnsc_host_services_v1_1); the provider passes &base to the same entry
+ * point and base.struct_size covers the whole container. This keeps the 1.0
+ * type and its MIN_SIZE unchanged for existing source. A host accepts every
+ * value introduced by its minor and below. Moving, inserting, or removing a
+ * field, growing a leaf type, or adding a required entry point is a major bump.
  * Leaf types (yaddnsc_string, yaddnsc_bytes, yaddnsc_source_location,
  * yaddnsc_http_header) have a fixed layout and no version field; do not
- * append fields to them. YADDNSC_*_MIN_SIZE is the ABI 1.0 baseline and
- * stays pointed at that baseline when a later minor appends a field. A
+ * append fields to them. The ABI 1.0 YADDNSC_*_MIN_SIZE macros stay pointed
+ * at that baseline when a later minor appends a field; a new container
+ * introduced by a later minor gets its own MIN_SIZE. A
  * struct_size below the baseline is rejected for required inputs/outputs;
  * optional out_error below the baseline is left unchanged. The enclosing
  * protocol supplies the version for structures without major/minor fields.
@@ -64,7 +69,7 @@ extern "C" {
 #endif
 
 #define YADDNSC_DRIVER_ABI_MAJOR UINT16_C(1)
-#define YADDNSC_DRIVER_ABI_MINOR UINT16_C(0)
+#define YADDNSC_DRIVER_ABI_MINOR UINT16_C(1)
 #define YADDNSC_DRIVER_MAGIC UINT64_C(0x594144444E534300)
 
 /* True when the provider implements every requirement of need. The host is
@@ -119,9 +124,12 @@ static inline int yaddnsc_bytes_is_valid(yaddnsc_bytes value) {
 }
 
 /* ── Status codes ─────────────────────────────────────────────────────────
- * Closed set for ABI 1.0. A new status is a minor bump; a host accepts every
+ * Completion set for ABI 1.0; ABI 1.1 adds YADDNSC_STATUS_PENDING for async
+ * step results only. A new status is a minor bump; a host accepts every
  * status introduced by its minor and below. An unknown status makes an error
- * report illegal. On YADDNSC_STATUS_OK the callee does not write out_error.
+ * report illegal. PENDING is never written to out_error and is not accepted
+ * by the ABI 1.0 completion entries. On YADDNSC_STATUS_OK the callee does not
+ * write out_error.
  * On any other status, when out_error is non-NULL and large enough,
  * out_error->status must equal the returned status. out_error == NULL, or
  * a struct_size below the ABI 1.0 baseline, leaves the error struct unchanged;
@@ -144,6 +152,10 @@ typedef uint32_t yaddnsc_status;
 #define YADDNSC_STATUS_CANCELLED UINT32_C(9)
 #define YADDNSC_STATUS_INTERNAL_ERROR UINT32_C(10)
 
+/* ABI 1.1: a step result, not a completion status. Only async begin/resume
+ * may return it; create, validate, http_start and http_cancel must not. */
+#define YADDNSC_STATUS_PENDING UINT32_C(11)
+
 static inline int yaddnsc_status_is_valid(yaddnsc_status status) {
     switch (status) {
         case YADDNSC_STATUS_OK:
@@ -161,6 +173,12 @@ static inline int yaddnsc_status_is_valid(yaddnsc_status status) {
         default:
             return 0;
     }
+}
+
+/* The async step set: the 1.0 completion set plus PENDING. Use this for
+ * begin/resume results only; keep yaddnsc_status_is_valid for old entries. */
+static inline int yaddnsc_async_step_status_is_valid(yaddnsc_status status) {
+    return yaddnsc_status_is_valid(status) || status == YADDNSC_STATUS_PENDING;
 }
 
 /* ── Log levels ───────────────────────────────────────────────────────────
@@ -353,15 +371,146 @@ struct yaddnsc_host_services {
     int32_t (*is_cancelled)(void* context);
 };
 
+/* ABI 1.1 — optional log-level query.
+ *
+ * The provider allocates this full container and passes `&base` to the
+ * unchanged ABI 1.0 create() entry point. `base.struct_size` therefore covers
+ * the whole container and `base.abi_minor` is at least 1. A plugin must check
+ * the version and `yaddnsc_struct_has_field(base.struct_size,
+ * YADDNSC_HOST_SERVICES_V1_1_MIN_SIZE)` before reading `log_enabled`.
+ *
+ * log_enabled returns 0 when the level is disabled and non-zero when it is
+ * enabled. It is an early filter only: the plugin may still call log, and the
+ * host performs the final level check before emitting. A NULL field means the
+ * host provides no early answer; the plugin keeps the original unconditional
+ * log path. Never read this field from a copy typed as the 1.0 table; copy the
+ * 1.0 prefix first and use the SDK's validated accessor.
+ */
+typedef struct yaddnsc_host_services_v1_1 {
+    yaddnsc_host_services base;
+    /* 0 = disabled, non-zero = enabled; optional (may be NULL). */
+    int32_t (*log_enabled)(void* context, yaddnsc_log_level level);
+} yaddnsc_host_services_v1_1;
+
+/* ── ABI 1.1 async execution ───────────────────────────────────────────────
+ *
+ * Async mode uses a separate services table and a separate entry-point group.
+ * The only export common to both modes is get_descriptor. A plugin that
+ * adopts the new negotiation rules uses exactly one complete group and must
+ * not export a symbol from the other group. The min-0 case below is the
+ * legacy compatibility exception. The mode is fixed at load. Selection rules:
+ * - a plugin whose descriptor requires minor 0 and exports a complete sync
+ *   group stays sync, even if it also exports async names; the host keeps it
+ *   on the sync path and never supplies the async table;
+ * - async mode requires a descriptor minimum minor of at least 1 and a
+ *   complete async group;
+ * - a plugin requiring minor 1 or newer may still choose the sync group; the
+ *   declared minimum alone does not select async mode;
+ * - a plugin requiring minor 1 or newer must export exactly one complete
+ *   group, including the matching validate entry and no symbol from the other
+ *   group, or it is rejected.
+ * A failed async begin/resume never falls back to sync update, and a failed
+ * sync entry never falls back to async. The async table never carries the
+ * sync http_exchange callback, and neither table exposes a conversion to the
+ * other.
+ *
+ * Lifecycle: create → begin → [PENDING → resume]* → OK/error → destroy;
+ * create → validate → destroy; create → destroy when cancelled before begin.
+ * An instance serves one update or one standalone no-network validate and is
+ * not reused across cycles. Calls on one instance are serial; distinct
+ * instances may run concurrently without thread affinity.
+ *
+ * begin and resume return OK, PENDING or an existing completion status.
+ * PENDING requires at least one accepted, undelivered op (a queued/running
+ * HTTP request or a ready completion). A PENDING with no wake source is a
+ * contract violation. create, validate, http_start and http_cancel must not
+ * return PENDING. Events are delivered at most once per op; the order follows
+ * host completion, not network wall time.
+ */
+typedef struct yaddnsc_async_driver yaddnsc_async_driver;
+
+/* ABI 1.1 async services. Same version prefix as the sync table; a 1.1
+ * provider sets struct_size to sizeof(yaddnsc_async_services) and
+ * abi_minor >= 1. The table and context are valid from async_create through
+ * async_destroy and may be used only during host-called entry points.
+ *
+ * http_start: callable only during begin/resume. It accepts a command and
+ *   returns a non-zero op_id; the host may send the request only after the
+ *   step returns and the owner confirms the update continues. A request
+ *   accepted in a terminal step is not sent. On failure no op is created and
+ *   no event follows.
+ * http_cancel: callable only during begin/resume. Cancels an undelivered op
+ *   in the same cycle. Repeated cancels are idempotent; 0, unknown,
+ *   already-delivered and currently DELIVERING IDs are rejected. A start and
+ *   cancel in the same step fold into a CANCELLED completion without
+ *   sending. A READY completion is not overwritten by a later cancel.
+ * log and is_cancelled are required non-NULL. log_enabled is optional (may be
+ *   NULL); it has the same 0/non-zero early-filter contract as
+ *   yaddnsc_host_services_v1_1.
+ *
+ * The host copies an accepted request before the callback returns. Response
+ * and error views carried by an event are valid only for that resume call;
+ * the plugin or SDK copies what it retains.
+ */
+typedef struct yaddnsc_async_services {
+    uint32_t struct_size;
+    uint16_t abi_major;
+    uint16_t abi_minor;
+    void* context;
+    void (*log)(void* context, yaddnsc_log_level level, yaddnsc_string message,
+                const yaddnsc_source_location* location);
+    int32_t (*is_cancelled)(void* context);
+    yaddnsc_status (*http_start)(void* context, const yaddnsc_http_request* request,
+                                 uint64_t* out_op_id, yaddnsc_error* out_error);
+    yaddnsc_status (*http_cancel)(void* context, uint64_t op_id, yaddnsc_error* out_error);
+    int32_t (*log_enabled)(void* context, yaddnsc_log_level level);
+} yaddnsc_async_services;
+
+/* One host-to-plugin completion event. The plugin must validate struct_size,
+ * abi_major/abi_minor, kind, status and op_id before using the payload.
+ * Unknown kinds, unknown statuses, a missing required payload or an unknown
+ * op_id must not resume plugin business logic.
+ *
+ * HTTP_FINISHED: op_id != 0. OK => response non-NULL, error NULL. Any other
+ *   valid completion status => error non-NULL with a matching status,
+ *   response NULL.
+ * UPDATE_CANCELLED: op_id == 0, status CANCELLED, error non-NULL,
+ *   response NULL.
+ *
+ * The event, response, error and their views are host-owned and valid only
+ * for the resume call that received them. A future host minor may append
+ * fields; it must not use the two padding gaps as field slots.
+ */
+typedef uint32_t yaddnsc_event_kind;
+#define YADDNSC_EVENT_HTTP_FINISHED UINT32_C(1)
+#define YADDNSC_EVENT_UPDATE_CANCELLED UINT32_C(2)
+
+typedef struct yaddnsc_event {
+    uint32_t struct_size;
+    uint16_t abi_major;
+    uint16_t abi_minor;
+    yaddnsc_event_kind kind;
+    uint64_t op_id;
+    yaddnsc_status status;
+    const yaddnsc_http_response* response;
+    const yaddnsc_error* error;
+} yaddnsc_event;
+
 /* ── Exported entry points (extern "C", no exceptions, no C++ objects) ────
  *
- * Four entry points are REQUIRED: get_descriptor, create, destroy, update.
- * A fifth, yaddnsc_driver_validate, is OPTIONAL since ABI 1.0: the
- * host resolves it with dlsym. When it is absent, the plugin still loads
- * and can update, and config test fails because the host cannot confirm
- * driver_param. YADDNSC_DEFINE_DRIVER always exports the entry. The C++
- * helper's Driver::validate() is pure virtual: plugins must explicitly
- * check their schema and semantics (or accept parameterless configuration).
+ * The only export common to both modes is get_descriptor. In sync mode a
+ * plugin must also export create, destroy and update. A fifth,
+ * yaddnsc_driver_validate, is OPTIONAL since ABI 1.0: the host resolves it
+ * with dlsym. When it is absent, the plugin still loads and can update, and
+ * config test fails because the host cannot confirm driver_param.
+ * YADDNSC_DEFINE_DRIVER always exports the entry. The C++ helper's
+ * Driver::validate() is pure virtual: plugins must explicitly check their
+ * schema and semantics (or accept parameterless configuration).
+ *
+ * Async mode instead resolves async_create, async_destroy,
+ * update_async_begin and update_async_resume as one required group;
+ * async_validate is OPTIONAL. Those symbols are conditional requirements of
+ * async mode, never common required symbols of every ABI 1.x plugin.
  *
  * No entry point may let a C++ exception cross the ABI. The yaddnsc host
  * also catches exceptions as a backstop; another host may not. The backstop
@@ -410,6 +559,42 @@ yaddnsc_status yaddnsc_driver_update(yaddnsc_driver* driver, const yaddnsc_updat
 yaddnsc_status yaddnsc_driver_validate(yaddnsc_driver* driver, yaddnsc_string driver_param_json,
                                        yaddnsc_error* out_error);
 
+/* ── ABI 1.1 async entry points ────────────────────────────────────────────
+ *
+ * These symbols are REQUIRED only when the host selects async mode. Handle
+ * ownership mirrors the sync entries: on OK, *out_driver is non-NULL and the
+ * host owns the matching async_destroy; on any failure the plugin leaves it
+ * NULL and owns nothing. The host clears *out_driver before the call.
+ *
+ * async_validate is OPTIONAL. It is a standalone no-network check on a live
+ * instance between async_create and async_destroy; absence means the host
+ * cannot confirm driver_param, not that the plugin failed to load. Async
+ * create/validate must not start HTTP. Only begin/resume may use HTTP
+ * callbacks.
+ *
+ * out_error obeys the same caller-capacity rules as the sync entries. OK and
+ * PENDING do not write it. A plugin-written message must stay valid until the
+ * host copies it immediately after the entry returns; the host copies on the
+ * same worker before the next entry, async_destroy or a worker switch. HTTP
+ * callback errors use the step's fixed report buffer, valid until the next
+ * HTTP callback or the end of the current entry; log, log_enabled and
+ * is_cancelled do not invalidate it.
+ */
+yaddnsc_status yaddnsc_driver_async_create(const yaddnsc_async_services* services,
+                                           yaddnsc_async_driver** out_driver, yaddnsc_error* out_error);
+
+void yaddnsc_driver_async_destroy(yaddnsc_async_driver* driver);
+
+yaddnsc_status yaddnsc_driver_update_async_begin(yaddnsc_async_driver* driver,
+                                                 const yaddnsc_update_request* request,
+                                                 yaddnsc_error* out_error);
+
+yaddnsc_status yaddnsc_driver_update_async_resume(yaddnsc_async_driver* driver, const yaddnsc_event* event,
+                                                  yaddnsc_error* out_error);
+
+yaddnsc_status yaddnsc_driver_async_validate(yaddnsc_async_driver* driver, yaddnsc_string driver_param_json,
+                                             yaddnsc_error* out_error);
+
 /* ── struct_size helpers (C and C++) ──────────────────────────────────────*/
 
 /* Byte size covering `member` of `type` completely — the only legal test
@@ -431,6 +616,12 @@ static inline int yaddnsc_struct_has_field(uint32_t struct_size, uint32_t field_
 #define YADDNSC_UPDATE_REQUEST_MIN_SIZE YADDNSC_SIZEOF_THROUGH(yaddnsc_update_request, driver_param_json)
 #define YADDNSC_DRIVER_DESCRIPTOR_MIN_SIZE YADDNSC_SIZEOF_THROUGH(yaddnsc_driver_descriptor, capabilities)
 #define YADDNSC_HOST_SERVICES_MIN_SIZE YADDNSC_SIZEOF_THROUGH(yaddnsc_host_services, is_cancelled)
+/* ABI 1.1 extension baseline; not the 1.0 baseline. */
+#define YADDNSC_HOST_SERVICES_V1_1_MIN_SIZE \
+    YADDNSC_SIZEOF_THROUGH(yaddnsc_host_services_v1_1, log_enabled)
+/* ABI 1.1 async baselines; new types, not retargets of the 1.0 ones. */
+#define YADDNSC_ASYNC_SERVICES_MIN_SIZE YADDNSC_SIZEOF_THROUGH(yaddnsc_async_services, log_enabled)
+#define YADDNSC_EVENT_MIN_SIZE YADDNSC_SIZEOF_THROUGH(yaddnsc_event, error)
 
 /* Bytes required to read abi_major and abi_minor. This prefix does not move. */
 #define YADDNSC_ABI_VERSION_PREFIX_SIZE YADDNSC_SIZEOF_THROUGH(yaddnsc_driver_descriptor, abi_minor)
@@ -462,7 +653,7 @@ YADDNSC_STATIC_ASSERT(sizeof(void (*)(void)) == 8, "the v1 ABI assumes 64-bit fu
 
 /* Version and magic. */
 YADDNSC_STATIC_ASSERT(YADDNSC_DRIVER_ABI_MAJOR == 1, "ABI major changed — a new major is a new ABI, not an edit");
-YADDNSC_STATIC_ASSERT(YADDNSC_DRIVER_ABI_MINOR == 0,
+YADDNSC_STATIC_ASSERT(YADDNSC_DRIVER_ABI_MINOR == 1,
                       "ABI minor bump: update this pin deliberately (docs/development.md#plugin-abi-changes)");
 YADDNSC_STATIC_ASSERT(YADDNSC_DRIVER_MAGIC == UINT64_C(0x594144444E534300), "driver magic changed");
 
@@ -479,6 +670,11 @@ YADDNSC_STATIC_ASSERT(YADDNSC_STATUS_UPSTREAM_REJECTED == 7, "status value chang
 YADDNSC_STATIC_ASSERT(YADDNSC_STATUS_INVALID_RESPONSE == 8, "status value changed");
 YADDNSC_STATIC_ASSERT(YADDNSC_STATUS_CANCELLED == 9, "status value changed");
 YADDNSC_STATIC_ASSERT(YADDNSC_STATUS_INTERNAL_ERROR == 10, "status value changed");
+YADDNSC_STATIC_ASSERT(YADDNSC_STATUS_PENDING == 11, "status value changed");
+
+/* ABI 1.1 async event kinds. */
+YADDNSC_STATIC_ASSERT(YADDNSC_EVENT_HTTP_FINISHED == 1, "event kind value changed");
+YADDNSC_STATIC_ASSERT(YADDNSC_EVENT_UPDATE_CANCELLED == 2, "event kind value changed");
 
 /* Log levels — a closed set. */
 YADDNSC_STATIC_ASSERT(YADDNSC_LOG_TRACE == 0, "log level value changed");
@@ -513,6 +709,40 @@ YADDNSC_STATIC_ASSERT(YADDNSC_HOST_SERVICES_MIN_SIZE == 40, "ABI 1.0 baseline mo
 YADDNSC_STATIC_ASSERT(YADDNSC_SIZEOF_THROUGH(yaddnsc_host_services, abi_minor) == YADDNSC_ABI_VERSION_PREFIX_SIZE,
                       "host services version prefix diverges from the descriptor");
 
+/* ABI 1.1 host-services extension: the old table is the first member, and the
+ * new field starts at the old table's sizeof. */
+YADDNSC_STATIC_ASSERT(sizeof(yaddnsc_host_services_v1_1) == 48, "ABI 1.1 host services layout changed");
+YADDNSC_STATIC_ASSERT(YADDNSC_HOST_SERVICES_V1_1_MIN_SIZE == 48, "ABI 1.1 host services baseline moved");
+YADDNSC_STATIC_ASSERT(YADDNSC_ALIGNOF(yaddnsc_host_services_v1_1) == 8,
+                      "ABI 1.1 host services alignment changed");
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_host_services_v1_1, base, 0);
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_host_services_v1_1, log_enabled, 40);
+
+/* ABI 1.1 async types. The event type deliberately keeps two padding gaps;
+ * they are not field slots for a future minor. */
+YADDNSC_STATIC_ASSERT(sizeof(yaddnsc_async_services) == 56, "ABI 1.1 async services layout changed");
+YADDNSC_STATIC_ASSERT(YADDNSC_ASYNC_SERVICES_MIN_SIZE == 56, "ABI 1.1 async services baseline moved");
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_async_services, struct_size, 0);
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_async_services, abi_major, 4);
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_async_services, abi_minor, 6);
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_async_services, context, 8);
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_async_services, log, 16);
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_async_services, is_cancelled, 24);
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_async_services, http_start, 32);
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_async_services, http_cancel, 40);
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_async_services, log_enabled, 48);
+
+YADDNSC_STATIC_ASSERT(sizeof(yaddnsc_event) == 48, "ABI 1.1 event layout changed");
+YADDNSC_STATIC_ASSERT(YADDNSC_EVENT_MIN_SIZE == 48, "ABI 1.1 event baseline moved");
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_event, struct_size, 0);
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_event, abi_major, 4);
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_event, abi_minor, 6);
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_event, kind, 8);
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_event, op_id, 16);
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_event, status, 24);
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_event, response, 32);
+YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_event, error, 40);
+
 /* Leaf types have a fixed layout and no version field: sizes and alignment
  * never change. */
 YADDNSC_STATIC_ASSERT(sizeof(yaddnsc_string) == 16, "yaddnsc_string layout changed");
@@ -532,6 +762,8 @@ YADDNSC_STATIC_ASSERT(YADDNSC_ALIGNOF(yaddnsc_http_response) == 8, "yaddnsc_http
 YADDNSC_STATIC_ASSERT(YADDNSC_ALIGNOF(yaddnsc_update_request) == 8, "yaddnsc_update_request alignment changed");
 YADDNSC_STATIC_ASSERT(YADDNSC_ALIGNOF(yaddnsc_driver_descriptor) == 8, "yaddnsc_driver_descriptor alignment changed");
 YADDNSC_STATIC_ASSERT(YADDNSC_ALIGNOF(yaddnsc_host_services) == 8, "yaddnsc_host_services alignment changed");
+YADDNSC_STATIC_ASSERT(YADDNSC_ALIGNOF(yaddnsc_async_services) == 8, "yaddnsc_async_services alignment changed");
+YADDNSC_STATIC_ASSERT(YADDNSC_ALIGNOF(yaddnsc_event) == 8, "yaddnsc_event alignment changed");
 
 YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_source_location, file, 0);
 YADDNSC_ABI_ASSERT_OFFSET(yaddnsc_source_location, line, 16);

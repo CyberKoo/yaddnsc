@@ -4,7 +4,7 @@
 #include <vector>
 
 #include <glaze/glaze.hpp>
-#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/async_driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/format.hpp>
 #include <yaddnsc/sdk/redact.hpp>
@@ -13,13 +13,14 @@
 #include "response.hpp"
 
 namespace fmt = yaddnsc::sdk::fmt;
+using yaddnsc::sdk::AsyncHttpResponse;
+using yaddnsc::sdk::AsyncServices;
+using yaddnsc::sdk::AsyncUpdateContext;
 using yaddnsc::sdk::Error;
 using yaddnsc::sdk::HttpRequest;
-using yaddnsc::sdk::HttpResponse;
 using yaddnsc::sdk::Method;
 using yaddnsc::sdk::Result;
-using yaddnsc::sdk::Services;
-using yaddnsc::sdk::UpdateContext;
+using yaddnsc::sdk::Task;
 using yaddnsc::sdk::UpdateRequest;
 using yaddnsc::sdk::redact::truncate_for_log;
 
@@ -29,8 +30,8 @@ constexpr std::string_view API_URL =
 constexpr std::string_view DRIVER_NAME = "porkbun";
 }  // namespace
 
-YADDNSC_DEFINE_DRIVER(PorkbunDriver, "porkbun", "Updates DNS records via the Porkbun API", "Kotarou", "1.0.0",
-                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA, 0)
+YADDNSC_DEFINE_ASYNC_DRIVER(PorkbunDriver, "porkbun", "Updates DNS records via the Porkbun API", "Kotarou", "1.0.0",
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 PorkbunParams PorkbunDriver::parse_params(std::string_view json) {
     auto cfg = parse_config<PorkbunParams>(json);
@@ -51,7 +52,7 @@ Result PorkbunDriver::validate(std::string_view driver_param_json) const {
     return {};
 }
 
-Result PorkbunDriver::update(UpdateContext& context) {
+Task<Result> PorkbunDriver::update(AsyncUpdateContext& context) {
     const auto& params = context.request();
     const auto cfg = parse_params(params.driver_param_json);
 
@@ -72,32 +73,32 @@ Result PorkbunDriver::update(UpdateContext& context) {
     return run_update(context, DRIVER_NAME, request, check_response);
 }
 
-bool PorkbunDriver::check_response(const HttpResponse& response, const Services& services) {
-    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
+bool PorkbunDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
+    YADDNSC_ASYNC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
 
     auto resp = parse_response<PorkbunResponse>(response.body);
     if (resp && resp->status == "SUCCESS") {
-        YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully");
+        YADDNSC_ASYNC_SDK_LOG_DEBUG(services, "DNS record updated successfully");
         return true;
     }
 
     // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
     if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
-        YADDNSC_SDK_LOG_WARN(services, "Porkbun API request failed with HTTP status {}: {}", response.status_code,
+        YADDNSC_ASYNC_SDK_LOG_WARN(services, "Porkbun API request failed with HTTP status {}: {}", response.status_code,
                              truncate_for_log(response.body));
         return false;
     }
 
     if (!resp) {
-        YADDNSC_SDK_LOG_ERROR(services, "Failed to parse Porkbun API response");
+        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Failed to parse Porkbun API response");
         return false;
     }
 
     if (resp->message.has_value()) {
-        YADDNSC_SDK_LOG_ERROR(services, "Porkbun API error {}: {}", resp->code.value_or("unknown"),
+        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Porkbun API error {}: {}", resp->code.value_or("unknown"),
                               resp->message.value());
     } else {
-        YADDNSC_SDK_LOG_ERROR(services, "Porkbun API request failed with status: {}", resp->status);
+        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Porkbun API request failed with status: {}", resp->status);
     }
 
     return false;

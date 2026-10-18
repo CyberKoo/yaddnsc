@@ -1,6 +1,7 @@
 /// Loader-rejection fixture: struct_size covers the version prefix and the
-/// descriptor reports ABI 1.0, but the size stops before the ABI 1.0 baseline.
-/// The loader must accept the version and then reject the short baseline.
+/// descriptor reports a compatible ABI 1.x version, but the size stops before
+/// the ABI 1.0 baseline. The loader must accept the version and then reject
+/// the short baseline.
 
 #include <yaddnsc/sdk/driver_abi.h>
 

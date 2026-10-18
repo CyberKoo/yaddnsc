@@ -44,7 +44,7 @@ TEST(PorkbunDriverTest, Descriptor_ReturnsExpectedMetadata) {
     ASSERT_NE(descriptor, nullptr);
     EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
     EXPECT_EQ(descriptor->abi_major, YADDNSC_DRIVER_ABI_MAJOR);
-    EXPECT_EQ(descriptor->abi_minor, YADDNSC_DRIVER_ABI_MINOR);
+    EXPECT_EQ(descriptor->abi_minor, UINT16_C(1));  // async SDK drivers require ABI 1.1
     EXPECT_EQ(std::string_view(descriptor->name.data, descriptor->name.size), "porkbun");
     EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
               "Updates DNS records via the Porkbun API");
@@ -190,7 +190,7 @@ TEST(PorkbunDriverTest, Update_ErrorWithoutMessageOrCode_ReturnsUpstreamRejected
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-// ── validate (OPTIONAL yaddnsc_driver_validate entry) ────────────────────────
+// ── validate (OPTIONAL yaddnsc_driver_async_validate entry) ────────────────────────
 //
 // Validation is a pure parse of driver_params against the driver's schema: a
 // valid config passes; a missing required key and malformed JSON both map to
@@ -222,8 +222,8 @@ TEST(PorkbunDriverTest, Validate_MalformedJson_ReturnsInvalidConfig) {
 
 TEST(PorkbunDriverTest, Entries_NullArgumentsRejected) {
     EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
-    EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
-    yaddnsc_driver_destroy(nullptr);  // must be a no-op, must not crash
+    EXPECT_EQ(yaddnsc_driver_update_async_begin(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
+    yaddnsc_driver_async_destroy(nullptr);  // must be a no-op, must not crash
 }
 
 TEST(PorkbunDriverTest, ValidateAndUpdateRejectInvalidRequiredFieldsBeforeHttp) {

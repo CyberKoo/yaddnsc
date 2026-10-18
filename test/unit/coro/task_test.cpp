@@ -773,8 +773,9 @@ TEST(Nursery, RunnerResources_RemainAliveThroughCancellationDrain) {
 }
 
 coro::Task<void> borrow_until_cancelled(const std::weak_ptr<int>& token, bool& finished) {
+    coro::Notification never_notified;
     try {
-        co_await coro::sleep_for(100ms);
+        co_await never_notified.wait();
     } catch (const coro::Cancelled&) {
         EXPECT_FALSE(token.expired());
         finished = true;

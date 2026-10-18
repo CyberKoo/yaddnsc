@@ -181,6 +181,34 @@ evidence that no update was sent. The mDNS group users (`test_mdns_coro`,
 `integration_scenarios`) hold the `mdns-multicast` `RESOURCE_LOCK` and must not
 be run concurrently outside CTest.
 
+### Deterministic timing regressions
+
+Concurrency tests establish ordering through entry/retirement notifications and
+release gates, not fixed sleeps or total wall-time assertions. A started flag
+alone does not keep a worker alive: the worker stays behind its gate until the
+cancellation or queue state under test has been observed. TLS capture ends on a
+complete ClientHello, not a quiet interval, and logging overflow keeps its drain
+gate closed until after the counter is inspected.
+
+Pure timer semantics run on `ManualClock`; the busy-ready-queue test advances
+that clock at a known checkpoint while ready work remains. Async gateway tests
+that also rendezvous with real offloads use a paused test clock, so an unrelated
+exchange deadline cannot end the scenario before cancellation. The production
+synchronous bridge's worker deadline remains real where that deadline is the
+subject of the test; it is not compared with a server response delay or a
+latency threshold. Sync cancellation regressions additionally require the
+plugin-observed `CANCELLED` status: a worker-deadline `NETWORK_ERROR` fallback
+cannot satisfy them. On Linux, a test-only poll wrapper checks pending SIGTERM
+delivery at an atomic-unmask kernel wait boundary; registration-only coverage
+is kept separately on all supported POSIX targets.
+Retry-After date arithmetic is checked against a supplied,
+fixed clock sample, while the normal SDK boundary still samples system time.
+
+Gate-based test binaries have a 120-second CTest watchdog. It diagnoses a
+stalled test process; it does not release a fixture, choose a functional result,
+or prove that an operation was fast enough. Manual invocations of those binaries
+should likewise use an external runner timeout.
+
 ### Coroutine cancellation regressions
 
 `test_coro_lifecycle` covers execution retirement, nursery resource ownership,
@@ -192,9 +220,10 @@ runs inside the loop's retirement transaction: unregistering its own timer and f
 registration, cancelling a sibling's parked wait, posting to the inbox and
 spawning into an open nursery each have a case. Those cases assert observable
 state — a dispatch count that stays zero, a resumed waiter, a batch-order
-observation — never elapsing real time: timers run on `ManualClock`, and the
-only way a manual clock advances is the loop jumping to the next timer deadline,
-so a lost disarming shows up as a checked deadline jump instead of a sleep bet.
+observation — never elapsing real time: timers run on `ManualClock`, whose
+advancement is controlled by the test and idle-loop deadline jumps, not OS
+scheduling. A lost disarming shows up as a checked deadline jump instead of a
+sleep bet.
 `test_coro` covers the paced I/O scan in whole resumed frames:
 `DRAIN_POLL_FRAME_BUDGET` frames into a self-refilling ready chain the loop still
 polls without blocking, and a new fd registration forces a scan ahead of that
@@ -534,8 +563,18 @@ Minor bump (`YADDNSC_DRIVER_ABI_MINOR` + 1):
   (`yaddnsc_error`, `yaddnsc_http_request`, `yaddnsc_http_response`,
   `yaddnsc_update_request`, `yaddnsc_driver_descriptor`,
   `yaddnsc_host_services`);
+- adding an optional host-services extension container whose first member is
+  the unchanged previous table (`yaddnsc_host_services_v1_1`); the provider
+  passes `&base` to the existing entry point and `base.struct_size` covers the
+  whole container. This is the preferred form when growing the 1.0 type would
+  break existing aggregate initializers compiled with
+  `-Wmissing-field-initializers -Werror`;
 - adding a host-services callback, capability bit, status code, log level,
-  or HTTP method.
+  or HTTP method;
+- adding an async execution group (async create/destroy/begin/resume, optional
+  async validate) and its services/event types. The async symbols are
+  conditional on async mode, never common required entry points for every
+  ABI 1.x plugin.
 
 Major bump (`YADDNSC_DRIVER_ABI_MAJOR` + 1 — a new ABI; open a design
 discussion first):
@@ -553,17 +592,25 @@ Every ABI minor bump must:
 
 1. append new fields at the END of the struct — existing offsets never move
    (note: inserting into tail padding changes no offset, and is still
-   forbidden);
+   forbidden). For the host-services extension container, the old table is
+   the first member at offset 0 and the new field starts at the old table's
+   `sizeof`; the 1.0 type itself does not grow;
 2. read every post-1.0 field behind `yaddnsc_struct_has_field`;
 3. pin new constant values in the assertion block of `driver_abi.h`, and
    update the `YADDNSC_DRIVER_ABI_MINOR` pin there;
 4. keep the `YADDNSC_*_MIN_SIZE` macros pointed at the ABI 1.0 baseline —
-   never retarget them;
+   never retarget them. A new container gets its own
+   `YADDNSC_<TYPE>_MIN_SIZE` (e.g. `YADDNSC_HOST_SERVICES_V1_1_MIN_SIZE`);
+   that is a new baseline, not a retarget of the 1.0 one;
 5. keep `test_abi_freeze_compat` green: the frozen v1.0 plugin under
    `test/plugin/abi_baseline/` compiles against the frozen 1.0 header copy
    and must keep loading and running unchanged;
 6. never edit the frozen copy — CI verifies its sha256
-   (`test/plugin/abi_baseline/v1_0/driver_abi.h.sha256`).
+   (`test/plugin/abi_baseline/v1_0/driver_abi.h.sha256`);
+7. keep sync and async execution groups mutually exclusive at load: a
+   new-protocol module must export exactly one complete group, while a
+   minimum-0 legacy sync module keeps its old sync path even when it also
+   exports async names.
 
 The compile-time pins in `driver_abi.h` (constant values, field offsets,
 baselines, leaf sizes, alignment) run in every build on every target, so a

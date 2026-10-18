@@ -12,7 +12,7 @@
 #include <libxml/xmlmemory.h>
 #include <libxml/xmlstring.h>
 #include <libxml/xpath.h>
-#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/async_driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/format.hpp>
 #include <yaddnsc/sdk/redact.hpp>
@@ -22,13 +22,14 @@
 #include "config.hpp"
 
 namespace fmt = yaddnsc::sdk::fmt;
+using yaddnsc::sdk::AsyncHttpResponse;
+using yaddnsc::sdk::AsyncServices;
+using yaddnsc::sdk::AsyncUpdateContext;
 using yaddnsc::sdk::Error;
 using yaddnsc::sdk::HttpRequest;
-using yaddnsc::sdk::HttpResponse;
 using yaddnsc::sdk::Method;
 using yaddnsc::sdk::Result;
-using yaddnsc::sdk::Services;
-using yaddnsc::sdk::UpdateContext;
+using yaddnsc::sdk::Task;
 using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
@@ -77,8 +78,8 @@ constexpr std::string_view DRIVER_NAME = "route53";
 
 }  // anonymous namespace
 
-YADDNSC_DEFINE_DRIVER(Route53Driver, "route53", "Updates DNS records via the AWS Route 53 API", "Kotarou", "1.0.0",
-                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA, 0)
+YADDNSC_DEFINE_ASYNC_DRIVER(Route53Driver, "route53", "Updates DNS records via the AWS Route 53 API", "Kotarou", "1.0.0",
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 // =============================================================================
 //  Route53Driver::update
@@ -112,7 +113,7 @@ Result Route53Driver::validate(std::string_view driver_param_json) const {
     return {};
 }
 
-Result Route53Driver::update(UpdateContext& context) {
+Task<Result> Route53Driver::update(AsyncUpdateContext& context) {
     const auto& params = context.request();
     const auto cfg = parse_params(params.driver_param_json);
 
@@ -178,12 +179,12 @@ Result Route53Driver::update(UpdateContext& context) {
 //  Route53Driver::check_response
 // =============================================================================
 
-bool Route53Driver::check_response(const HttpResponse& response, const Services& services) {
-    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
+bool Route53Driver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
+    YADDNSC_ASYNC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
 
     // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
     if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
-        YADDNSC_SDK_LOG_WARN(services, "Route 53 API request failed with HTTP status {}: {}", response.status_code,
+        YADDNSC_ASYNC_SDK_LOG_WARN(services, "Route 53 API request failed with HTTP status {}: {}", response.status_code,
                              truncate_for_log(response.body));
         return false;
     }
@@ -192,13 +193,13 @@ bool Route53Driver::check_response(const HttpResponse& response, const Services&
         // Route 53 returns HTTP 200 with <ChangeResourceRecordSetsResponse> on success.
         auto doc = xml_raii::XmlDocument::parse(response.body);
         if (!doc) {
-            YADDNSC_SDK_LOG_ERROR(services, "Failed to parse Route 53 response XML");
+            YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Failed to parse Route 53 response XML");
             return false;
         }
 
         // Register the Route 53 XML namespace.
         if (!doc->register_ns("r53", R53_XMLNS)) {
-            YADDNSC_SDK_LOG_ERROR(services, "Failed to register Route 53 XML namespace");
+            YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Failed to register Route 53 XML namespace");
             return false;
         }
 
@@ -206,15 +207,15 @@ bool Route53Driver::check_response(const HttpResponse& response, const Services&
         constexpr const char* XPATH_STATUS = "//r53:ChangeResourceRecordSetsResponse/r53:ChangeInfo/r53:Status/text()";
         const auto status = doc->first_text(XPATH_STATUS);
         if (!status) {
-            YADDNSC_SDK_LOG_ERROR(services, "Route 53 response missing <ChangeInfo><Status> element");
+            YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Route 53 response missing <ChangeInfo><Status> element");
             return false;
         }
 
         const bool success = (*status == "PENDING" || *status == "INSYNC");
         if (success) {
-            YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully (status: {})", *status);
+            YADDNSC_ASYNC_SDK_LOG_DEBUG(services, "DNS record updated successfully (status: {})", *status);
         } else {
-            YADDNSC_SDK_LOG_ERROR(services, "Route 53 returned unexpected status: {}", *status);
+            YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Route 53 returned unexpected status: {}", *status);
         }
         return success;
     }
@@ -238,22 +239,22 @@ bool Route53Driver::check_response(const HttpResponse& response, const Services&
                             }
                         }
                     }
-                    YADDNSC_SDK_LOG_ERROR(services, "Route 53 API error code {}: {}",
+                    YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Route 53 API error code {}: {}",
                                           code ? reinterpret_cast<const char*>(code) : "no code",
                                           msg ? reinterpret_cast<const char*>(msg) : "unknown");
                     xmlFree(code);
                     xmlFree(msg);
                 }
             } else {
-                YADDNSC_SDK_LOG_ERROR(services, "Route 53 API request failed with HTTP status {}: {}",
+                YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Route 53 API request failed with HTTP status {}: {}",
                                       response.status_code, truncate_for_log(response.body));
             }
         } else {
-            YADDNSC_SDK_LOG_ERROR(services, "Route 53 API request failed with HTTP status {}: {}", response.status_code,
+            YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Route 53 API request failed with HTTP status {}: {}", response.status_code,
                                   truncate_for_log(response.body));
         }
     } else {
-        YADDNSC_SDK_LOG_ERROR(services, "Route 53 API request failed with HTTP status {}", response.status_code);
+        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Route 53 API request failed with HTTP status {}", response.status_code);
     }
 
     return false;

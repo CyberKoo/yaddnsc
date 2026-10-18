@@ -5,7 +5,7 @@
 #include <vector>
 
 #include <glaze/glaze.hpp>
-#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/async_driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/format.hpp>
 #include <yaddnsc/sdk/redact.hpp>
@@ -14,13 +14,14 @@
 #include "response.hpp"
 
 namespace fmt = yaddnsc::sdk::fmt;
+using yaddnsc::sdk::AsyncHttpResponse;
+using yaddnsc::sdk::AsyncServices;
+using yaddnsc::sdk::AsyncUpdateContext;
 using yaddnsc::sdk::Error;
 using yaddnsc::sdk::HttpRequest;
-using yaddnsc::sdk::HttpResponse;
 using yaddnsc::sdk::Method;
 using yaddnsc::sdk::Result;
-using yaddnsc::sdk::Services;
-using yaddnsc::sdk::UpdateContext;
+using yaddnsc::sdk::Task;
 using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
@@ -28,8 +29,8 @@ constexpr std::string_view API_URL = "https://api.vultr.com/v2/domains/{DOMAIN}/
 constexpr std::string_view DRIVER_NAME = "vultr";
 }  // namespace
 
-YADDNSC_DEFINE_DRIVER(VultrDriver, "vultr", "Updates DNS records via the Vultr API", "Kotarou", "1.0.0",
-                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA, 0)
+YADDNSC_DEFINE_ASYNC_DRIVER(VultrDriver, "vultr", "Updates DNS records via the Vultr API", "Kotarou", "1.0.0",
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 VultrParams VultrDriver::parse_params(std::string_view json) {
     auto cfg = parse_config<VultrParams>(json);
@@ -50,7 +51,7 @@ Result VultrDriver::validate(std::string_view driver_param_json) const {
     return {};
 }
 
-Result VultrDriver::update(UpdateContext& context) {
+Task<Result> VultrDriver::update(AsyncUpdateContext& context) {
     const auto& params = context.request();
     const auto cfg = parse_params(params.driver_param_json);
 
@@ -66,32 +67,32 @@ Result VultrDriver::update(UpdateContext& context) {
     return run_update(context, DRIVER_NAME, request, check_response);
 }
 
-bool VultrDriver::check_response(const HttpResponse& response, const Services& services) {
-    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
+bool VultrDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
+    YADDNSC_ASYNC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
 
     // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
     if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
-        YADDNSC_SDK_LOG_WARN(services, "Vultr API request failed with HTTP status {}: {}", response.status_code,
+        YADDNSC_ASYNC_SDK_LOG_WARN(services, "Vultr API request failed with HTTP status {}: {}", response.status_code,
                              truncate_for_log(response.body));
         return false;
     }
 
     // Vultr returns 204 No Content with an empty body on success.
     if (response.status_code == 204) {
-        YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully");
+        YADDNSC_ASYNC_SDK_LOG_DEBUG(services, "DNS record updated successfully");
         return true;
     }
 
     // Error responses include a JSON body with an error message.
     if (!response.body.empty()) {
         if (auto result = parse_response<VultrErrorResponse>(response.body); result && !result->error.empty()) {
-            YADDNSC_SDK_LOG_ERROR(services, "Vultr API error with status {}: {}", result->status, result->error);
+            YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Vultr API error with status {}: {}", result->status, result->error);
         } else {
-            YADDNSC_SDK_LOG_ERROR(services, "Vultr API request failed with HTTP status {}: {}", response.status_code,
+            YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Vultr API request failed with HTTP status {}: {}", response.status_code,
                                   truncate_for_log(response.body));
         }
     } else {
-        YADDNSC_SDK_LOG_ERROR(services, "Vultr API request failed with HTTP status {}", response.status_code);
+        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Vultr API request failed with HTTP status {}", response.status_code);
     }
 
     return false;

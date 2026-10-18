@@ -7,18 +7,22 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <expected>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
 
-#include <expected>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <spdlog/sinks/base_sink.h>
+#include <spdlog/spdlog.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "domain/config/runtime_config.h"
@@ -78,7 +82,8 @@ TEST(PluginLifecycle, DescriptorIsCopiedIntoHostStorage) {
     EXPECT_EQ(descriptor.description, "Contract-test whiteboard driver");
     EXPECT_EQ(descriptor.capabilities, YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA);
     EXPECT_EQ(descriptor.abi_major, YADDNSC_DRIVER_ABI_MAJOR);
-    EXPECT_EQ(descriptor.abi_minor, YADDNSC_DRIVER_ABI_MINOR);
+    EXPECT_EQ(descriptor.abi_minor, UINT16_C(0));  // the whiteboard plugin declares its minimum as ABI 1.0
+    EXPECT_EQ(module->mode(), ExecutionMode::Sync);
 }
 
 TEST(PluginLifecycle, CreateUpdateDestroyOrdering) {
@@ -268,8 +273,8 @@ TEST(PluginLifecycle, LoaderRejectsNewerMinor) {
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(NEWER_MINOR_FIXTURE));
-    EXPECT_THAT(module.error().message, ::testing::HasSubstr("requires ABI 1.1"));
-    EXPECT_THAT(module.error().message, ::testing::HasSubstr("this host provides 1.0"));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("requires ABI 1.2"));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("this host provides 1.1"));
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("upgrade yaddnsc"));
 }
 
@@ -403,6 +408,24 @@ TEST(PluginLifecycle, DestroyFirewallContainsPluginException) {
     EXPECT_NO_THROW(module->destroy(handle));
 }
 
+TEST(PluginLifecycle, AsyncDestroyFailureIsFatal) {
+    auto module = PluginModule::load(ASYNC_THROWING_DESTROY_FIXTURE);
+    ASSERT_TRUE(module.has_value()) << module.error().message;
+    ASSERT_EQ(module->mode(), ExecutionMode::Async);
+
+    yaddnsc_async_services services{};
+    services.struct_size = static_cast<uint32_t>(sizeof(services));
+    services.abi_major = YADDNSC_DRIVER_ABI_MAJOR;
+    services.abi_minor = YADDNSC_DRIVER_ABI_MINOR;
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    yaddnsc_async_driver* handle = nullptr;
+    ASSERT_EQ(module->async_create(services, &handle, error), YADDNSC_STATUS_OK);
+    ASSERT_NE(handle, nullptr);
+
+    EXPECT_DEATH(module->async_destroy(handle), "");
+}
+
 TEST(PluginLifecycle, DestroyFirewallContainsNonStdException) {
     auto module = PluginModule::load(THROWING_DESTROY_FIXTURE);
     ASSERT_TRUE(module.has_value()) << module.error().message;
@@ -482,6 +505,138 @@ TEST(PluginLifecycle, CreateFailureAfterStoringHandleDestroysAndClearsIt) {
     get_state(&destroys, &last_destroyed);
     EXPECT_EQ(destroys, 2u);
     EXPECT_EQ(last_destroyed, token());
+}
+
+namespace {
+
+class AsyncCreateCleanupTest : public testing::Test {
+protected:
+    void SetUp() override {
+        auto loaded = PluginModule::load(ASYNC_CREATE_CLEANUP_FIXTURE);
+        ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+        module = std::move(*loaded);
+        auto library = SharedLibrary::open(ASYNC_CREATE_CLEANUP_FIXTURE);
+        ASSERT_TRUE(library.has_value()) << library.error();
+        control = std::move(*library);
+        set_scenario =
+            reinterpret_cast<void (*)(int)>(control->resolve("async_create_cleanup_set_scenario"));  // NOLINT
+        get_state = reinterpret_cast<void (*)(uint64_t*, uint64_t*, uintptr_t*)>(
+            control->resolve("async_create_cleanup_get_state"));  // NOLINT
+        ASSERT_NE(set_scenario, nullptr);
+        ASSERT_NE(get_state, nullptr);
+        services.struct_size = static_cast<uint32_t>(sizeof(services));
+        services.abi_major = YADDNSC_DRIVER_ABI_MAJOR;
+        services.abi_minor = YADDNSC_DRIVER_ABI_MINOR;
+        previous_logger = spdlog::default_logger();
+    }
+
+    void TearDown() override {
+        if (previous_logger) {
+            spdlog::set_default_logger(previous_logger);
+        }
+    }
+
+    std::optional<PluginModule> module;
+    std::optional<SharedLibrary> control;
+    void (*set_scenario)(int) = nullptr;
+    void (*get_state)(uint64_t*, uint64_t*, uintptr_t*) = nullptr;
+    yaddnsc_async_services services{};
+    std::shared_ptr<spdlog::logger> previous_logger;
+};
+
+class ThrowingCleanupLogSink : public spdlog::sinks::base_sink<std::mutex> {
+public:
+    unsigned calls = 0;
+
+protected:
+    void sink_it_(const spdlog::details::log_msg&) override {
+        ++calls;
+        throw std::runtime_error("cleanup diagnostic failed");
+    }
+
+    void flush_() override {}
+};
+
+}  // namespace
+
+TEST_F(AsyncCreateCleanupTest, CapturesValidReportsBeforeDestroyAndPreservesInvalidReports) {
+    for (int scenario = 0; scenario <= 13; ++scenario) {
+        if (scenario == 10) {
+            continue;  // Throwing destroy is covered by the death test below.
+        }
+        SCOPED_TRACE(scenario);
+        set_scenario(scenario);
+        yaddnsc_error error{};
+        error.struct_size = scenario == 11 ? YADDNSC_ERROR_MIN_SIZE - 1 : static_cast<uint32_t>(sizeof(error));
+        int caller_token = 0;
+        auto* handle = reinterpret_cast<yaddnsc_async_driver*>(&caller_token);  // NOLINT
+        const auto status = module->async_create(services, &handle, error);
+        EXPECT_EQ(handle, nullptr);
+        uint64_t creates = 0;
+        uint64_t destroys = 0;
+        uintptr_t plugin_message = 0;
+        get_state(&creates, &destroys, &plugin_message);
+        EXPECT_EQ(creates, 1u);
+        EXPECT_EQ(destroys, 1u);
+        EXPECT_NE(reinterpret_cast<uintptr_t>(error.message.data), plugin_message);
+
+        if (scenario == 0 || scenario == 1 || scenario == 2 || scenario == 7 || scenario == 8) {
+            const bool threw = scenario == 7 || scenario == 8;
+            EXPECT_EQ(status, threw ? YADDNSC_STATUS_INTERNAL_ERROR : YADDNSC_STATUS_RATE_LIMITED);
+            ASSERT_GE(error.struct_size, YADDNSC_ERROR_MIN_SIZE);
+            EXPECT_EQ(error.status, status);
+            EXPECT_EQ(error.retry_after_seconds, threw ? 0u : 73u);
+            ASSERT_NE(error.message.data, nullptr);
+            const std::string_view message(error.message.data, error.message.size);
+            if (scenario == 7) {
+                EXPECT_EQ(message, "async create threw after handle");
+            } else if (scenario == 8) {
+                EXPECT_EQ(message, "unknown exception from plugin async_create");
+            } else {
+                EXPECT_EQ(message, std::string(scenario == 1 ? 0 : scenario == 2 ? 511 : 23, 'm'));
+            }
+        } else {
+            EXPECT_EQ(status, scenario == 6    ? static_cast<yaddnsc_status>(9999)
+                              : scenario == 12 ? YADDNSC_STATUS_PENDING
+                                               : YADDNSC_STATUS_RATE_LIMITED);
+            // This is the existing gateway's malformed-report predicate: it
+            // must not become a normal, valid RATE_LIMITED error after cleanup.
+            EXPECT_LT(error.struct_size, YADDNSC_ERROR_MIN_SIZE);
+            EXPECT_EQ(error.message.data, nullptr);
+            EXPECT_EQ(error.retry_after_seconds, 0u);
+        }
+    }
+}
+
+TEST_F(AsyncCreateCleanupTest, DiagnosticExceptionsCannotSkipCleanupOrReplaceSnapshot) {
+    auto sink = std::make_shared<ThrowingCleanupLogSink>();
+    auto logger = std::make_shared<spdlog::logger>("throwing-cleanup-log", sink);
+    logger->set_level(spdlog::level::warn);
+    logger->set_error_handler([](const std::string&) { throw std::runtime_error("log handler failed"); });
+    spdlog::set_default_logger(logger);
+    set_scenario(0);
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    yaddnsc_async_driver* handle = nullptr;
+    EXPECT_EQ(module->async_create(services, &handle, error), YADDNSC_STATUS_RATE_LIMITED);
+    EXPECT_EQ(handle, nullptr);
+    EXPECT_EQ(std::string_view(error.message.data, error.message.size), std::string(23, 'm'));
+    EXPECT_EQ(error.retry_after_seconds, 73u);
+    EXPECT_EQ(sink->calls, 1u);
+    uint64_t creates = 0;
+    uint64_t destroys = 0;
+    uintptr_t message = 0;
+    get_state(&creates, &destroys, &message);
+    EXPECT_EQ(creates, 1u);
+    EXPECT_EQ(destroys, 1u);
+}
+
+TEST_F(AsyncCreateCleanupTest, FailedCreateDestroyExceptionIsFatal) {
+    set_scenario(10);
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    yaddnsc_async_driver* handle = nullptr;
+    EXPECT_DEATH({ [[maybe_unused]] const auto status = module->async_create(services, &handle, error); }, "");
 }
 
 TEST(PluginLifecycle, CreateNullOutDriverIsInvalidArgument) {

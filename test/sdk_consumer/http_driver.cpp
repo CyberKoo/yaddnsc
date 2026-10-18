@@ -1,8 +1,15 @@
 #include <optional>
+#include <string_view>
+#include <type_traits>
+#include <vector>
 
 #include <yaddnsc/sdk/driver.hpp>
 
 namespace sdk = yaddnsc::sdk;
+
+static_assert(std::is_aggregate_v<sdk::HttpResponse>);
+static_assert(std::is_same_v<decltype(sdk::HttpResponse::body), std::string_view>);
+static_assert(std::is_same_v<decltype(sdk::HttpResponse::headers), std::vector<sdk::HttpHeaderView>>);
 
 class HttpDriver final : public yaddnsc::sdk::Driver {
 public:
@@ -21,6 +28,9 @@ public:
             return std::unexpected(
                 sdk::Error{response.error().status, response.error().message, response.error().retry_after_seconds});
         }
+        // Positional initialization and three-name decomposition must stay source-compatible.
+        [[maybe_unused]] const auto [status, headers, body] =
+            sdk::HttpResponse{response->status_code, response->headers, response->body};
         return {};
     }
 };

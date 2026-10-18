@@ -1,5 +1,5 @@
-/// Loader-rejection fixture: ABI major 1, minor 1. The host provides minor 0
-/// and must reject a plugin that requires a newer minor.
+/// Loader-rejection fixture: ABI major 1, one minor newer than the host. The
+/// host must reject a plugin that requires a newer minor.
 
 #include <cstdint>
 

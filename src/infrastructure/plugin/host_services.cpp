@@ -111,6 +111,10 @@ std::string_view HostServicesContext::arena_copy(std::string_view value) {
 
 void HostServicesContext::log(yaddnsc_log_level level, yaddnsc_string message,
                               const yaddnsc_source_location* location) {
+    const app::LogLevel log_level = to_log_level(level);
+    if (!logger_.is_enabled(log_level)) {
+        return;
+    }
     // Contract: location must be non-null with non-empty file/function views
     // and line > 0. Tolerate violations defensively — logging must never
     // fail an update.
@@ -120,7 +124,7 @@ void HostServicesContext::log(yaddnsc_log_level level, yaddnsc_string message,
     const std::string_view function = (location != nullptr && location->function.data != nullptr)
                                           ? detail::to_view(location->function)
                                           : std::string_view{};
-    logger_.log_explicit(to_log_level(level), detail::to_view(message), file, line, function);
+    logger_.log_explicit(log_level, detail::to_view(message), file, line, function);
 }
 
 void HostServicesContext::log_entry(void* context, yaddnsc_log_level level, yaddnsc_string message,
@@ -131,6 +135,19 @@ void HostServicesContext::log_entry(void* context, yaddnsc_log_level level, yadd
     try {
         static_cast<HostServicesContext*>(context)->log(level, message, location);
     } catch (...) {
+    }
+}
+
+std::int32_t HostServicesContext::log_enabled_entry(void* context, yaddnsc_log_level level) noexcept {
+    if (context == nullptr) {
+        return 0;
+    }
+    try {
+        const auto* self = static_cast<HostServicesContext*>(context);
+        return self->logger_.is_enabled(to_log_level(level)) ? 1 : 0;
+    } catch (...) {
+        // Best effort: an unusable query must not drop a log record.
+        return 1;
     }
 }
 

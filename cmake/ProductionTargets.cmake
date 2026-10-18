@@ -197,6 +197,7 @@ target_link_libraries(yaddnsc_plugin_infrastructure
 add_library(yaddnsc_coro_plugin STATIC
     src/infrastructure/plugin/bridge.cpp
     src/infrastructure/plugin/host_services.cpp
+    src/infrastructure/plugin/async_services.cpp
     src/infrastructure/plugin/driver_gateway.cpp
 )
 yaddnsc_production_module(yaddnsc_coro_plugin)

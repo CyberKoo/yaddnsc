@@ -1,20 +1,23 @@
 #include "plugin_loader.h"
 
-#include <spdlog/spdlog.h>
-#include <yaddnsc/sdk/driver_abi.h>
-#include <yaddnsc/util/format.hpp>
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstring>
-#include <expected>
 #include <exception>  // IWYU pragma: keep — std::exception is caught below
+#include <expected>
+#include <memory>
 #include <new>
 #include <string_view>
 #include <type_traits>
 #include <utility>
 
+#include <spdlog/spdlog.h>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/util/format.hpp>
+
 #include "infrastructure/plugin/abi_string.h"
+#include "infrastructure/plugin/async_cleanup.h"
 #include "infrastructure/plugin/shared_library.h"
 #include "support/fmt.hpp"
 
@@ -32,6 +35,27 @@ constexpr std::string_view HOST_TOO_OLD_HINT = "The plugin requires a newer host
 [[nodiscard]] plugin::PluginError make_error(plugin::PluginError::Code code, std::string message) {
     return plugin::PluginError{code, std::move(message)};
 }
+
+// Owns no plugin pointers: destroy may overwrite instance or thread-local diagnostics.
+struct CreateErrorSnapshot {
+    std::array<char, 512> message{};
+    std::size_t size = 0;
+    uint32_t retry = 0;
+    bool valid = false;
+
+    CreateErrorSnapshot(yaddnsc_status status, const yaddnsc_error& error, uint32_t capacity) noexcept {
+        valid = yaddnsc_status_is_valid(status) && capacity >= YADDNSC_ERROR_MIN_SIZE &&
+                error.struct_size >= YADDNSC_ERROR_MIN_SIZE && error.struct_size <= capacity &&
+                error.status == status && yaddnsc_string_is_valid(error.message);
+        if (valid) {
+            retry = error.retry_after_seconds;
+            size = std::min(error.message.size, message.size() - 1);
+            if (size != 0) {
+                std::memcpy(message.data(), error.message.data, size);
+            }
+        }
+    }
+};
 
 template<typename Signature>
     requires std::is_function_v<Signature>
@@ -56,23 +80,43 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
     PluginModule module;
     module.library_ = std::move(*library);
 
-    // 2. Resolve all required entry points.
+    // 2. Resolve the common descriptor entry and both candidate groups.
     module.get_descriptor_ =
         resolve_entry<decltype(yaddnsc_driver_get_descriptor)>(module.library_, "yaddnsc_driver_get_descriptor");
-    module.create_ = resolve_entry<decltype(yaddnsc_driver_create)>(module.library_, "yaddnsc_driver_create");
-    module.destroy_ = resolve_entry<decltype(yaddnsc_driver_destroy)>(module.library_, "yaddnsc_driver_destroy");
-    module.update_ = resolve_entry<decltype(yaddnsc_driver_update)>(module.library_, "yaddnsc_driver_update");
-    if (module.get_descriptor_ == nullptr || module.create_ == nullptr || module.destroy_ == nullptr ||
-        module.update_ == nullptr) {
+
+    SyncEntryPoints sync;
+    sync.create = resolve_entry<decltype(yaddnsc_driver_create)>(module.library_, "yaddnsc_driver_create");
+    sync.destroy = resolve_entry<decltype(yaddnsc_driver_destroy)>(module.library_, "yaddnsc_driver_destroy");
+    sync.update = resolve_entry<decltype(yaddnsc_driver_update)>(module.library_, "yaddnsc_driver_update");
+    sync.validate = resolve_entry<decltype(yaddnsc_driver_validate)>(module.library_, "yaddnsc_driver_validate");
+
+    AsyncEntryPoints async;
+    async.create =
+        resolve_entry<decltype(yaddnsc_driver_async_create)>(module.library_, "yaddnsc_driver_async_create");
+    async.destroy =
+        resolve_entry<decltype(yaddnsc_driver_async_destroy)>(module.library_, "yaddnsc_driver_async_destroy");
+    async.begin = resolve_entry<decltype(yaddnsc_driver_update_async_begin)>(
+        module.library_, "yaddnsc_driver_update_async_begin");
+    async.resume = resolve_entry<decltype(yaddnsc_driver_update_async_resume)>(
+        module.library_, "yaddnsc_driver_update_async_resume");
+    async.validate =
+        resolve_entry<decltype(yaddnsc_driver_async_validate)>(module.library_, "yaddnsc_driver_async_validate");
+
+    const bool sync_complete = sync.create != nullptr && sync.destroy != nullptr && sync.update != nullptr;
+    const bool any_sync = sync.create != nullptr || sync.destroy != nullptr || sync.update != nullptr ||
+                          sync.validate != nullptr;
+    const bool async_complete = async.create != nullptr && async.destroy != nullptr && async.begin != nullptr &&
+                                async.resume != nullptr;
+    const bool any_async = async.create != nullptr || async.destroy != nullptr || async.begin != nullptr ||
+                           async.resume != nullptr || async.validate != nullptr;
+
+    // Keep the old missing-symbol path for a module with no usable group.
+    if (module.get_descriptor_ == nullptr || (!sync_complete && !any_async)) {
         return std::unexpected(make_error(plugin::PluginError::Code::MISSING_SYMBOL,
                                           fmt::format("Driver '{}' does not export the required v1 entry "
                                                       "points (get_descriptor/create/destroy/update). {}",
                                                       path, ABI_INCOMPATIBLE_HINT)));
     }
-
-    // 2b. The OPTIONAL validate entry (optional since ABI 1.0): absence is
-    // not a load error. config test reports that driver_params was not checked.
-    module.validate_ = resolve_entry<decltype(yaddnsc_driver_validate)>(module.library_, "yaddnsc_driver_validate");
 
     // 3. Fetch the descriptor.
     const yaddnsc_driver_descriptor* raw_descriptor = nullptr;
@@ -163,6 +207,46 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
         .abi_minor = raw_descriptor->abi_minor,
     };
 
+    // 8. Select exactly one execution group. The descriptor's minimum minor
+    // is a compatibility requirement, not a mode selector.
+    if (sync_complete) {
+        if (module.descriptor_.abi_minor == 0) {
+            // Legacy exception: the old sync path ignores extra async names.
+            module.entries_ = std::move(sync);
+            return module;
+        }
+        if (any_async) {
+            return std::unexpected(make_error(
+                plugin::PluginError::Code::CONTRACT_VIOLATION,
+                fmt::format("Driver '{}' mixes sync and async execution entry points; a module must choose one "
+                            "mode. {}",
+                            path, ABI_INCOMPATIBLE_HINT)));
+        }
+        module.entries_ = std::move(sync);
+        return module;
+    }
+
+    if (any_sync) {
+        return std::unexpected(make_error(
+            plugin::PluginError::Code::CONTRACT_VIOLATION,
+            fmt::format("Driver '{}' mixes sync and async execution entry points; a module must choose one mode. {}",
+                        path, ABI_INCOMPATIBLE_HINT)));
+    }
+    if (module.descriptor_.abi_minor < 1) {
+        return std::unexpected(make_error(
+            plugin::PluginError::Code::ABI_MISMATCH,
+            fmt::format("Driver '{}' exports an async execution group but requires only ABI 1.{}; async mode "
+                        "requires at least ABI 1.1. {}",
+                        path, module.descriptor_.abi_minor, ABI_INCOMPATIBLE_HINT)));
+    }
+    if (!async_complete) {
+        return std::unexpected(make_error(
+            plugin::PluginError::Code::MISSING_SYMBOL,
+            fmt::format("Driver '{}' does not export a complete async execution group "
+                        "(async_create/async_destroy/update_async_begin/update_async_resume). {}",
+                        path, ABI_INCOMPATIBLE_HINT)));
+    }
+    module.entries_ = std::move(async);
     return module;
 }
 
@@ -177,9 +261,15 @@ yaddnsc_status PluginModule::create(const yaddnsc_host_services& services, yaddn
     // this call does not own.
     *out_driver = nullptr;
 
+    const auto* entries = std::get_if<SyncEntryPoints>(&entries_);
+    if (entries == nullptr || entries->create == nullptr) {
+        write_entry_error(out_error, "driver is not loaded in sync mode", YADDNSC_STATUS_INVALID_ARGUMENT);
+        return YADDNSC_STATUS_INVALID_ARGUMENT;
+    }
+
     yaddnsc_status status;
     try {
-        status = create_(&services, out_driver, &out_error);
+        status = entries->create(&services, out_driver, &out_error);
     } catch (const std::exception& e) {
         write_entry_error(out_error, e.what());
         status = YADDNSC_STATUS_INTERNAL_ERROR;
@@ -211,8 +301,16 @@ void PluginModule::destroy(yaddnsc_driver* driver) const noexcept {
     if (driver == nullptr) {
         return;
     }
+    const auto* entries = std::get_if<SyncEntryPoints>(&entries_);
+    if (entries == nullptr || entries->destroy == nullptr) {
+        try {
+            SPDLOG_ERROR("Driver '{}' is not loaded in sync mode; sync destroy was not called", path());
+        } catch (...) {
+        }
+        return;
+    }
     try {
-        destroy_(driver);
+        entries->destroy(driver);
     } catch (const std::exception& e) {
         try {
             SPDLOG_ERROR("Driver '{}' threw during destroy: {}", path(), e.what());
@@ -228,8 +326,13 @@ void PluginModule::destroy(yaddnsc_driver* driver) const noexcept {
 
 yaddnsc_status PluginModule::update(yaddnsc_driver* driver, const yaddnsc_update_request& request,
                                     yaddnsc_error& out_error) const {
+    const auto* entries = std::get_if<SyncEntryPoints>(&entries_);
+    if (entries == nullptr || entries->update == nullptr) {
+        write_entry_error(out_error, "driver is not loaded in sync mode", YADDNSC_STATUS_INVALID_ARGUMENT);
+        return YADDNSC_STATUS_INVALID_ARGUMENT;
+    }
     try {
-        return update_(driver, &request, &out_error);
+        return entries->update(driver, &request, &out_error);
     } catch (const std::exception& e) {
         write_entry_error(out_error, e.what());
     } catch (...) {
@@ -240,19 +343,162 @@ yaddnsc_status PluginModule::update(yaddnsc_driver* driver, const yaddnsc_update
 
 yaddnsc_status PluginModule::validate(yaddnsc_driver* driver, yaddnsc_string driver_param_json,
                                       yaddnsc_error& out_error) const {
+    const auto* entries = std::get_if<SyncEntryPoints>(&entries_);
+    if (entries == nullptr) {
+        write_entry_error(out_error, "driver is not loaded in sync mode", YADDNSC_STATUS_INVALID_ARGUMENT);
+        return YADDNSC_STATUS_INVALID_ARGUMENT;
+    }
     // Fail closed: without the entry the host cannot confirm driver_params,
     // so the absence is a validation failure, never a silent pass.
-    if (validate_ == nullptr) {
+    if (entries->validate == nullptr) {
         write_entry_error(out_error, "plugin does not export yaddnsc_driver_validate; driver_params was not checked",
                           YADDNSC_STATUS_INVALID_CONFIG);
         return YADDNSC_STATUS_INVALID_CONFIG;
     }
     try {
-        return validate_(driver, driver_param_json, &out_error);
+        return entries->validate(driver, driver_param_json, &out_error);
     } catch (const std::exception& e) {
         write_entry_error(out_error, e.what());
     } catch (...) {
         write_entry_error(out_error, "unknown exception from plugin validate");
+    }
+    return YADDNSC_STATUS_INTERNAL_ERROR;
+}
+
+yaddnsc_status PluginModule::async_create(const yaddnsc_async_services& services, yaddnsc_async_driver** out_driver,
+                                          yaddnsc_error& out_error) const {
+    if (out_driver == nullptr) {
+        write_entry_error(out_error, "out_driver must not be null", YADDNSC_STATUS_INVALID_ARGUMENT);
+        return YADDNSC_STATUS_INVALID_ARGUMENT;
+    }
+    *out_driver = nullptr;
+
+    const auto* entries = std::get_if<AsyncEntryPoints>(&entries_);
+    if (entries == nullptr || entries->create == nullptr) {
+        write_entry_error(out_error, "driver is not loaded in async mode", YADDNSC_STATUS_INVALID_ARGUMENT);
+        return YADDNSC_STATUS_INVALID_ARGUMENT;
+    }
+
+    const uint32_t error_capacity = out_error.struct_size;
+    yaddnsc_status status;
+    try {
+        status = entries->create(&services, out_driver, &out_error);
+    } catch (const std::exception& e) {
+        out_error.struct_size = error_capacity;
+        write_entry_error(out_error, e.what());
+        status = YADDNSC_STATUS_INTERNAL_ERROR;
+    } catch (...) {
+        out_error.struct_size = error_capacity;
+        write_entry_error(out_error, "unknown exception from plugin async_create");
+        status = YADDNSC_STATUS_INTERNAL_ERROR;
+    }
+
+    if (status != YADDNSC_STATUS_OK) {
+        if (*out_driver != nullptr) {
+            const auto cleanup = [this](yaddnsc_async_driver* driver) noexcept { async_destroy(driver); };
+            std::unique_ptr<yaddnsc_async_driver, decltype(cleanup)> failed_driver(std::exchange(*out_driver, nullptr),
+                                                                                   cleanup);
+            const CreateErrorSnapshot snapshot(status, out_error, error_capacity);
+            failed_driver.reset();  // Mandatory cleanup precedes best-effort diagnostics.
+            try {
+                SPDLOG_WARN(
+                    "Driver '{}' ({}) violated the async create contract: failure after storing a handle; destroyed it",
+                    descriptor_.name, path());
+            } catch (...) {
+                // Diagnostics must not change the failed create result.
+            }
+
+            if (snapshot.valid) {
+                out_error.struct_size = error_capacity;
+                write_entry_error(out_error, {snapshot.message.data(), snapshot.size}, status);
+                out_error.retry_after_seconds = snapshot.retry;
+            } else {
+                // Keep malformed reports visibly invalid to the gateway, without
+                // retaining a message pointer into the destroyed instance.
+                // This trampoline receives a full host-owned C++ object even
+                // when its advertised ABI capacity is short.
+                out_error = {};
+            }
+        }
+        return status;
+    }
+    if (*out_driver == nullptr) {
+        write_entry_error(out_error, "async_create returned OK with a null handle");
+        return YADDNSC_STATUS_INTERNAL_ERROR;
+    }
+    return status;
+}
+
+void PluginModule::async_destroy(yaddnsc_async_driver* driver) const noexcept {
+    if (driver == nullptr) {
+        return;
+    }
+    const auto* entries = std::get_if<AsyncEntryPoints>(&entries_);
+    if (entries == nullptr || entries->destroy == nullptr) {
+        plugin::fatal_async_cleanup_failure(path(), "module is not loaded with an async destroy entry");
+    }
+    try {
+        entries->destroy(driver);
+    } catch (const std::exception& e) {
+        plugin::fatal_async_cleanup_failure(path(), e.what());
+    } catch (...) {
+        plugin::fatal_async_cleanup_failure(path(), "destroy threw a non-standard exception");
+    }
+}
+
+yaddnsc_status PluginModule::async_begin(yaddnsc_async_driver* driver, const yaddnsc_update_request& request,
+                                         yaddnsc_error& out_error) const {
+    const auto* entries = std::get_if<AsyncEntryPoints>(&entries_);
+    if (entries == nullptr || entries->begin == nullptr) {
+        write_entry_error(out_error, "driver is not loaded in async mode", YADDNSC_STATUS_INVALID_ARGUMENT);
+        return YADDNSC_STATUS_INVALID_ARGUMENT;
+    }
+    try {
+        return entries->begin(driver, &request, &out_error);
+    } catch (const std::exception& e) {
+        write_entry_error(out_error, e.what());
+    } catch (...) {
+        write_entry_error(out_error, "unknown exception from plugin async begin");
+    }
+    return YADDNSC_STATUS_INTERNAL_ERROR;
+}
+
+yaddnsc_status PluginModule::async_resume(yaddnsc_async_driver* driver, const yaddnsc_event& event,
+                                          yaddnsc_error& out_error) const {
+    const auto* entries = std::get_if<AsyncEntryPoints>(&entries_);
+    if (entries == nullptr || entries->resume == nullptr) {
+        write_entry_error(out_error, "driver is not loaded in async mode", YADDNSC_STATUS_INVALID_ARGUMENT);
+        return YADDNSC_STATUS_INVALID_ARGUMENT;
+    }
+    try {
+        return entries->resume(driver, &event, &out_error);
+    } catch (const std::exception& e) {
+        write_entry_error(out_error, e.what());
+    } catch (...) {
+        write_entry_error(out_error, "unknown exception from plugin async resume");
+    }
+    return YADDNSC_STATUS_INTERNAL_ERROR;
+}
+
+yaddnsc_status PluginModule::async_validate(yaddnsc_async_driver* driver, yaddnsc_string driver_param_json,
+                                            yaddnsc_error& out_error) const {
+    const auto* entries = std::get_if<AsyncEntryPoints>(&entries_);
+    if (entries == nullptr) {
+        write_entry_error(out_error, "driver is not loaded in async mode", YADDNSC_STATUS_INVALID_ARGUMENT);
+        return YADDNSC_STATUS_INVALID_ARGUMENT;
+    }
+    if (entries->validate == nullptr) {
+        write_entry_error(out_error,
+                          "plugin does not export yaddnsc_driver_async_validate; driver_params was not checked",
+                          YADDNSC_STATUS_INVALID_CONFIG);
+        return YADDNSC_STATUS_INVALID_CONFIG;
+    }
+    try {
+        return entries->validate(driver, driver_param_json, &out_error);
+    } catch (const std::exception& e) {
+        write_entry_error(out_error, e.what());
+    } catch (...) {
+        write_entry_error(out_error, "unknown exception from plugin async validate");
     }
     return YADDNSC_STATUS_INTERNAL_ERROR;
 }

@@ -113,6 +113,7 @@ public:
 private:
     const DriverCatalog& catalog_;
     const app::LoggerPort& logger_;
+    Options options_;
     std::shared_ptr<Bridge> bridge_;
 };
 

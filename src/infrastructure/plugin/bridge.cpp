@@ -182,6 +182,7 @@ Bridge::~Bridge() = default;
 void CallState::request_cancel() noexcept {
     cancelled.store(true, std::memory_order_release);
     owner_changed.notify();
+    cancel_changed.notify();
 }
 
 void Bridge::start_cycle(const std::shared_ptr<CallState>& state, coro::Task<void> cycle) {

@@ -3,7 +3,7 @@
 
 #include <string_view>
 
-#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/async_driver.hpp>
 
 struct NamecheapParams;
 
@@ -15,12 +15,12 @@ struct NamecheapParams;
 ///
 /// API reference:
 ///   https://www.namecheap.com/support/knowledgebase/article.aspx/29/11/how-to-configure-your-dns-dynamic-dns-update-url/
-class NamecheapDriver final : public yaddnsc::sdk::Driver {
+class NamecheapDriver final : public yaddnsc::sdk::AsyncDriver {
 public:
     ~NamecheapDriver() override = default;
 
     /// Perform one update: generate-request → HTTP exchange → check-response.
-    [[nodiscard]] yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
+    [[nodiscard]] yaddnsc::sdk::Task<yaddnsc::sdk::Result> update(yaddnsc::sdk::AsyncUpdateContext& context) override;
 
     /// Validate driver_param against the Namecheap API schema without
     /// updating; schema violations surface as YADDNSC_STATUS_INVALID_CONFIG.
@@ -38,8 +38,8 @@ private:
                                                       const yaddnsc::sdk::UpdateRequest& params);
 
     /// Validate the Namecheap API response XML using libxml2.
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,
-                                             const yaddnsc::sdk::Services& services);
+    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                             const yaddnsc::sdk::AsyncServices& services);
 };
 
 #endif  // YADDNSC_DRV_NAMECHEAP_NAMECHEAP_H

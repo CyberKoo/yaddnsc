@@ -415,8 +415,11 @@ TEST(HttpConnectPaths, failedAttemptInsideTheBudget_ReportsConnectFailed) {
     Options options = options_for(factory);
     options.connect_timeout = 50ms;
     const std::vector<domain::InetAddress> addresses{address_of("203.0.113.10")};
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
 
-    const auto stream = coro::run(http::connect_stream("http", "203.0.113.10", addresses, 8080, options));
+    const auto stream = coro::run(loop, http::connect_stream("http", "203.0.113.10", addresses, 8080, options));
+    EXPECT_EQ(clock.now(), coro::TimePoint{});
 
     ASSERT_FALSE(stream.has_value());
     EXPECT_EQ(stream.error().code, ErrorCode::CONNECT_FAILED);

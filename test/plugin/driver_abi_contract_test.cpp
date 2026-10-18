@@ -71,6 +71,14 @@ struct Canary {
     return error;
 }
 
+int g_log_queries = 0;
+bool g_log_enabled = true;
+
+int32_t log_enabled_query(void*, yaddnsc_log_level) {
+    ++g_log_queries;
+    return g_log_enabled ? 1 : 0;
+}
+
 /// Proves the callee wrote nothing into `actual` beyond what the test itself
 /// pre-seeded, by comparing every member against `reference` — a pristine
 /// struct memset to 0x55 carrying the same struct_size. Compared member-wise
@@ -137,6 +145,48 @@ TEST(DriverAbiContract, AbiProvidesIsTheHostRule) {
                                      YADDNSC_DRIVER_ABI_MINOR));
 }
 
+TEST(DriverAbiContract, HostServicesV11ExtensionIsPinned) {
+    EXPECT_EQ(YADDNSC_DRIVER_ABI_MINOR, 1u);
+    EXPECT_EQ(YADDNSC_HOST_SERVICES_MIN_SIZE, 40u);
+    EXPECT_EQ(YADDNSC_HOST_SERVICES_V1_1_MIN_SIZE, 48u);
+    EXPECT_EQ(sizeof(yaddnsc_host_services), 40u);
+    EXPECT_EQ(sizeof(yaddnsc_host_services_v1_1), 48u);
+    EXPECT_EQ(offsetof(yaddnsc_host_services_v1_1, base), 0u);
+    EXPECT_EQ(offsetof(yaddnsc_host_services_v1_1, log_enabled), 40u);
+}
+
+TEST(DriverAbiContract, AsyncAbiV11LayoutAndStatusPins) {
+    EXPECT_EQ(YADDNSC_STATUS_PENDING, 11u);
+    EXPECT_FALSE(yaddnsc_status_is_valid(YADDNSC_STATUS_PENDING));
+    EXPECT_TRUE(yaddnsc_async_step_status_is_valid(YADDNSC_STATUS_PENDING));
+    EXPECT_FALSE(yaddnsc_async_step_status_is_valid(12u));
+    EXPECT_EQ(YADDNSC_EVENT_HTTP_FINISHED, 1u);
+    EXPECT_EQ(YADDNSC_EVENT_UPDATE_CANCELLED, 2u);
+
+    EXPECT_EQ(sizeof(yaddnsc_async_services), 56u);
+    EXPECT_EQ(YADDNSC_ASYNC_SERVICES_MIN_SIZE, 56u);
+    EXPECT_EQ(offsetof(yaddnsc_async_services, struct_size), 0u);
+    EXPECT_EQ(offsetof(yaddnsc_async_services, abi_major), 4u);
+    EXPECT_EQ(offsetof(yaddnsc_async_services, abi_minor), 6u);
+    EXPECT_EQ(offsetof(yaddnsc_async_services, context), 8u);
+    EXPECT_EQ(offsetof(yaddnsc_async_services, log), 16u);
+    EXPECT_EQ(offsetof(yaddnsc_async_services, is_cancelled), 24u);
+    EXPECT_EQ(offsetof(yaddnsc_async_services, http_start), 32u);
+    EXPECT_EQ(offsetof(yaddnsc_async_services, http_cancel), 40u);
+    EXPECT_EQ(offsetof(yaddnsc_async_services, log_enabled), 48u);
+
+    EXPECT_EQ(sizeof(yaddnsc_event), 48u);
+    EXPECT_EQ(YADDNSC_EVENT_MIN_SIZE, 48u);
+    EXPECT_EQ(offsetof(yaddnsc_event, struct_size), 0u);
+    EXPECT_EQ(offsetof(yaddnsc_event, abi_major), 4u);
+    EXPECT_EQ(offsetof(yaddnsc_event, abi_minor), 6u);
+    EXPECT_EQ(offsetof(yaddnsc_event, kind), 8u);
+    EXPECT_EQ(offsetof(yaddnsc_event, op_id), 16u);
+    EXPECT_EQ(offsetof(yaddnsc_event, status), 24u);
+    EXPECT_EQ(offsetof(yaddnsc_event, response), 32u);
+    EXPECT_EQ(offsetof(yaddnsc_event, error), 40u);
+}
+
 // ===========================================================================
 //  get_descriptor / create / destroy / update — entry-point validation
 // ===========================================================================
@@ -152,7 +202,7 @@ TEST(DriverAbiContract, GetDescriptorRejectsNullOut) {
     ASSERT_NE(descriptor, nullptr);
     EXPECT_EQ(descriptor->struct_size, sizeof(yaddnsc_driver_descriptor));
     EXPECT_EQ(descriptor->abi_major, YADDNSC_DRIVER_ABI_MAJOR);
-    EXPECT_EQ(descriptor->abi_minor, YADDNSC_DRIVER_ABI_MINOR);
+    EXPECT_EQ(descriptor->abi_minor, UINT16_C(0));  // the whiteboard plugin declares its minimum as ABI 1.0
     EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
     EXPECT_EQ(std::string_view(descriptor->name.data, descriptor->name.size), "test_driver_plugin");
 }
@@ -275,6 +325,40 @@ TEST(DriverAbiContract, UpdateRejectsInvalidViews) {
         EXPECT_EQ(raw.update(handle, &invalid, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
     }
 
+    raw.destroy(handle);
+}
+
+TEST(DriverAbiContract, LogMacroUsesTheV11QueryAcrossTheAbi) {
+    auto raw = resolve_raw();
+    ASSERT_NE(raw.create, nullptr);
+    ASSERT_NE(raw.update, nullptr);
+
+    HostUpdateContext host;
+    yaddnsc_host_services_v1_1 extended{};
+    extended.base = host.context.make_services();
+    extended.base.struct_size = static_cast<std::uint32_t>(sizeof(extended));
+    extended.log_enabled = &log_enabled_query;
+
+    yaddnsc_error error = make_error_buffer();
+    yaddnsc_driver* handle = nullptr;
+    g_log_queries = 0;
+    g_log_enabled = false;
+    ASSERT_EQ(raw.create(&extended.base, &handle, &error), YADDNSC_STATUS_OK);
+    ASSERT_NE(handle, nullptr);
+
+    const auto request = make_update_request("192.0.2.1", "A", "example.com", "www", "www.example.com",
+                                             R"({"op":"log_macro","message":"hidden"})");
+    const std::size_t records_before = host.logger.records().size();
+    g_log_queries = 0;
+    ASSERT_EQ(raw.update(handle, &request, &error), YADDNSC_STATUS_OK);
+    EXPECT_EQ(g_log_queries, 1);
+    EXPECT_EQ(host.logger.records().size(), records_before);
+
+    g_log_enabled = true;
+    ASSERT_EQ(raw.update(handle, &request, &error), YADDNSC_STATUS_OK);
+    EXPECT_EQ(g_log_queries, 2);
+    ASSERT_EQ(host.logger.records().size(), records_before + 1);
+    EXPECT_EQ(host.logger.records().back().message, "hidden");
     raw.destroy(handle);
 }
 

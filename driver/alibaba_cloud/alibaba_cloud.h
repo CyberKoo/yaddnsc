@@ -3,7 +3,7 @@
 
 #include <string_view>
 
-#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/async_driver.hpp>
 
 struct AlibabaParams;
 
@@ -17,12 +17,12 @@ struct AlibabaParams;
 ///
 /// Signing:
 ///   https://www.alibabacloud.com/help/en/sdk/request-signature
-class AlibabaCloudDriver final : public yaddnsc::sdk::Driver {
+class AlibabaCloudDriver final : public yaddnsc::sdk::AsyncDriver {
 public:
     ~AlibabaCloudDriver() override = default;
 
     /// Perform one update: generate-request → HTTP exchange → check-response.
-    [[nodiscard]] yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
+    [[nodiscard]] yaddnsc::sdk::Task<yaddnsc::sdk::Result> update(yaddnsc::sdk::AsyncUpdateContext& context) override;
 
     /// Validate driver_param against the Alibaba Cloud API schema without
     /// updating; schema violations surface as YADDNSC_STATUS_INVALID_CONFIG.
@@ -36,8 +36,8 @@ private:
     static yaddnsc::sdk::HttpRequest generate_request(const AlibabaParams& cfg, const yaddnsc::sdk::UpdateRequest& ctx);
 
     /// Validate the Alibaba Cloud DNS API response.
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,
-                                             const yaddnsc::sdk::Services& services);
+    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                             const yaddnsc::sdk::AsyncServices& services);
 };
 
 #endif  // YADDNSC_DRV_ALIBABA_CLOUD_ALIBABA_CLOUD_H

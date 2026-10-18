@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/async_driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/format.hpp>
 #include <yaddnsc/sdk/redact.hpp>
@@ -22,13 +22,14 @@
 #include "response.hpp"
 
 namespace fmt = yaddnsc::sdk::fmt;
+using yaddnsc::sdk::AsyncHttpResponse;
+using yaddnsc::sdk::AsyncServices;
+using yaddnsc::sdk::AsyncUpdateContext;
 using yaddnsc::sdk::Error;
 using yaddnsc::sdk::HttpRequest;
-using yaddnsc::sdk::HttpResponse;
 using yaddnsc::sdk::Method;
 using yaddnsc::sdk::Result;
-using yaddnsc::sdk::Services;
-using yaddnsc::sdk::UpdateContext;
+using yaddnsc::sdk::Task;
 using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
@@ -109,8 +110,8 @@ using ParamList = std::vector<std::pair<std::string, std::string>>;
 
 }  // anonymous namespace
 
-YADDNSC_DEFINE_DRIVER(AlibabaCloudDriver, "alibaba_cloud", "Updates DNS records via the Alibaba Cloud DNS API",
-                      "Kotarou", "1.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA, 0)
+YADDNSC_DEFINE_ASYNC_DRIVER(AlibabaCloudDriver, "alibaba_cloud", "Updates DNS records via the Alibaba Cloud DNS API",
+                      "Kotarou", "1.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 AlibabaParams AlibabaCloudDriver::parse_params(std::string_view json) {
     auto cfg = parse_config<AlibabaParams>(json);
@@ -134,7 +135,7 @@ Result AlibabaCloudDriver::validate(std::string_view driver_param_json) const {
     return {};
 }
 
-Result AlibabaCloudDriver::update(UpdateContext& context) {
+Task<Result> AlibabaCloudDriver::update(AsyncUpdateContext& context) {
     const auto& params = context.request();
     const auto cfg = parse_params(params.driver_param_json);
 
@@ -189,24 +190,24 @@ HttpRequest AlibabaCloudDriver::generate_request(const AlibabaParams& cfg, const
     return request;
 }
 
-bool AlibabaCloudDriver::check_response(const HttpResponse& response, const Services& services) {
-    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
+bool AlibabaCloudDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
+    YADDNSC_ASYNC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
 
     if (response.status_code == 200) {
         // On success, Alibaba DNS returns JSON with RecordId.
         if (auto result = parse_response<AlibabaUpdateResponse>(response.body)) {
-            YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully (RecordId: {})", result->record_id);
+            YADDNSC_ASYNC_SDK_LOG_DEBUG(services, "DNS record updated successfully (RecordId: {})", result->record_id);
             return true;
         }
 
         // If we can't parse the expected success response, try error format.
-        YADDNSC_SDK_LOG_ERROR(services, "Failed to parse Alibaba Cloud API response");
+        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Failed to parse Alibaba Cloud API response");
         return false;
     }
 
     // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
     if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
-        YADDNSC_SDK_LOG_WARN(services, "Alibaba Cloud API request failed with HTTP status {}: {}", response.status_code,
+        YADDNSC_ASYNC_SDK_LOG_WARN(services, "Alibaba Cloud API request failed with HTTP status {}: {}", response.status_code,
                              truncate_for_log(response.body));
         return false;
     }
@@ -214,13 +215,13 @@ bool AlibabaCloudDriver::check_response(const HttpResponse& response, const Serv
     // Error responses include JSON with Code and Message.
     if (!response.body.empty()) {
         if (auto result = parse_response<AlibabaErrorResponse>(response.body)) {
-            YADDNSC_SDK_LOG_ERROR(services, "Alibaba Cloud API error {}: {}", result->code, result->message);
+            YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Alibaba Cloud API error {}: {}", result->code, result->message);
         } else {
-            YADDNSC_SDK_LOG_ERROR(services, "Alibaba Cloud API request failed with HTTP status {}: {}",
+            YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Alibaba Cloud API request failed with HTTP status {}: {}",
                                   response.status_code, truncate_for_log(response.body));
         }
     } else {
-        YADDNSC_SDK_LOG_ERROR(services, "Alibaba Cloud API request failed with HTTP status {}", response.status_code);
+        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Alibaba Cloud API request failed with HTTP status {}", response.status_code);
     }
 
     return false;

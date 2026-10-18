@@ -3,7 +3,7 @@
 
 #include <string_view>
 
-#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/async_driver.hpp>
 
 struct VultrParams;
 
@@ -13,12 +13,12 @@ struct VultrParams;
 /// via their domain records endpoint.
 ///
 /// API reference: https://www.vultr.com/api/#tag/dns
-class VultrDriver final : public yaddnsc::sdk::Driver {
+class VultrDriver final : public yaddnsc::sdk::AsyncDriver {
 public:
     ~VultrDriver() override = default;
 
     /// Perform one update: generate-request → HTTP exchange → check-response.
-    [[nodiscard]] yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
+    [[nodiscard]] yaddnsc::sdk::Task<yaddnsc::sdk::Result> update(yaddnsc::sdk::AsyncUpdateContext& context) override;
 
     /// Validate driver_param against the Vultr API schema without updating;
     /// schema violations surface as YADDNSC_STATUS_INVALID_CONFIG.
@@ -29,8 +29,8 @@ private:
     [[nodiscard]] static VultrParams parse_params(std::string_view json);
 
     /// Validate the Vultr API response.
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,
-                                             const yaddnsc::sdk::Services& services);
+    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                             const yaddnsc::sdk::AsyncServices& services);
 };
 
 #endif  // YADDNSC_DRV_VULTR_VULTR_H

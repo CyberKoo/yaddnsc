@@ -22,7 +22,6 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -178,12 +177,9 @@ public:
             int calls{0};
             std::optional<domain::DriverError> rejection;
             std::chrono::seconds hang{0};
+            std::function<coro::Task<void>()> on_call;
         } validation{};
 
-        /// When positive, update() parks this long inside a shielded scope — a
-        /// driver that keeps working through the shutdown request, which keeps
-        /// the drain phase (and the signal watchers) alive for its duration.
-        std::chrono::seconds shielded_hang{0};
         /// Invoked on every call, after the counters are updated.
         std::function<void()> on_call;
     };
@@ -196,6 +192,9 @@ public:
 
     coro::Task<std::expected<void, domain::DriverError>> validate_config(std::string, std::string) override {
         ++state_->validation.calls;
+        if (state_->validation.on_call) {
+            co_await state_->validation.on_call();
+        }
         if (state_->validation.hang.count() > 0) {
             co_await coro::sleep_for(state_->validation.hang);
         }
@@ -211,13 +210,6 @@ public:
         state_->fqdns.push_back(command.fqdn);
         if (state_->on_call) {
             state_->on_call();
-        }
-        if (state_->shielded_hang.count() > 0) {
-            const auto hang = state_->shielded_hang;
-            co_await coro::non_cancellable([hang](coro::CancelScope&) -> coro::Task<void> {
-                co_await coro::sleep_for(hang);
-                co_return;
-            });
         }
         co_return std::expected<void, domain::DriverError>{};
     }
@@ -869,16 +861,42 @@ void run_until_second_sigint() {
     FakeResolver resolver;
     FakeIpSource ip_source;
     const auto gateway_state = std::make_shared<ProbeGateway::State>();
-    // The shielded hang keeps the drain phase alive long enough for the
-    // second SIGINT to reach the same process handler during drain.
-    gateway_state->shielded_hang = 1s;
-    gateway_state->on_call = [] {
-        std::thread([] {
-            ::kill(::getpid(), SIGINT);
-            std::this_thread::sleep_for(50ms);
-            ::kill(::getpid(), SIGINT);
-        }).detach();
+    // Failure watchdog only: signal ordering is entirely handshake-driven.
+    ::alarm(10);
+    coro::Notification parked;
+    coro::Notification cleanup_entered;
+    coro::Notification release_cleanup;
+    bool first_stop_observed = false;
+    bool cleanup_started = false;
+    auto cleanup = [&]() -> coro::Task<void> {
+        try {
+            co_await parked.wait();
+        } catch (const coro::Cancelled&) {
+            // The root cancels its bridge children only after work has drained.
+        }
+        co_await coro::non_cancellable([&](coro::CancelScope&) -> coro::Task<void> {
+            cleanup_started = true;
+            cleanup_entered.notify();
+            co_await release_cleanup.wait();
+            gateway_state->child_drained = true;
+        });
     };
+    auto sender = [&]() -> coro::Task<void> {
+        try {
+            co_await cleanup_entered.wait();
+        } catch (const coro::Cancelled&) {
+            release_cleanup.notify();
+            throw;
+        }
+        if (!first_stop_observed || !cleanup_started || gateway_state->destroyed || gateway_state->child_drained ||
+            gateway_state->calls != 1) {
+            ::_exit(EXIT_FAILURE);
+        }
+        ::kill(::getpid(), SIGINT);
+        // If escalation is broken, let the shield drain rather than strand it.
+        release_cleanup.notify();
+    };
+    gateway_state->on_call = [] { ::kill(::getpid(), SIGINT); };
     NullLogger logger;
 
     const auto config = make_config({make_subdomain("www", 100)}, 100, 0);
@@ -886,14 +904,22 @@ void run_until_second_sigint() {
         .resolver = resolver,
         .ip_source = ip_source,
         .logger = logger,
-        .make_gateway = [&gateway_state](coro::Nursery&) -> std::unique_ptr<app::GatewayPort> {
+        .make_gateway = [&](coro::Nursery& root) -> std::unique_ptr<app::GatewayPort> {
+            root.spawn_discard(cleanup());
             return std::make_unique<ProbeGateway>(gateway_state);
         },
         .stop_requested = [&stop] { return stop.requested(); },
-        .wait_for_stop = [&stop] { return stop.wait(); },
+        .wait_for_stop = [&]() -> coro::Task<void> {
+            co_await stop.wait();
+            first_stop_observed = true;
+        },
     };
-    const int code = coro::run(loop, app::main_loop(config, runtime_services));
-    ::_exit(code);  // reached only when the escalation did not fire
+    coro::run(loop, coro::with_nursery([&](coro::Nursery& nursery) -> coro::Task<void> {
+                  nursery.spawn_discard(sender());
+                  co_await app::main_loop(config, runtime_services);
+                  nursery.cancel();
+              }));
+    ::_exit(EXIT_FAILURE);  // reached only when the escalation did not fire
 }
 
 TEST(MainLoop, SecondSigintForcesImmediateTermination) {
@@ -1056,7 +1082,25 @@ TEST(MainLoop, StopSignalCancelsStartupValidation) {
     FakeIpSource ip_source;
     NullLogger logger;
     const auto state = std::make_shared<ProbeGateway::State>();
-    state->validation.hang = 3600s;
+    coro::Notification validation_entered;
+    coro::Notification validation_park;
+    bool validation_cancelled = false;
+    bool validation_completed = false;
+    bool signal_sent = false;
+    state->validation.on_call = [&]() -> coro::Task<void> {
+        validation_entered.notify();
+        try {
+            co_await validation_park.wait();
+            validation_completed = true;
+        } catch (const coro::Cancelled&) {
+            validation_cancelled = true;
+            throw;
+        }
+    };
+    auto sender = [&]() -> coro::Task<void> {
+        co_await validation_entered.wait();
+        signal_sent = (::kill(::getpid(), SIGTERM) == 0);
+    };
     const auto config = make_config({make_subdomain("www", 100)}, 100, 0);
     const app::RuntimeServices services{
         .resolver = resolver,
@@ -1069,12 +1113,19 @@ TEST(MainLoop, StopSignalCancelsStartupValidation) {
         .wait_for_stop = [&stop] { return stop.wait(); },
         .policy = app::UpdatePolicy{.driver_validation_budget = 3600s},
     };
-    std::thread sender([] {
-        std::this_thread::sleep_for(50ms);
-        ::kill(::getpid(), SIGTERM);
-    });
-    const int code = coro::run(loop, app::main_loop(config, services));
-    sender.join();
+    int code = EXIT_FAILURE;
+    const auto outcome = coro::run(loop, coro::with_timeout(5s, [&]() {
+                                       return coro::with_nursery([&](coro::Nursery& nursery) -> coro::Task<void> {
+                                           nursery.spawn_discard(sender());
+                                           code = co_await app::main_loop(config, services);
+                                           nursery.cancel();
+                                       });
+                                   }));
+    EXPECT_FALSE(outcome.timed_out);
+    EXPECT_TRUE(signal_sent);
+    EXPECT_TRUE(stop.requested());
+    EXPECT_TRUE(validation_cancelled);
+    EXPECT_FALSE(validation_completed);
     EXPECT_EQ(code, EXIT_SUCCESS);
     EXPECT_EQ(state->validation.calls, 1);
     EXPECT_EQ(state->calls, 0);
