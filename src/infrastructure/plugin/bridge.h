@@ -119,8 +119,10 @@ struct CallState {
     std::vector<std::weak_ptr<BridgeCall>> calls;
     /// Owner-side events: cancel requests, worker completion, subscriber exit.
     coro::Notification owner_changed;
-    /// Cancellation-only wakeup for the loop-side cancellation watcher; the
-    /// protocol body owns the single wait on owner_changed.
+    /// Wakeup for the loop-side cancellation watcher. The protocol body also
+    /// notifies it when it stops, so the watcher re-checks sticky cancellation
+    /// on every stop as well as on every cancel request; the body owns the
+    /// single wait on owner_changed.
     coro::Notification cancel_changed;
     /// The owner published the cycle's result (or defect). Awaiting it consumes
     /// one publication; cancellation of the subscriber's scope still wins.

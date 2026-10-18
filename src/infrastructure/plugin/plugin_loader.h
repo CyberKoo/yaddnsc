@@ -52,13 +52,14 @@ using EntryPoints = std::variant<SyncEntryPoints, AsyncEntryPoints>;
 /// Loading follows the ABI protocol order: dlopen(RTLD_NOW|RTLD_LOCAL) →
 /// resolve the candidate entry symbols → get_descriptor() → version prefix →
 /// abi_major/abi_minor (`yaddnsc_abi_provides`) → minor baseline struct_size →
-/// magic, strings, and capability bits → mode selection → copy descriptor
-/// fields. Only then may the selected group be called. The sync validate and
+/// magic, strings, and capability bits → copy descriptor fields into host-owned
+/// storage → mode selection, which reads the just-copied abi_minor. Only then
+/// may the selected group be called. The sync validate and
 /// async validate entries are optional; a missing one leaves that mode's
 /// validate pointer null.
 ///
 /// Mode selection is fixed at load. A complete sync group with minimum minor 0
-/// keeps the legacy sync path even when async names are also exported. Async
+/// stays on the synchronous path even when async names are also exported. Async
 /// mode requires a complete async group, no sync execution symbol, and
 /// minimum minor >= 1. New-protocol modules may not mix groups.
 ///
@@ -123,8 +124,12 @@ public:
     [[nodiscard]] yaddnsc_status validate(yaddnsc_driver* driver, yaddnsc_string driver_param_json,
                                           yaddnsc_error& out_error) const;
 
-    /// Async-group trampolines. Each returns INVALID_ARGUMENT when the module
-    /// was loaded in sync mode; the host gateway must branch on mode() first.
+    /// Async-group trampolines. The status-returning ones answer
+    /// INVALID_ARGUMENT when the module was loaded in sync mode; the host
+    /// gateway must branch on mode() first. async_destroy is the exception: it
+    /// returns void and calls fatal_async_cleanup_failure (std::abort) if the
+    /// module is not in async mode or its destroy entry throws, because a
+    /// handle the host cannot prove it released may not be dropped.
     /// Failed async_create handles are destroyed exactly once before returning,
     /// even if diagnostic logging fails; destroy failure is fatal. Valid error
     /// messages are copied before cleanup (at most 511 bytes), preserving empty

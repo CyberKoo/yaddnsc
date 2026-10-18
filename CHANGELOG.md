@@ -71,6 +71,11 @@ migration](docs/architecture.md#coroutine-lifecycle-migration) and
 
 ### Changed
 
+- The async execution group is now the recommended way to write a driver. The
+  synchronous group stays fully supported across the whole ABI 1.x line: it
+  loads and runs exactly as in ABI 1.0, and only a future major version could
+  retire it. New drivers should target the async group. See
+  [custom drivers](docs/custom-drivers.md#entry-points).
 - The bundled drivers use the async SDK and require ABI 1.1; their names and
   package versions are unchanged.
 - Ready dispatch uses a borrowed frame token to avoid an extra execution-record

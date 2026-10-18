@@ -31,7 +31,9 @@
  *
  * Within a major, fields are only appended to the extensible top-level
  * structs: yaddnsc_error, yaddnsc_http_request, yaddnsc_http_response,
- * yaddnsc_update_request, yaddnsc_driver_descriptor, yaddnsc_host_services.
+ * yaddnsc_update_request, yaddnsc_driver_descriptor, yaddnsc_host_services,
+ * and — from ABI 1.1 — yaddnsc_host_services_v1_1, yaddnsc_async_services and
+ * yaddnsc_event.
  * New callbacks, capability bits, status codes, log levels, and HTTP methods
  * are minor bumps. An optional host-services field may instead be added as a
  * new container type whose first member is the unchanged previous table

@@ -588,9 +588,12 @@ workers may finish loop hand-offs, but cannot start requests in a closed group.
 An uncooperative indefinitely blocked worker still prevents run() returning:
 there is no hard thread-kill or bounded-shutdown guarantee.
 
-**Plugin bridge.** The synchronous v1 C ABI runs create/update/destroy in one
-worker packet on one thread. A cycle owner is a discard child of the composition
-root's long-lived group. It owns a shielded group containing the joined worker
+**Plugin bridge.** The loader fixes one execution group per module. A
+synchronous plugin runs create/update/destroy in one worker packet on one
+thread; an async plugin runs each entry call as its own shielded worker step,
+returning PENDING between steps while HTTP stays on the loop. A cycle owner is
+a discard child of the composition root's long-lived group. It owns a shielded
+group containing the joined worker
 and all live or retiring HTTP children. A separate loop controller remains
 runnable while the worker is parked. Caller/root cancellation hooks latch the
 cycle state and wake that controller without allocation or runtime reentry.
@@ -673,7 +676,7 @@ therefore does not wait for worker capacity. Startup/CLI metadata queries before
 | startup file/loader I/O | `composition/assembly.cpp` and `composition/commands/`, on the main thread before `coro::run` | Config read, static validation, plugin `dlopen`, the environment check and the trust-context build happen once, before any coroutine exists |
 | `/etc/resolv.conf` read | `infrastructure/dns/bootstrap/resolv_conf.cpp`, reached from `composition/assembly.cpp` on the main thread | A `std::ifstream` of a small system file, read once at startup to fill the bootstrap server list when none is configured |
 | CA discovery + trust-store load | `infrastructure/network/tls/context.cpp`, off-loop only (`TlsContext::create`) | Bundle discovery is a function-local static, so the filesystem is touched once per process rather than per `create()`; trust material is then populated eagerly during `create()` through `SSL_CTX_load_verify_locations`, or eager `X509_STORE_load_file` for each hashed certificate/CRL entry in the default cert dir. Trusted PEM AUX is preserved; missing/empty directories or any unreadable, malformed or hash-mismatched indexed entry reject the entire snapshot (stricter than lazy lookup). No lazy hash-dir lookup is installed, and existing contexts keep their snapshot until rebuilt. One immutable context is shared; handshake verification reads the trust snapshot instead of the filesystem |
-| plugin ABI cycle (`create`/`update`/`destroy`) | offload pool; cycles of one driver run concurrently on distinct instances, bounded by the pool's worker count | The C ABI is synchronous, so the cycle runs on a worker and waits until the bridge's HTTP child coroutine completes on the loop |
+| plugin ABI cycle (`create`/`update`/`destroy`) | async mode: the loop runs the protocol and each entry call is a shielded offload-pool step, so a PENDING wait holds no worker; concurrent cycles of one driver run on distinct instances. Synchronous mode: the whole cycle holds one worker | Async entry calls return PENDING and HTTP tasks live on the loop, so waiting for a provider never occupies the pool; a synchronous plugin blocks its worker until the bridge's HTTP child coroutine completes |
 | log write | log drain thread (async spdlog sink) | The caller hands the record over and continues; a full queue discards the newest record |
 | CPU-intensive work | any `coro::offload` call site | `offload` is the single exit for blocking *and* CPU-bound work (the `asyncio.to_thread` analogue); the total off-loop workload is structurally bounded by the configuration |
 
@@ -956,9 +959,17 @@ services a plugin needs — HTTP, logging, cancellation.
   `use a driver built for ABI v1.`, as do a too-small `struct_size` and
   missing entry points, while a plugin needing a newer minor takes
   `upgrade yaddnsc.`.
-- Four entry points are required (`get_descriptor`, `create`, `destroy`,
-  `update`); a fifth, `yaddnsc_driver_validate`, is optional since ABI 1.0 — the
-  host dlsym-probes it and reports the answer through
+- `yaddnsc_driver_get_descriptor` is required, plus exactly one complete
+  execution group. A synchronous module exports `create`, `destroy` and
+  `update`; an asynchronous one exports `yaddnsc_driver_async_create`,
+  `yaddnsc_driver_async_destroy`, `yaddnsc_driver_update_async_begin` and
+  `yaddnsc_driver_update_async_resume`. Exporting symbols from both groups is
+  a contract violation and is rejected at load; async mode additionally requires
+  a descriptor minimum minor of at least 1. A minimum minor of 0 keeps a
+  module on the synchronous path even when it also exports async names.
+  `yaddnsc_driver_validate` (synchronous) and `yaddnsc_driver_async_validate`
+  are each optional — the host dlsym-probes the one matching the selected group
+  and reports the answer through
   `GatewayPort::supports_validate`, so `driver_params` can be checked against
   the driver's schema before any update is published. Without it the plugin
   provides no such check: `config test` fails, and `run` warns and continues
@@ -975,9 +986,11 @@ services a plugin needs — HTTP, logging, cancellation.
   module: the gateway drives the sync group on an offload worker with the
   sync table, or the async group with loop-side HTTP tasks and the async
   table. An async wait therefore does not hold a worker.
-- Host Services contexts track create/update/validate/destroy on the cycle's
-  worker. HTTP is accepted only during update, even through saved service-table
-  copies. Contexts are destroyed after the cycle and must not cross cycles.
+- Host Services contexts track the cycle's phase, from create through begin,
+  resume and validate to destroy. HTTP is accepted only during an update
+  (`update` in sync mode, `begin`/`resume` in async mode), even through saved
+  service-table copies. Contexts are destroyed after the cycle and must not
+  cross cycles.
   Inputs/log arguments expire on return to the sender; returned errors are
   copied before the next same-thread ABI operation or destruction; HTTP response
   arenas last through update, and descriptors last while the module is loaded.

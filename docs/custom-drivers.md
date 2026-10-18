@@ -18,12 +18,14 @@ needs no C++ at all — `test/sdk_consumer/c_abi_driver.cpp` is a complete one.
 The optional C++ helper layer needs a C++23 compiler. Either way the platform
 must be 64-bit and little-endian.
 
-The current ABI version is **1.0** (`YADDNSC_DRIVER_ABI_MAJOR` 1,
-`YADDNSC_DRIVER_ABI_MINOR` 0), and **the ABI is stable since the 1.0.0
-release**: a driver built against ABI 1.0 loads and runs on every host
-implementing ABI 1.x. The ABI was frozen at 1.0.0-alpha.5, so drivers built
-against alpha.5 or later already implement ABI 1.0; drivers built against
+The current ABI version is **1.1** (`YADDNSC_DRIVER_ABI_MAJOR` 1,
+`YADDNSC_DRIVER_ABI_MINOR` 1), and **the ABI 1.0 layouts are stable since the
+1.0.0 release**: a driver built against ABI 1.0 loads and runs on every host
+implementing ABI 1.x. Those 1.0 types were frozen at 1.0.0-alpha.5, so drivers
+built against alpha.5 or later already implement ABI 1.0; drivers built against
 alpha.1–alpha.4 predate the freeze and must be recompiled.
+Minor 1 added two things and moved no existing offset: the async execution group
+and an optional log-level query on the host services table.
 Three version numbers exist and only the first constrains loading: the **ABI
 version** (this section), the **SDK source version** (the `driver.hpp`
 helper layer; it evolves with the project and fixes bugs without touching
@@ -39,16 +41,22 @@ side.
 Within a major, fields are only appended to the versioned structs. New host
 callbacks, capability bits, status codes, log levels, and HTTP methods are
 minor bumps. Moving or removing a field, growing a leaf type, or adding a
-required entry point is a major bump. `YADDNSC_*_MIN_SIZE` is the ABI 1.0
-baseline and stays there when a later minor appends a field. A different
-major, or a plugin that requires a newer minor, is rejected at load time.
+required entry point is a major bump. A `YADDNSC_*_MIN_SIZE` constant is
+frozen at the baseline of the minor that introduced its type and is never
+retargeted: the 1.0 types keep `YADDNSC_ERROR_MIN_SIZE`,
+`YADDNSC_HTTP_REQUEST_MIN_SIZE`, `YADDNSC_HTTP_RESPONSE_MIN_SIZE`,
+`YADDNSC_UPDATE_REQUEST_MIN_SIZE` and `YADDNSC_HOST_SERVICES_MIN_SIZE`, while
+minor 1 added `YADDNSC_HOST_SERVICES_V1_1_MIN_SIZE`,
+`YADDNSC_ASYNC_SERVICES_MIN_SIZE` and `YADDNSC_EVENT_MIN_SIZE` for the types
+it introduced. A different major, or a plugin that requires a newer minor, is
+rejected at load time.
 Never bypass the version check: a minor rejection means the host is older
 than the driver requires (upgrade yaddnsc); a major rejection means the
 driver was built for a different ABI generation.
 
-This C ABI is new in this release. Drivers written against the old C++ plugin
-API are completely incompatible and cannot load at all — they must be rebuilt
-against the new SDK.
+Drivers written against the old C++ plugin API, predating this C ABI, are
+completely incompatible and cannot load at all; they must be rebuilt against
+the current SDK.
 
 Supported platforms for this ABI are Linux ELF x86_64, Linux ELF AArch64, and
 macOS 64-bit. The host loads plugins with `dlopen` (`RTLD_NOW | RTLD_LOCAL`).
@@ -63,47 +71,55 @@ The ABI checks do not contain an untrusted plugin.
 
 The host verifies a driver before use:
 
-1. the driver exports the required entry points;
+1. the driver exports `yaddnsc_driver_get_descriptor` and one complete
+   execution group;
 2. the descriptor's `struct_size` covers the 8-byte version prefix
    (`struct_size`, `abi_major`, `abi_minor`);
 3. `abi_major` is a major the host implements, and the host's minor is at
    least the plugin's minor;
-4. `struct_size` covers that minor's baseline (the ABI 1.0 baseline for
-   minor 0);
+4. `struct_size` covers that minor's baseline — the ABI 1.0 baseline for minor 0,
+   the 1.1 baseline for minor 1;
 5. the descriptor's `magic` identifies a yaddnsc driver;
 6. the descriptor's string views and capability bits are valid. The version
-   check runs before the capability check.
+   check runs before the capability check;
+7. exactly one execution group is selected (see [entry points](#entry-points)).
+   A module exporting symbols from both groups is rejected.
 
-ABI 1.0 is frozen. `test/plugin/abi_baseline/v1_0/yaddnsc/sdk/driver_abi.h`
+The ABI 1.0 types are frozen.
+`test/plugin/abi_baseline/v1_0/yaddnsc/sdk/driver_abi.h`
 is a pinned copy of the header, checked by sha256 in CI, and it is the
-reference the freeze promise is tested against. Changing the ABI is a
-deliberate act, not an edit — see
+reference the freeze promise is tested against; minor 1 only appends. Changing
+the ABI is a deliberate act, not an edit — see
 [`development.md`](development.md#plugin-abi-changes). `test/plugin/fixtures/`
 holds the rejection fixtures for these rules and for the entry-point and
 lifecycle contracts below (`missing_symbol`, `newer_minor`, `bad_magic`,
 `short_descriptor`, `small_descriptor`, `no_validate`, `validate_http`,
-`leaky_create`, `throwing_destroy`); each one is the executable form of a
-rule stated in this guide.
+`leaky_create`, `throwing_destroy`, `loader_mode_fixture`, and the async set);
+each one is the executable form of a rule stated in this guide.
 
 ### Struct layout and `struct_size`
 
 The versioned top-level structs carry their size in bytes as the first field,
 `struct_size`: `yaddnsc_error`, `yaddnsc_http_request`,
 `yaddnsc_http_response`, `yaddnsc_update_request`,
-`yaddnsc_driver_descriptor`, and `yaddnsc_host_services`.
+`yaddnsc_driver_descriptor`, `yaddnsc_host_services`, and the types minor 1
+added — `yaddnsc_host_services_v1_1`, `yaddnsc_async_services` and
+`yaddnsc_event`.
 
 The side that reads a struct is always the one that interprets `struct_size`,
 so who sets it depends on the direction of the call:
 
 - for a struct the caller passes in — `yaddnsc_http_request`, `yaddnsc_error`,
-  `yaddnsc_http_response`, `yaddnsc_host_services`, `yaddnsc_update_request` —
+  `yaddnsc_http_response`, `yaddnsc_host_services`, `yaddnsc_update_request`,
+  and in async mode `yaddnsc_async_services` and `yaddnsc_event` —
   the caller sets `struct_size` to the capacity it actually provides;
 - `yaddnsc_driver_descriptor` goes the other way. It is returned by the plugin
   from static storage, so the **provider — your plugin — sets `struct_size` to
   the real `sizeof(yaddnsc_driver_descriptor)`**, and every string view in it
   must point at static storage that outlives the call, not a temporary or a
-  heap buffer. `YADDNSC_DEFINE_DRIVER` builds it as a `constexpr` object whose
-  views are literals or constexpr character arrays. The host only reads the size and copies the
+  heap buffer. The SDK driver macros build it as a `constexpr` object whose
+  views are literals or constexpr character arrays. The host only reads the size
+  and copies the
   fields out; it never writes back into the descriptor.
 
 Leaf types do not have `struct_size` and are not prefix-compatible:
@@ -113,8 +129,9 @@ Leaf types do not have `struct_size` and are not prefix-compatible:
 For an extensible struct (only descriptor/Services carry major/minor; the other
 structures use `struct_size` and their enclosing protocol version):
 
-- a value below the ABI 1.0 baseline — the `YADDNSC_*_MIN_SIZE` constants in
-  `driver_abi.h` — is rejected for required inputs/outputs after protocol/version validation;
+- a value below the baseline of the minor that introduced that type — the
+  matching `YADDNSC_*_MIN_SIZE` constant in `driver_abi.h` — is rejected for
+  required inputs/outputs after protocol/version validation;
   optional `out_error` below that baseline is left unchanged;
 - a larger value may carry fields added by a later minor. Readers use
   `yaddnsc_struct_has_field` before touching those fields and ignore a tail
@@ -153,10 +170,10 @@ The C++ helper matches this with `std::nullopt` (no body) and an engaged
 Both directions validate completely, and the two are not the same check:
 
 - **The host checks the plugin.** The descriptor (non-empty name, well-formed
-  views, supported capability bits), every request passed to `http_exchange`
+  views, supported capability bits), every request passed to `http_start`
   (non-empty URL, known method, header array and per-header views, content
   type, body), and every result the plugin returns: a status outside the ABI
-  vocabulary, an error report below the ABI 1.0 baseline, or an error report
+  vocabulary, an error report below the type's baseline, or an error report
   whose `status` disagrees with the status returned, all surface as an
   "invalid … ABI error report" failure rather than something trusted.
 - **The SDK checks the host.** It validates the services table it receives,
@@ -164,9 +181,10 @@ Both directions validate completely, and the two are not the same check:
   code: an unknown status becomes "host returned an unknown status" and a
   malformed report "host returned an invalid error report".
 
-Response views borrowed from the host stay valid until
-`yaddnsc_driver_update()` returns (host-owned arena), across multiple
-exchanges.
+In async mode the SDK copies the response out of the host event before your
+code resumes, so no borrowed view outlives the `co_await`. The synchronous
+`HttpResponse` is different: its views are host-owned and stay valid only until
+`yaddnsc_driver_update()` returns.
 
 ### Cancellation and lifetime
 
@@ -217,7 +235,7 @@ The firewall is a backstop, not a portability promise: it assumes the plugin
 shares an ABI-compatible C++ runtime with the host. An exception escaping
 from a plugin built with an incompatible runtime is undefined behaviour
 before the firewall can run. SDK-built plugins never rely on it — the
-`YADDNSC_DEFINE_DRIVER` entry points forward to `noexcept` helpers that
+the SDK driver macros' entry points forward to `noexcept` helpers that
 catch everything.
 
 Handle ownership: on `YADDNSC_STATUS_OK`, `*out_driver` is non-NULL and the
@@ -231,41 +249,52 @@ propagating the error.
 
 ## Entry points
 
-Four entry points are **required**: `yaddnsc_driver_get_descriptor`,
-`yaddnsc_driver_create`, `yaddnsc_driver_destroy`, and
-`yaddnsc_driver_update`. A fifth, `yaddnsc_driver_validate`, is **optional**
-since ABI 1.0: the host probes it with `dlsym`. When the symbol is absent,
-the plugin still loads and can perform updates, and `yaddnsc config test`
-fails because it cannot confirm `driver_params`. `YADDNSC_DEFINE_DRIVER`
-always exports the entry. `Driver::validate()` is pure virtual: each driver
+A plugin exports `yaddnsc_driver_get_descriptor` plus **exactly one** complete
+execution group. The host rejects a module that exports symbols from both
+groups, and the selected mode never falls back to the other at runtime.
+
+**Write new drivers against the async group.** Every bundled driver uses it, it
+keeps HTTP waits off the offload pool, and it is the group that receives
+further ABI work.
+
+The synchronous group stays **supported**: it still loads and runs exactly as it
+did in ABI 1.0, for the whole ABI 1.x line. Only a future major version could
+retire it — nothing in this minor removes or degrades it, and existing drivers
+keep working unchanged. It is simply the path we no longer recommend: new
+features and bug fixes land on the async group first, so a new driver should
+start there.
+
+`yaddnsc_driver_validate` (sync) and `yaddnsc_driver_async_validate` (async)
+are both **optional**: the host probes the one matching the selected group with
+`dlsym`. When it is absent, the plugin still loads and can perform updates, and
+`yaddnsc config test` fails because it cannot confirm `driver_params`. The
+SDK's helper layer always exports it. `validate()` is pure virtual: each driver
 must explicitly validate its schema and semantics; parameterless drivers may
 explicitly return success.
 
-`yaddnsc_driver_validate` lets `yaddnsc config test` check a driver's
+The validate entry lets `yaddnsc config test` check a driver's
 `driver_params` against the driver's own schema without performing an update.
 It is called on a fresh instance between create and destroy, must not perform
 HTTP exchanges, and returns
 `YADDNSC_STATUS_INVALID_CONFIG` with a human-readable message when the
 parameter is unacceptable. The SDK's C++ helper layer emits it automatically
-from `YADDNSC_DEFINE_DRIVER`; override `Driver::validate()` to add the
-schema and semantic checks. See the [changelog](../CHANGELOG.md) for source
+from its driver macro; override `validate()` to add the schema and semantic
+checks. See the [changelog](../CHANGELOG.md) for source
 and behavior changes. Bundled drivers reuse their checked parser in
 validate and update, rejecting missing/wrong-type/null/empty required strings
 before HTTP. Supplied TTL values cannot be negative.
 
-### Async entry points (ABI 1.1)
+### Async entry points (ABI 1.1, recommended)
 
-ABI 1.1 adds an optional async execution group. The only export common to
-both modes is `yaddnsc_driver_get_descriptor`. A plugin using the new
-negotiation rules must use exactly one complete group and must not export a
-symbol from the other group; the min-0 case below is the legacy compatibility
-exception:
+The two groups are alternatives; a module exports one or the other:
 
-- sync: `yaddnsc_driver_create`, `yaddnsc_driver_destroy`,
-  `yaddnsc_driver_update`, optional `yaddnsc_driver_validate`;
-- async: `yaddnsc_driver_async_create`, `yaddnsc_driver_async_destroy`,
-  `yaddnsc_driver_update_async_begin`, `yaddnsc_driver_update_async_resume`,
-  optional `yaddnsc_driver_async_validate`.
+- **async (recommended)**: `yaddnsc_driver_async_create`,
+  `yaddnsc_driver_async_destroy`, `yaddnsc_driver_update_async_begin`,
+  `yaddnsc_driver_update_async_resume`, optional
+  `yaddnsc_driver_async_validate`;
+- sync (supported, not recommended): `yaddnsc_driver_create`,
+  `yaddnsc_driver_destroy`, `yaddnsc_driver_update`, optional
+  `yaddnsc_driver_validate`.
 
 A plugin whose descriptor requires minor 0 and exports a complete sync group
 stays sync, even if it also exports async names; the host keeps it on the
@@ -296,14 +325,15 @@ awaitable. Copies own independent storage; moves transfer ownership, so neither
 the event nor the awaitable needs to remain alive. Async response checkers must
 accept `const AsyncHttpResponse&`, not `const HttpResponse&`.
 
-The synchronous API is unchanged: `ExchangeResult` contains the original
-three-field `HttpResponse` aggregate (`status_code`, `headers`, `body`), whose
+The synchronous API is unchanged and stays supported alongside it:
+`ExchangeResult` contains the original three-field `HttpResponse` aggregate
+(`status_code`, `headers`, `body`), whose
 header/body views borrow the host arena until `yaddnsc_driver_update` returns.
 There is no shared owner or conversion between the two response types. No C ABI
 layout or version changes are required by this source-level distinction. An
 exception from `yaddnsc_driver_async_destroy` is a fatal host cleanup failure:
 the host cannot prove the instance was released and will not release the
-module or services. The bundled drivers use this async SDK and therefore
+module or services. The bundled drivers use the async SDK and therefore
 require ABI 1.1; their package versions and provider configuration are
 unchanged.
 
@@ -335,7 +365,7 @@ set_target_properties(my_driver PROPERTIES PREFIX "" OUTPUT_NAME "my_driver"
 ```
 
 Export each `yaddnsc_driver_*` entry with default visibility:
-`YADDNSC_DEFINE_DRIVER` handles this for C++, while C plugins use their own
+`YADDNSC_DEFINE_ASYNC_DRIVER` handles this for C++, while C plugins use their own
 `__attribute__((visibility("default")))`. First-party drivers still compile
 with `-Wall -Wextra -Wpedantic -Werror` privately.
 
@@ -443,10 +473,12 @@ A driver:
 - reports outcomes as `yaddnsc::sdk::Error` values with the appropriate
   `YADDNSC_STATUS_*` code;
 - exports itself with
-  `YADDNSC_DEFINE_DRIVER(YourDriver, "<name>", "<description>", "<author>", "<version>", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA, 0)`.
-  The final argument is the minimum host ABI minor actually required; it must
-  be supported by this SDK. Descriptor strings must be constexpr NUL-terminated
-  character arrays (including literals), never pointers.
+  `YADDNSC_DEFINE_ASYNC_DRIVER(YourDriver, "<name>", "<description>", "<author>", "<version>", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)`.
+  It emits `get_descriptor` plus the complete async group and declares a
+  minimum host ABI minor of 1; use `YADDNSC_DEFINE_ASYNC_DRIVER_MIN` only when a
+  higher minimum is a real requirement, never below 1.
+  Descriptor strings must be constexpr NUL-terminated character arrays
+  (including literals), never pointers.
 
 Each update call runs on a fresh driver instance (`create → update →
 destroy`), so instance state never leaks between updates. **Different
@@ -455,33 +487,34 @@ task), while a single instance is never used concurrently — keep instance
 state per-call and module state thread-safe. `create()` is not process-level
 one-time initialization.
 
-The host runs the synchronous C ABI off its event loop: the whole
-`create → update → destroy` cycle executes on a coroutine offload-pool
-worker, one per concurrent cycle. Host HTTP is the exception — `http_exchange`
-blocks that worker while the actual request runs on the loop through a bridge,
-so an exchange costs a thread hop and is bounded by the wait budget below.
-That split does not change what a driver may see: the plugin still runs
-entirely on one thread inside one entry-point call, so the rule below holds.
+In async mode the host runs the protocol on its event loop: each plugin entry
+call is still executed on an offload-pool worker, one shielded step at a time,
+but a `co_await` inside `begin` or `resume` returns `YADDNSC_STATUS_PENDING`
+and releases that worker, so a pending HTTP exchange costs no thread capacity.
+Accepted HTTP commands start only after the step returns. The plugin still runs
+entirely on one thread inside one entry-point call, so the threading rule above
+holds unchanged.
 
-The host retains a cycle owner until the worker and all HTTP children really
-finish. Cancelling the awaiting caller prevents later HTTP admission and cancels
-existing exchanges, while create/update/destroy remain on the same worker. A
-worker waiting for HTTP continues to occupy its capacity under the synchronous
-v1 contract. A queued cycle cancelled before admission never enters the plugin.
+The host retains a cycle owner until the step and all HTTP tasks really
+finish. Cancelling the awaiting caller prevents later HTTP admission and
+cancels existing exchanges; the host then delivers one
+`YADDNSC_EVENT_UPDATE_CANCELLED` event so the plugin can retire its own state. A
+queued cycle cancelled before admission never enters the plugin.
 Host defects that arrive after caller cancellation remain observable at the root
 error boundary. The host cannot forcibly terminate an uncooperative plugin.
 
 The services table may be stored on the instance from `create` until
 `destroy`. Do not hand it to another thread, and do not use it after
-`destroy` returns. Do not cache response views past the return of
-`yaddnsc_driver_update()`. Host callbacks do not re-enter plugin entry
-points. `http_exchange` may be called only from `update`, on that call's
-thread. `create`, `destroy`, and `validate` must not perform an exchange.
+`destroy` returns. Host callbacks do not re-enter plugin entry
+points. `http_start` and `http_cancel` may be called only from `begin` and
+`resume`, on that call's thread. `create`, `validate` and `destroy` must not
+start an exchange.
 
-Each cycle owns its own context. Its exchange callback checks the current
+Each cycle owns its own context. Its HTTP callbacks check the current
 phase through that context, including when the plugin saved a copy of the
-Services table: only update permits HTTP. Create, validate and destroy return
-`INVALID_ARGUMENT` without touching the network. Keeping a previous cycle's
+Services table: only begin and resume permit HTTP. Create, validate and
+destroy return `INVALID_ARGUMENT` without touching the network. Keeping a
+previous cycle's
 context is still forbidden; calling such a dangling pointer is a use-after-free,
 which a phase check cannot make safe.
 
@@ -551,7 +584,7 @@ On this host, an unknown status makes the error report illegal, an unknown
 capability bit rejects the plugin at load, an unknown HTTP method returns
 `INVALID_ARGUMENT`, and an unknown log level is recorded as INFO.
 
-`http_exchange` returns non-OK for transport failure (`NETWORK_ERROR`),
+`http_start` reports a non-OK status for transport failure (`NETWORK_ERROR`),
 cancellation (`CANCELLED`, see above), and host-side defects
 (`INTERNAL_ERROR` — a bug or an allocation failure inside the host's exchange
 path). A provider status, including 4xx and 5xx and integers outside 100–599,
@@ -569,9 +602,9 @@ body. `Connection` is sent only when the host's policy requires it.
 body is present (`data != NULL`). `Transfer-Encoding`, `Trailer`, and
 `Upgrade` are not sent; the exchange fails.
 
-`Driver::run_update` classifies a response that `check_response` rejects.
-401 and 403 become `AUTHENTICATION_FAILED`. 429 becomes `RATE_LIMITED`, and
-the first `Retry-After` value — a delay in seconds, or an IMF-fix HTTP-date
+`AsyncDriver::run_update` classifies a response that `check_response` rejects.
+401 and 403 become `AUTHENTICATION_FAILED`. 429 becomes `RATE_LIMITED`, and the
+first `Retry-After` value — a delay in seconds, or an IMF-fix HTTP-date
 measured from now — is copied into `retry_after_seconds`. An unparsable or
 already-past date contributes no hint. Every other rejection stays
 `UPSTREAM_REJECTED` with `retry_after_seconds` 0. A `check_response` that
@@ -610,7 +643,7 @@ One exchange is limited to 64 KiB of headers and 16 MiB of body.
 - Magic mismatch, a different ABI major, or a plugin minor newer than the
   host: rebuild the driver with the current SDK headers. The host pins the
   layout and refuses a module built for a different ABI generation.
-- `http_exchange` returns `NETWORK_ERROR` with "the API server did not respond
+- `http_start` yields `NETWORK_ERROR` with "the API server did not respond
   in time": the exchange budget expired, including time waiting for loop
   dispatch. This fails the exchange; it does not imply host shutdown.
 - Missing required parameters: compare `driver_params` with the provider entry
@@ -632,9 +665,25 @@ build entry point; pkg-config is deferred until a consumer needs it.
 
 Source changes for this SDK revision:
 
-- Implement `Driver::validate()` explicitly and reuse update-time parsing plus
+- **New drivers should implement the async execution group.**
+  `<yaddnsc/sdk/async_driver.hpp>` provides `AsyncDriver`, `AsyncServices`,
+  `AsyncUpdateContext`, the sequential exchange awaitable and
+  `YADDNSC_DEFINE_ASYNC_DRIVER`. `co_await context.exchange(...)` returns
+  `AsyncExchangeResult` (`std::expected<AsyncHttpResponse, HttpError>`) with
+  owned strings, so a response stays valid after the awaitable and event are
+  gone. Response checkers must take `const AsyncHttpResponse&`; the
+  `classify_upstream_failure` / `retry_after_seconds` helpers in `driver.hpp`
+  are templated and accept either response type. The synchronous
+  `YADDNSC_DEFINE_DRIVER` and `<yaddnsc/sdk/driver.hpp>` helper layer remain
+  source-compatible and keep working; they stay supported, but new drivers
+  should use the async group. Note also that `HttpResponse` is now purely
+  borrowed and copying it does not extend its lifetime.
+- Implement `validate()` explicitly and reuse update-time parsing plus
   semantic checks. It no longer defaults to successful validation.
-- Add the minimum ABI minor (currently `0`) to `YADDNSC_DEFINE_DRIVER`.
+- Add the minimum host ABI minor when the driver's needs demand it:
+  `YADDNSC_DEFINE_ASYNC_DRIVER` already declares 1, and
+  `YADDNSC_DEFINE_ASYNC_DRIVER_MIN` / `YADDNSC_DEFINE_DRIVER` take it as their
+  last argument. It may not be below 1 for an async driver.
   Literals/constexpr arrays work; pointer descriptor strings fail compilation.
 - Replace `<signing.h>` and the old crypto component/target with
   `<yaddnsc/sdk/signing.hpp>` and `plugin_sdk_crypto` / `yaddnsc::plugin_sdk_crypto`.

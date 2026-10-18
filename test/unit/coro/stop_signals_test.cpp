@@ -214,18 +214,20 @@ void two_sigints_while_blocked() {
     ::kill(::getpid(), SIGINT);
     sigset_t blocked{};
     sigset_t previous{};
-    ::sigemptyset(&blocked);
-    ::sigaddset(&blocked, SIGINT);
+    // macOS defines the sigset_* family as macros over __sigbits, so these
+    // cannot be ::-qualified there; the unqualified form works on both.
+    sigemptyset(&blocked);
+    sigaddset(&blocked, SIGINT);
     if (::sigprocmask(SIG_BLOCK, &blocked, &previous) != 0 || ::kill(::getpid(), SIGINT) != 0) {
         std::_Exit(2);
     }
     sigset_t pending{};
-    if (::sigpending(&pending) != 0 || ::sigismember(&pending, SIGINT) != 1) {
+    if (::sigpending(&pending) != 0 || sigismember(&pending, SIGINT) != 1) {
         std::_Exit(2);
     }
     // The pending second signal cannot run until this blocking syscall
     // atomically unmasks it; no sender scheduling or pre-call flag is involved.
-    ::sigdelset(&previous, SIGINT);
+    sigdelset(&previous, SIGINT);
     ::sigsuspend(&previous);
     std::_Exit(3);
 }

@@ -934,7 +934,7 @@ coro::Task<void> async_cycle_body(AsyncResourcePtr resource) {
             co_await run_async_step([&res] { return destroy_async_step(res); });
         } catch (...) {
             // A destroy step that cannot run leaves the handle unaccounted
-            // for; releasing module/services would be unsafe (proposal §6.7).
+            // for; releasing module/services would be unsafe (see async_cleanup.h).
             fatal_async_cleanup_failure(res.module->descriptor().name, "async destroy step did not complete");
         }
     }
@@ -1034,7 +1034,7 @@ coro::Task<void> async_validate_body(std::shared_ptr<CallState> state, std::shar
             co_await destroy();
         } catch (...) {
             // Cleanup could not be submitted; we cannot prove the instance is
-            // gone, so the fatal policy applies (proposal §6.7).
+            // gone, so the fatal policy applies (see async_cleanup.h).
             fatal_async_cleanup_failure(driver_name, "async validate destroy step did not complete");
         }
     }

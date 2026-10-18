@@ -10,12 +10,16 @@
 > **Status:** pre-release — see [GitHub Releases](https://github.com/CyberKoo/yaddnsc/releases)
 > for the latest version. `master` tracks releases, `dev` accumulates changes
 > intended for the next one, and `v0.x` remains available for older toolchains.
-> The driver plugin ABI is v1, version 1.0, and **stable since the 1.0.0
-> release**: a plugin built against ABI 1.0 loads and runs on every host
-> implementing ABI 1.x. The ABI was frozen at 1.0.0-alpha.5: plugins built
-> against alpha.5 or later already implement ABI 1.0; plugins built against
-> alpha.1–alpha.4 predate the freeze and must be recompiled. A
-> plugin loads when its major matches and its minor is no higher than the
+> The driver plugin ABI is v1, currently at **version 1.1**; its 1.0 layouts are
+> **stable since the 1.0.0 release**: a plugin built against ABI 1.0 loads and
+> runs on every host implementing ABI 1.x. Those 1.0 types were frozen at
+> 1.0.0-alpha.5; plugins built against alpha.1–alpha.4 predate that freeze and
+> must be recompiled. Minor 1 added the async execution group and an optional
+> log-level query — both additive, neither moves an existing offset. **Write new
+> drivers against the async group**; the synchronous group remains fully
+> supported across ABI 1.x and is not the recommended path for new work (see
+> [custom drivers](docs/custom-drivers.md#entry-points)).
+> A plugin loads when its major matches and its minor is no higher than the
 > host's. A different major means the plugin was built for a different ABI
 > generation; a newer minor means the host is older than the plugin requires
 > (upgrade yaddnsc).

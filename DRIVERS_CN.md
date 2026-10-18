@@ -9,8 +9,8 @@ yaddnsc 随附十二个以可加载模块形式提供的服务商驱动，本文
 ## 通用规则
 
 驱动周期会先关闭 HTTP 请求接纳，再排空仍在收尾的请求；迟到请求会被取消或拒绝。
-正常关闭仍会等待已提交的插件工作及资源清理完成。这不改变服务商参数或插件 C ABI，
-详见[取消与生命周期](docs/custom-drivers.md#cancellation-and-lifetime)。
+正常关闭仍会等待已提交的插件工作及资源清理完成。这些规则不涉及服务商参数，
+也不改变插件 C ABI。详见[取消与生命周期](docs/custom-drivers.md#cancellation-and-lifetime)。
 
 - 域名通过 `driver` 字段选用驱动，取值为下表中的配置名称。
 - 参数置于 `driver_params` 中，该字段仅在子域名（subdomain）条目内有效。每条记录
