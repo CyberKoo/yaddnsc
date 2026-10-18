@@ -9,6 +9,11 @@ Required credential/identifier strings must be nonempty. Configuration validatio
 
 ## General Rules
 
+Driver cycles close HTTP admission before draining retiring requests. Late
+requests are cancelled/rejected; normal shutdown still waits for submitted
+plugin work and its resource cleanup. This changes no provider parameters or
+plugin C ABI; see [cancellation and lifetime](docs/custom-drivers.md#cancellation-and-lifetime).
+
 - A domain selects its driver through the `driver` field, using the
   configuration name listed below.
 - Parameters are supplied in `driver_params`, which is valid only inside a

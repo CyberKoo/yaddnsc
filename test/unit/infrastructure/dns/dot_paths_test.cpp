@@ -231,12 +231,14 @@ TEST(DotResolver, close_AfterKeptAliveAnswer_DropsTheConnectionAndTheNextQueryRe
     int closed_before_close = 0;
 
     coro::run([&]() -> coro::Task<void> {
-        if ((co_await resolver.query("x.test", domain::RecordKind::A)).has_value()) {
+        const auto before = co_await resolver.query("x.test", domain::RecordKind::A);
+        if (before.has_value()) {
             ++answered_before_close;
         }
         closed_before_close = factory->closed;
         resolver.close();
-        if ((co_await resolver.query("x.test", domain::RecordKind::A)).has_value()) {
+        const auto after = co_await resolver.query("x.test", domain::RecordKind::A);
+        if (after.has_value()) {
             ++answered_after_close;
         }
     }());

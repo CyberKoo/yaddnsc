@@ -3,18 +3,17 @@
 #define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_FD_AWAITABLE_H
 
 #include <cassert>
+#include <coroutine>
 #include <stdexcept>
 #include <system_error>
-
-#include <coroutine>
 
 #include <poll.h>
 
 #include "coro/cancel_scope.h"
 #include "coro/detail/access.h"
 #include "coro/detail/fd_entry.h"
-#include "coro/detail/frame.h"
-#include "coro/detail/wait_node.h"
+#include "coro/detail/promise_base.h"
+#include "coro/detail/wait_operation.h"
 #include "coro/loop.h"
 
 namespace coro::detail {
@@ -48,8 +47,9 @@ public:
     template<typename Promise>
     bool await_suspend(std::coroutine_handle<Promise> handle) {
         PromiseBase& promise = handle.promise();
-        loop_ = promise.loop;
-        scope_ = promise.scope;
+        assert(promise.exec != nullptr && "fd readiness must be awaited inside coro::run");
+        loop_ = promise.exec->loop();
+        scope_ = promise.exec->scope();
         assert(loop_ != nullptr && "wait_readable()/wait_writable() must be awaited inside coro::run");
         if (fd_ < 0) {
             throw std::invalid_argument("fd wait requires an open descriptor");
@@ -57,18 +57,22 @@ public:
         if (scope_ != nullptr && scope_->cancelled()) {
             return false;
         }
-        frame_ = &promise;
-        node_.waiter = &promise;
-        node_.owner = this;
-        node_.on_cancel = &FdAwaiter::on_cancel;
+        wait_.begin(*promise.exec);
+        if (scope_ != nullptr) {
+            wait_.subscribe_cancel(*scope_, this, &FdAwaiter::on_cancel);
+        }
         entry_.fd = fd_;
         entry_.events = events_;
         entry_.fn = &FdAwaiter::on_ready;
         entry_.context = this;
-        LoopAccess::add_fd(*loop_, entry_);
-        if (scope_ != nullptr) {
-            ScopeAccess::add_waiter(*scope_, node_);
+        try {
+            LoopAccess::add_fd(*loop_, entry_);
+        } catch (...) {
+            // The registration was not linked: undo the wait binding only.
+            wait_.rollback();
+            throw;
         }
+        wait_.commit_suspend();
         return true;
     }
 
@@ -78,9 +82,8 @@ public:
     /// on the fd to report. Cancellation throws `Cancelled`; a closed
     /// descriptor is a contract defect and throws std::invalid_argument.
     [[nodiscard]] std::error_code await_resume() {
-        if (node_.linked && node_.scope != nullptr) {
-            ScopeAccess::remove_waiter(*node_.scope, node_);
-        }
+        wait_.begin_resume();
+        wait_.finish();
         LoopAccess::remove_fd(*loop_, entry_);
         if (scope_ != nullptr) {
             scope_->throw_if_cancelled();
@@ -102,24 +105,21 @@ public:
 
 private:
     /// Loop dispatch: unregister first (so the next poll() round cannot fire this
-    /// registration twice), then wake the frame through the ready queue.
+    /// registration twice), then report the completion. The wait operation
+    /// arbitrates, so a dispatch that races a cancellation still resumes once.
     static void on_ready(void* context, short revents) noexcept {
         auto* self = static_cast<FdAwaiter*>(context);
         self->revents_ = revents;
         LoopAccess::remove_fd(*self->loop_, self->entry_);
-        if (self->node_.linked && self->node_.scope != nullptr) {
-            ScopeAccess::remove_waiter(*self->node_.scope, self->node_);
-        }
-        if (self->frame_ != nullptr) {
-            wake(*self->frame_);
-        }
+        self->wait_.event_ready();
     }
 
-    /// Cancellation hook: drop the registration so poll() stops reporting it.
-    /// Never throws; runs on the loop thread.
-    static void on_cancel(WaitNode& node) noexcept {
-        auto* self = static_cast<FdAwaiter*>(node.owner);
+    /// Cancellation hook: drop the registration so poll() stops reporting it,
+    /// and take the resume. Never throws; runs on the loop thread.
+    static detail::CancelAction on_cancel(void* context) noexcept {
+        auto* self = static_cast<FdAwaiter*>(context);
         LoopAccess::remove_fd(*self->loop_, self->entry_);
+        return detail::CancelAction::RESUME;
     }
 
     int fd_ = -1;
@@ -127,9 +127,9 @@ private:
     short revents_ = 0;
     Loop* loop_ = nullptr;
     CancelScope* scope_ = nullptr;
-    PromiseBase* frame_ = nullptr;
     FdEntry entry_{};
-    WaitNode node_{};
+    CancelSubscription subscription_{};
+    detail::WaitOperation wait_{subscription_};
 };
 
 /// Reusable readiness operation; borrows the fd until each await finishes.

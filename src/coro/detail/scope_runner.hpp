@@ -15,9 +15,9 @@
 
 #include "coro/cancel_scope.h"
 #include "coro/detail/access.h"
-#include "coro/detail/context.h"
+#include "coro/detail/context_awaitables.h"
 #include "coro/detail/result_box.hpp"
-#include "coro/detail/task_promise.h"
+#include "coro/detail/task_promise.hpp"
 #include "coro/detail/time_math.h"
 #include "coro/detail/timer_node.h"
 #include "coro/loop.h"
@@ -48,13 +48,13 @@ struct ScopeSpec {
 template<typename Fn>
 Task<ScopeOutcome<BodyResult<Fn>>> run_scoped(Fn fn, ScopeSpec spec) {
     using R = BodyResult<Fn>;
-    const Context context = co_await GetContext{};
-    CancelScope scope{context.scope, spec.shielded};
+    auto& execution = co_await CurrentRecord{};
+    Loop& loop = *execution.loop();
+    CancelScope scope{execution.scope(), spec.shielded};
     TimerNode timer{};
     if (spec.use_timeout || spec.use_deadline) {
-        const TimePoint deadline =
-            spec.use_deadline ? spec.deadline : saturated_deadline(context.loop->now(), spec.timeout);
-        LoopAccess::add_timer(*context.loop, timer, deadline, &ScopeAccess::timeout_action, &scope);
+        const TimePoint deadline = spec.use_deadline ? spec.deadline : saturated_deadline(loop.now(), spec.timeout);
+        LoopAccess::add_timer(loop, timer, deadline, &ScopeAccess::timeout_action, &scope);
     }
 
     ResultBox<R> box;
@@ -63,11 +63,10 @@ Task<ScopeOutcome<BodyResult<Fn>>> run_scoped(Fn fn, ScopeSpec spec) {
     {
         try {
             Task<R> body = fn(scope);
-            TaskAccess::bind_context(body, *context.loop, scope);
             if constexpr (std::is_void_v<R>) {
-                co_await std::move(body);
+                co_await TaskAccess::await_in_scope(body, loop, scope);
             } else {
-                box.value.emplace(co_await std::move(body));
+                box.value.emplace(co_await TaskAccess::await_in_scope(body, loop, scope));
             }
         } catch (const Cancelled& cancellation) {
             cancelled = true;
@@ -79,7 +78,7 @@ Task<ScopeOutcome<BodyResult<Fn>>> run_scoped(Fn fn, ScopeSpec spec) {
             error = std::current_exception();
         }
     }
-    LoopAccess::remove_timer(*context.loop, timer);
+    LoopAccess::remove_timer(loop, timer);
 
     ScopeOutcome<R> outcome;
     outcome.timed_out = scope.timed_out();

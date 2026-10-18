@@ -847,7 +847,7 @@ TEST(DotResolver, closeWhileAnActiveQueryOwnsTheStreamIsDeferred) {
         EXPECT_FALSE(result.has_value());
     };
     run_loop(loop, [&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             group.spawn(owner());
             co_await coro::sleep_for(5ms);
             resolver.close();
@@ -919,7 +919,7 @@ TEST(EncryptedResolvers, Query_CancelledSessionWait_LeavesActiveConnectionUntouc
             EXPECT_FALSE(result.has_value());
         };
         run_loop(loop, [&]() -> coro::Task<void> {
-            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
                 group.spawn(owner());
                 co_await coro::sleep_for(5ms);
                 const auto wait = co_await coro::with_timeout(
@@ -1015,7 +1015,7 @@ TEST(EncryptedResolvers, Query_ConcurrentHealthyRequests_WaitWithoutBackendRetry
                 ++queue_failures;
         };
         run_loop(loop, [&]() -> coro::Task<void> {
-            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
                 for (int i = 0; i < 4; ++i)
                     group.spawn(query());
                 co_return;

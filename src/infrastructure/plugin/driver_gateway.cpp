@@ -25,13 +25,14 @@
 
 #include "coro/cancel_scope.h"
 #include "coro/cancelled.h"
-#include "coro/group.hpp"
+#include "coro/fwd.h"
 #include "coro/host.hpp"
 #include "coro/notification.hpp"
+#include "coro/nursery.hpp"
 #include "coro/offload.hpp"
 #include "coro/scope.hpp"
 #include "coro/task.hpp"
-#include "coro/task_group.hpp"
+#include "coro/with_nursery.hpp"
 #include "domain/error/error.h"
 #include "domain/update/driver_update_command.h"
 #include "infrastructure/plugin/abi_string.h"
@@ -320,42 +321,44 @@ coro::Task<void> cycle_worker(std::shared_ptr<CallState> state, Work work) {
 }
 
 /// The shielded cycle body: drain the real work, publish the outcome, and wait
-/// for the subscriber's release. Everything past the group join must not be
+/// for the subscriber's release. Everything past the nursery drain must not be
 /// interrupted by root cancellation — a broken acknowledgement wait could drop
 /// a late defect — so make_cycle_owner wraps this whole body in one shield.
 template<typename Work>
 coro::Task<void> cycle_body(std::shared_ptr<CallState> state, Work work) {
     try {
-        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            state->lifetime = coro::group_token(group);
-            group.spawn_discard(cycle_worker(state, std::move(work)));
-            while (!state->worker_done) {
-                if (state->cancelled.load(std::memory_order_acquire)) {
-                    if (state->worker_scope != nullptr) {
-                        state->worker_scope->cancel();
-                    }
-                    for (const auto& tracked : state->calls) {
-                        if (const auto call = tracked.lock()) {
-                            call->cancelled.store(true, std::memory_order_release);
-                            if (call->live_scope != nullptr) {
-                                call->live_scope->cancel();
+        co_await coro::with_nursery(
+            [&](coro::Nursery& group) -> coro::Task<void> {
+                state->lifetime = coro::nursery_token(group);
+                group.spawn_discard(cycle_worker(state, std::move(work)));
+                while (!state->worker_done) {
+                    if (state->cancelled.load(std::memory_order_acquire)) {
+                        if (state->worker_scope != nullptr) {
+                            state->worker_scope->cancel();
+                        }
+                        for (const auto& tracked : state->calls) {
+                            if (const auto call = tracked.lock()) {
+                                call->cancelled.store(true, std::memory_order_release);
+                                if (call->live_scope != nullptr) {
+                                    call->live_scope->cancel();
+                                }
                             }
                         }
                     }
+                    co_await state->owner_changed.wait();
                 }
-                co_await state->owner_changed.wait();
-            }
-            // A worker's budget may have expired while HTTP is still retiring.
-            for (const auto& tracked : state->calls) {
-                if (const auto call = tracked.lock()) {
-                    call->cancelled.store(true, std::memory_order_release);
-                    if (call->live_scope != nullptr) {
-                        call->live_scope->cancel();
+                // A worker's budget may have expired while HTTP is still retiring.
+                for (const auto& tracked : state->calls) {
+                    if (const auto call = tracked.lock()) {
+                        call->cancelled.store(true, std::memory_order_release);
+                        if (call->live_scope != nullptr) {
+                            call->live_scope->cancel();
+                        }
                     }
                 }
-            }
-            co_await group.join();
-        });
+                // Body return closes ingress before the runner drains retiring HTTP.
+            },
+            coro::NurseryPolicy::SUPERVISOR);
     } catch (const coro::Cancelled&) {
         state->request_cancel();
         state->plugin_cancelled = true;
@@ -414,11 +417,11 @@ coro::Task<void> make_cycle_owner(std::shared_ptr<CallState> state, Work work) {
 }  // namespace
 
 DriverGateway::DriverGateway(const DriverCatalog& catalog, const app::LoggerPort& logger, coro::Loop& loop,
-                             coro::TaskGroup& bridge_group)
+                             coro::Nursery& bridge_group)
     : DriverGateway(catalog, logger, loop, bridge_group, Options{}) {}
 
 DriverGateway::DriverGateway(const DriverCatalog& catalog, const app::LoggerPort& logger, coro::Loop& loop,
-                             coro::TaskGroup& bridge_group, Options options)
+                             coro::Nursery& bridge_group, Options options)
     : catalog_(catalog), logger_(logger),
       bridge_(std::make_shared<Bridge>(loop, bridge_group, std::move(options.http), options.bridge_wait_budget)) {}
 

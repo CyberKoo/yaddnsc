@@ -20,9 +20,9 @@ main() -> Cli::parse -> Composition::run
 coro::run(loop, app::main_loop(config, services))
   |
   v
-task_group                      fail-fast root scope
+with_nursery                    fail-fast root scope; owns gateway/services
   +-- stop watcher            await the process adapter's latched stop request
-  +-- work scope              supervisor_group, cancelled by the stop watcher
+  +-- work nursery            SUPERVISOR, cancelled by the stop watcher
         +-- startup validation   every record's driver_params, under a per-record budget
         +-- subdomain_task     one long-lived coroutine per subdomain; its
         |     |                pacing state (update interval, force-update
@@ -38,8 +38,8 @@ failures; `Composition::run` owns the logging pipeline's lifetime around
 command execution and catches defects escaping it. The same run entry point
 is used by the executable and command component tests.
 
-The work group isolates subdomain failures. Root-child defects cancel the run;
-`with_children` keeps gateway and service borrows alive until cleanup finishes.
+The work nursery isolates subdomain failures. Root-child defects cancel the run;
+runner-owned Resources keep gateway and service borrows alive through drain.
 If every update task ends without a stop request, the main loop logs CRITICAL
 and returns `EXIT_FAILURE`.
 
@@ -85,7 +85,7 @@ per-cycle failure.
 The diagnostic commands run on the same runtime with a loop of their own.
 `dns resolve` bounds its lookup at 30s; `config test` validates every
 subdomain's `driver_params` through the optional ABI entry in a one-shot
-group whose scope owns the bridge coroutines.
+supervisor nursery whose Resources own the gateway through bridge retirement.
 
 Normal shutdown drains submitted workers and logs. Forced termination may lose
 queued diagnostics; it never waits for that drain.
@@ -120,20 +120,21 @@ driver ABI cycle — and gets all three.
 table, a timer heap, a ready queue and a cross-thread inbox.
 
 **Structured concurrency.** `coro::Task<T>` is lazy. An ordinary `co_await`
-schedules the child through the ready queue, then resumes the parent through
-that queue when the child completes; it is not an inline call or a cancellation
-checkpoint. `task_group` cancels siblings on the first failure and rethrows
-after joining every child; `supervisor_group` keeps siblings running and reports
-observed defects through `next()`/Handle. At exit, every unobserved child defect
-(including discarded results) is reported in `GroupError::errors()`; supervision
-is not permission to silently lose failures. Successful/cancelled discard frames
-are reaped by the loop after resume returns, never inside their final suspend.
-Consumed ordinary children retire their frames and slots immediately, including
-throwing result moves. Unconsumed results and unobserved failures remain until
-scope exit. The main loop guards subdomain failures so siblings keep running.
+schedules the child through the ready queue, then resumes the parent only after
+its complete retirement; it is not an inline call or a cancellation checkpoint.
+`with_nursery` owns its body factory and optional Resources at stable addresses.
+`NurseryPolicy::FAIL_FAST` cancels siblings on the first child defect and rethrows
+after draining; `SUPERVISOR` keeps siblings running and reports observed defects
+through `next()`/Handle. At exit every unobserved child defect, including discard
+results, is reported in `GroupError::errors()`; supervision cannot lose failures.
+All started frames belong to execution records and are destroyed by the loop's
+FIFO batch-end retirement transaction, never during final suspend or result
+consumption. Results become READY only after frame destruction. Unconsumed
+results and errors, not completed frames, remain until nursery exit. The main
+loop guards subdomain failures so siblings keep running.
 
 The DNS dispatcher is the runtime's other large user. The concurrent strategy
-races up to `dns::Policy::max_concurrent` (3 by default) backends in a `task_group`: each
+races up to `dns::Policy::max_concurrent` (3 by default) backends in a fail-fast nursery: each
 endpoint failure or negative answer launches the next backend at once, the winner cancels its
 losing siblings through a child scope, and scope exit still joins and reaps
 every child. Retries wait on a linear cancellable backoff sleep on the loop,
@@ -149,7 +150,7 @@ A failed view must not be turned into a definitive negative answer. Bootstrap ra
 set of servers per family, replacing failures immediately; silent servers do
 not delay the other candidates in that set. It does not retry a server in one
 lookup, and shares the classic wire exchange with Dispatcher backends. It
-starts A/AAAA children in a `task_group`; after the first success, a 50ms
+starts A/AAAA children in a fail-fast nursery; after the first success, a 50ms
 `with_timeout` bounds the next result wait without consuming a late result.
 The enclosing collection scope then cancels/joins remaining children while
 preserving collected addresses; there is no synthetic timer result child.
@@ -181,30 +182,39 @@ await entry, shared across handle copies and `next<T>()`, and commits consumptio
 only when the wait resumes successfully. Cancelling releases the reservation. Joining an empty or
 already claimed handle throws `std::logic_error`. `next<T>()` returns `nullopt`
 as soon as there are no unclaimed children of type `T`, without waiting for
-other result types. Handle claims notify parked `next()` callers immediately,
+other result types. This is not permanent exhaustion: later spawns or released
+reservations may make results available again. Pre-resume reservations do not
+change publication order: reserved entries retain their completed-queue position
+and are skipped until consumed or released.
+Handle claims notify parked `next()` callers immediately,
 even before the claimed producer finishes. A Handle shares ownership of the child's bookkeeping slot,
-so one that outlives the group is dead but memory-safe: `valid()` is false and
-joining throws `std::logic_error`, the same failure as an empty or claimed
-handle. Consumption destroys the completed child frame and removes its slot;
-Handle copies retain only a safe invalidation record, not execution ownership.
+so one that outlives the nursery is dead but memory-safe: `valid()` is false and
+awaiting throws `std::logic_error`, as for an empty or claimed handle. Handle and
+next consumption require the owning loop and a structured descendant of the
+nursery runner, including READY fast paths. Consumption removes the result
+entry, never destroys a frame. Retained invalid handles keep empty storage only.
+Moving a result can throw, but consumption is already committed and cannot retry.
 
 `next<T>()` observes its caller's current cancel scope, not the group's scope.
-A cancelled waiter detaches its subscription without claiming a result or
-cancelling the producers. Completion/cancellation enqueue at most one resume;
+A cancelled waiter detaches its subscription and releases any pre-resume result
+reservation without consuming the result or cancelling the producers. Completion/cancellation enqueue at most one resume;
 sticky cancellation wins before result consumption. Handle result waits follow
-the same caller-scope rule, without cancelling the producer. `TaskGroup::join()` is an internal-style drain:
-it waits for owned children despite caller cancellation, without consuming results.
+the same caller-scope rule, without cancelling the producer. Nursery exit is the
+only full drain boundary: use a nested or sequential `with_nursery` when work
+must continue after all children finish. There is no public join/with_children.
 
-Keeping the body frame alive does not extend body-local object lifetimes.
-Prefer resources outside the group call. For resources in the outer group body,
-use `co_await group.with_children(fn)` before they leave scope: it cancels on
-abnormal exit, drains children on every exit, then rethrows the original error.
-Resources must be outside **fn's** coroutine body; callback locals still follow
-ordinary C++ destruction rules. The main loop uses this boundary to keep its
-gateway/services alive through watcher and bridge-request cleanup.
+The body is an independent inline child, retired before the runner drains the
+nursery children. Neither body locals nor body parameters remain available for
+children after body return. Put borrowed owners in runner Resources or outside
+the entire nursery await; pointer/reference members still require backing owners.
+The runner closes admission on body return (or fail-fast), cancels on abnormal
+exit, and drains without a cancellation subscription or new framework allocation.
+After drain it may allocate to aggregate errors, then invalidates every result,
+clears payloads, destroys Fn, Resources and nursery state in that order. Aggregate
+OOM takes the same no-throw cleanup path before propagating bad_alloc.
 
-Completed task frames have RAII ownership while results are moved out, including
-throwing moves. Slot and wait registrations commit only after their fallible
+Only unstarted frames have Task/awaiter RAII ownership; started frame retirement
+is independent of result moves, including throwing moves. Slot and wait registrations commit only after their fallible
 allocations succeed. StopSignals reports pipe/handler installation failures
 before command execution and rolls back partial handler installation. A latched
 stop wait still checks caller cancellation. Awaiting an empty or previously
@@ -318,14 +328,148 @@ distinction: a plugin-reported CANCELLED on a live scope becomes a validation
 error value, so config test reports failure instead of silently absorbing a
 newly manufactured host cancellation.
 
+### Coroutine lifecycle migration
+
+The internal C++ coroutine API uses one structured nursery boundary. It does not
+change the plugin C ABI.
+
+| Former API | Replacement |
+|------------|-------------|
+| `task_group(fn)` / `TaskGroup&` | `with_nursery(fn)` / `Nursery&` |
+| `supervisor_group(fn)` | `with_nursery(fn, NurseryPolicy::SUPERVISOR)` |
+| `join()` / `with_children()` | complete a nested nursery await before continuing |
+| `GroupToken` / `group_token()` | host-only `NurseryToken` / `nursery_token()` |
+
+Move resources borrowed past body return into the nursery runner. For example,
+assuming `send_report` returns `Task<void>` and borrows its string argument:
+
+```cpp
+co_await coro::with_nursery(
+    std::string{"report"},
+    [](coro::Nursery& nursery, std::string& report) -> coro::Task<void> {
+        nursery.spawn(send_report(report));
+        co_return;
+    });
+// send_report's frame has retired before the runner releases report.
+```
+
+Both the resource and factory inputs are taken by value and support move-only
+owners. The factory is invoked as an lvalue at its stable address. Moving a
+reference, pointer or view into Resources does not extend its backing owner's
+lifetime. A body-local coroutine lambda also needs its own closure owner until
+its task retires; nursery ownership does not preserve arbitrary body locals.
+
+Consume Handle/next results only on the owning loop within the runner's
+structured descendants. Cancellation releases a result reservation, not the
+producer; a value move that throws still consumes the result. Full drain is
+represented by leaving a nursery, not by consuming the last matching result.
+
+All started frames retire through the loop after their resume returns. FIFO
+retirement publishes results only after frame destruction and performs inline
+parent notification in the same batch-end transaction. Ordinary inline chains
+therefore gain no empty retirement batches, but same-batch Handle/next fast
+paths disappear for terminated producers that have not retired yet. Result
+invalidation clears payloads before factory, Resources and nursery state are
+released, including aggregation failure. Host ingress tokens close before drain,
+so they must be replaced, never reused, across successive nursery phases.
+
+#### Coroutine lifecycle cost model
+
+The lifecycle contract, not allocation, dominates the cost of a started
+execution. Compared with the former model, one awaited level pays for:
+
+- destroying the producer frame in the loop's retirement transaction, after the
+  resume that reached final suspend returned;
+- publishing the result only after that destruction;
+- resuming the consumer only after publication;
+- a record outside the frame that holds the frame, its context and the result.
+
+The measured gap against a model that reads a value from a live child frame and
+destroys it in the consumer's resume is therefore structural. Removing Release
+invariants or the retirement barrier is not an acceptable way to recover it.
+Earlier profiles identified retirement, queue manipulation and result/wait
+handling as costs; their ranking must be remeasured after representation changes.
+The current layout budgets are 120 bytes for an execution record, 168 bytes for
+an int inline awaiter and 208 bytes for an int child entry. These are measured
+implementation budgets, not required representations or theoretical minima.
+A layout change needs a measured trade-off, not only a correctness argument;
+it must preserve independent memberships and all lifetime and phase checks.
+Fixed completion callbacks share immutable role descriptors; each record keeps
+its own context, without dynamic registration or an extra allocation. The ready
+hook stores a borrowed frame handle bound at adoption, avoiding a record lookup
+before resume; the reap hook still targets the owning record. Both hooks retain
+independent membership and duplicate-insertion checks. The ready token confers
+no destruction permission and is valid throughout its queue membership; only
+the record/reaper owns and destroys a started frame. An unlinked hook may retain
+a stale token, which is never dereferenced by its destructor. This representation
+adds no storage or allocation. The empty
+inbox check is inline, while nonempty FIFO dispatch stays out of line; it retains
+the relaxed peek followed by acquire exchange, and a concurrent post still wakes
+poll for the next turn.
+
+A ready batch is a scheduling quantum. Frames scheduled while a batch runs go to
+the next batch, and a frame destructor must not dispatch the inbox or start a
+child inline. The whole detached batch is resumed and reaped before the drain
+returns; fusing retirement into the per-frame resume would recover throughput
+but changes destructor ordering, and it is not part of this contract. A large
+ready burst can therefore delay `poll()` by its length; bounding the batch
+would move retirement into the middle of a batch, so it remains an open design
+question rather than an implemented policy. No bounded timer/I/O tail-latency
+guarantee follows from the poll budget: ready-burst size and frame-destructor
+cost must be measured separately before choosing a service-level budget.
+The separate coroutine observation benchmark makes a timer due and a pipe
+readable inside a ready burst, recording real-clock execution, parameter-
+destruction and service spans. Its controlled timer eligibility is not a
+production-clock deadline or external I/O arrival measurement. It informs this
+open design question without changing admission, batch formation or retirement.
+
+Unconsumed payloads remain owned by the nursery result slots after producer
+frames retire; retained bytes therefore scale with outstanding results and
+payload size, not with the age of the retired frames. Consumption or nursery
+exit releases payloads even if invalid Handle copies survive. The observation
+benchmark measures this ownership plateau separately from producer-frame
+lifetime; it does not measure RSS or make retained entry bookkeeping disappear.
+Neither a payload retention limit nor a lighter invalid-Handle representation
+is justified without a target budget and a measured need. Silent result expiry
+and moving frame destruction into the middle of a batch are not substitutes
+for that design decision.
+
+`Nursery::next<T>()` is an observation awaitable, not a `Task`: it parks the
+caller's own record, claims and reserves one matching result, and never creates
+a nested execution. An already-retired result takes the inline fast path; a
+cancelled wait releases its reservation, and a result reserved by a Handle is
+not a next candidate. Completion claims remain in their original queue position
+until consumed, so cancellation releases them without changing publication order.
+A typed wake pass stops when one waiter finds no claimable result but one may still
+become claimable: without a state change, later waiters of that type cannot succeed
+either. Exhaustion still wakes every matching waiter. This avoids repeated failed
+scans across all parked consumers; individual queue and pending-producer scans
+remain linear, so it is not a constant-time type index.
+A parked `next<T>()` keeps waiting in two cases: a producer is still running, or a
+published result is currently reserved by another consumer. The second case is not
+cosmetic — the reservation is handed back when that consumer is cancelled, and the
+hand-back makes the result claimable again at its original queue position. Telling
+the waiters behind it "exhausted" would orphan a result that is still in the queue,
+which breaks the `while (auto outcome = co_await nursery.next<T>())` consumption
+loop. Handing a reservation back therefore wakes the waiter list, and dropping a
+consumed entry does too, so a waiter parked on a reservation that is consumed
+rather than released still gets its exhaustion answer instead of sleeping on.
+A still-running child whose pending outcome a Handle reserved is different: it will
+never publish a result this queue may take, so it does not keep a `next<T>()`
+waiter parked. A retired result reserved by a Handle is tracked like any other
+reservation, because a Handle wait can be cancelled and return it.
+A discarded child's bookkeeping stays alive until the
+retirement callback has returned and is released at the next safe point, so
+retirement needs no shared-pointer host lease.
+
 ### Coroutine API boundary
 
 Application code names runtime capabilities and uses the values they return.
 The implicit runtime context, loop and clock objects, coroutine frames,
 registrations and scope waiter lists stay inside the runtime, which
 implementations reach directly and share with each other. The application
-surface is task ownership and structured groups (`task.hpp`, `group.hpp`,
-`task_group.hpp`, `group_error.h`, `fwd.h`), the cancellation combinators (`scope.hpp`),
+surface is task ownership and structured nurseries (`task.hpp`, `nursery.hpp`,
+`with_nursery.hpp`, `group_error.h`, `fwd.h`), the cancellation combinators (`scope.hpp`),
 `ScopeOutcome` (`scope_outcome.hpp`), `CancelScope` and `coro::Cancelled`
 (`cancel_scope.h`, `cancelled.h`), cancellable sleeps (`sleep.hpp`), loop time as
 values (`now.hpp`, `time.h`), `checkpoint()`
@@ -363,7 +507,9 @@ coalescing signal whose `wait()` parks on the caller's own scope and whose
 `coro/host.hpp`, the second, narrower door, is what a host still cannot express
 with public primitives: `CancelObserver` (an RAII hook that observes one
 scope's cancellation while the coroutine waits on another, e.g. inside a
-shield) and `GroupToken` (a group lifetime token read only on the loop). The
+shield) and `NurseryToken` (a nursery ingress token read only on the loop).
+The token becomes null when admission closes, before children finish draining;
+late posted requests take the existing cancellation/rejection path. The
 architecture guard rejects `coro/detail/` includes and `coro::detail` symbols
 in every module outside `src/coro/`, so the waiter bookkeeping stays inside the
 runtime for all layers.
@@ -389,7 +535,7 @@ guard's coroutine header allowlist and internal-access checks apply only to
 `src/application/`, not to composition, infrastructure or tests.
 
 A scope an application holds is always the one a combinator passed to its body
-or `TaskGroup::scope()`; `current_scope()` is the same borrow reached
+or `Nursery::scope()`; `current_scope()` is the same borrow reached
 implicitly. The driver gateway uses it for ABI cancellation translation;
 TCP stream wrappers and aggregate socket operations use it to observe sticky
 cancellation without adding a second yield before the underlying I/O. It is borrowed for the lifetime of that
@@ -398,9 +544,9 @@ checkpoint; cancelling it (`cancel()`) and re-observing cancellation
 (`throw_if_cancelled()`) are explicit calls, and the latter is how the plugin
 gateway turns a synchronous ABI abort into coroutine cancellation. The run
 root borrows `work.scope()` and stores that borrow to cancel its work from a
-sibling signal watcher. Its work body uses `with_children` to drain (not `next()`
-result collection), keeping the borrow published through partial-launch cleanup
-and cancellation drain, then clears it before the group scope is destroyed.
+sibling signal watcher. Work-Resources own publication of this borrow: their
+post-drain destructor clears it before nursery scope destruction, including
+partial-launch cleanup and cancellation. Result collection is not a drain.
 
 **Checkpoints.** `checkpoint()` yields and checks cancellation explicitly; use
 it in CPU loops. Sleep, fd waits, stop waits, mutex acquisition, offload and
@@ -675,9 +821,9 @@ enforces, in `cmake/ArchitectureGuard.cmake`:
 
 For `src/application/`, the guard allows direct coroutine includes only from
 `async_mutex.hpp`, `cancel_scope.h`, `cancelled.h`, `checkpoint.hpp`, `fwd.h`,
-`group.hpp`, `group_error.h`, `mutex_guard.hpp`, `now.hpp`, `offload.hpp`, `scope.hpp`,
-`scope_outcome.hpp`, `sleep.hpp`, `task.hpp`, `task_group.hpp` and
-`time.h`. These coroutine include and internal-access checks apply only to
+`group_error.h`, `mutex_guard.hpp`, `now.hpp`, `nursery.hpp`, `offload.hpp`, `scope.hpp`,
+`scope_outcome.hpp`, `sleep.hpp`, `task.hpp`, `time.h` and
+`with_nursery.hpp`. These coroutine include and internal-access checks apply only to
 `src/application/`; the thread/future include check is wider and globs
 `src/application/`, `src/infrastructure/` and `src/composition/` together.
 For application code, it rejects explicit internal types/context, `coro::detail`,

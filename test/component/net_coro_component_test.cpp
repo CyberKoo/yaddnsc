@@ -644,7 +644,7 @@ TEST(NetCoroDnsExchange, query_udp_Ipv6Server_RoundTrips) {
 
     auto task = [&]() -> coro::Task<void> {
         const auto outcome = co_await coro::with_timeout(2s, [&]() -> coro::Task<void> {
-            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
                 group.spawn(answer_one(server, reply, answered));
                 const auto result = co_await dns::detail::query_udp(loopback_v6(), *server_port, query);
                 if (result) {
@@ -688,7 +688,7 @@ TEST(NetCoroDnsExchange, strayRepliesDoNotPreventTheMatchingAnswer) {
     };
     std::vector<std::uint8_t> answer;
     run_task([&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             group.spawn(serve());
             const auto result = co_await dns::detail::query_udp(loopback_v4(), port, query);
             EXPECT_TRUE(result.has_value());

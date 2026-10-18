@@ -745,7 +745,7 @@ TEST(NetCoroDns, udpDistinguishesInvalidLocalMalformedRemoteAndStrayPackets) {
         bool timed_out = true;
         std::optional<std::expected<dns::detail::UdpAnswer, domain::DnsErrorInfo>> result;
         run_task([&]() -> coro::Task<void> {
-            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
                 group.spawn(answer_udp(server, kind));
                 auto outcome = co_await coro::with_timeout(
                     1s, [&]() { return dns::detail::query_udp(loopback_v4(), port, query); });
@@ -796,7 +796,7 @@ TEST(NetCoroDns, strayFloodCannotResetTheUdpBudgetOrStarveItsTimer) {
     std::optional<std::expected<dns::detail::UdpAnswer, domain::DnsErrorInfo>> result;
     run_task([&]() -> coro::Task<void> {
         co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
-            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
                 group.spawn(flood_unrelated_replies(server));
                 auto outcome = co_await coro::with_timeout(
                     1300ms, [&]() { return dns::detail::query_udp(loopback_v4(), port, query); });
@@ -834,7 +834,7 @@ TEST(NetCoroDns, lateTruncationPreservesTcpFallbackTimeoutStage) {
     const auto query = dns::QueryBuilder{}.add_question("x.test", dns::RecordType::A).build();
     std::optional<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> result;
     run_task([&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             group.spawn(answer_udp(server, UdpReplyCase::LATE_TC));
             result.emplace(co_await dns::detail::query_classic(loopback_v4(), port, query));
         });
@@ -884,7 +884,7 @@ TEST(NetCoroDns, bootstrap_classifiesServerErrorsAndRejectsWrongAddressLength) {
         const std::vector<domain::DnsServer> servers{{"127.0.0.1", *server.local_port()}};
         std::optional<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>> result;
         run_task([&]() -> coro::Task<void> {
-            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
                 group.spawn(answer_bootstrap(server, rcode, rcode == 0 ? 16 : 0, 1));
                 result.emplace(co_await dns::bootstrap_resolve("x.test", domain::AddressFamily::IPV4, servers));
             });
@@ -905,7 +905,7 @@ TEST(NetCoroDns, bootstrap_returnsAvailableFamilyInsteadOfWaitingForSilentSiblin
         bool timed_out = true;
         std::vector<domain::InetAddress> addresses;
         run_task([&]() -> coro::Task<void> {
-            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
                 group.spawn(answer_bootstrap(server, 0, ipv6 ? 16 : 4, ipv6 ? 28 : 1));
                 auto outcome = co_await coro::with_timeout(
                     1s, [&]() { return dns::bootstrap_resolve("x.test", std::nullopt, servers); });
@@ -937,7 +937,7 @@ TEST(NetCoroDns, Bootstrap_TwoSilentServers_StillReachesHealthyThirdWithinAttemp
     std::optional<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>> result;
     bool timed_out = true;
     run_task([&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             group.spawn(answer_bootstrap(healthy, 0, 4, 1));
             const auto outcome = co_await coro::with_timeout(dns::Policy{}.attempt_budget, [&]() {
                 return dns::bootstrap_resolve("x.test", domain::AddressFamily::IPV4, servers);

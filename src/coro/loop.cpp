@@ -10,6 +10,7 @@
 #include <chrono>
 #include <climits>
 #include <compare>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <coroutine>
 #include <cstring>  // IWYU pragma: keep — clang resolves std::strerror transitively, GCC does not
 #include <ctime>    // timespec / nanosleep (POSIX names, provided in the global namespace)
 #include <exception>
@@ -22,15 +23,14 @@
 #include <type_traits>
 #include <utility>
 
-#include <coroutine>
-
 #include <poll.h>
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "coro/detail/frame.h"
+#include "coro/detail/execution_record.h"
 #include "coro/detail/inbox_node.h"
 #include "coro/detail/offload_job.h"
+#include "coro/detail/result_state.hpp"
 #include "coro/detail/time_math.h"
 #include "coro/detail/timer_node.h"
 #include "support/fmt.hpp"
@@ -169,8 +169,20 @@ Loop::Loop(Clock& clock) : clock_(&clock) {
 }
 
 Loop::~Loop() noexcept {
+    assert(!running_ && !reaping_ && "destroying loop during dispatch or retirement");
+    if (running_ || reaping_) {
+        std::terminate();
+    }
     assert(offload_head_ == nullptr && offload_tail_ == nullptr && "destroying loop with live admission waiters");
     if (offload_head_ != nullptr || offload_tail_ != nullptr) {
+        std::terminate();
+    }
+    // A started frame may only be destroyed by the reap transaction, and the
+    // host that owns a record must outlive it. Forcing the destruction here
+    // would free storage a parked frame still points into.
+    const bool executions_live = !execution_registry_.empty() || !execution_ready_.empty() || !reap_candidates_.empty();
+    assert(!executions_live && "destroying loop with live executions");
+    if (executions_live) {
         std::terminate();
     }
     // Workers may still post after their awaits were cancelled. Join while
@@ -235,56 +247,78 @@ void Loop::wake() noexcept {
     std::terminate();  // a queued callback must not lose its only wakeup
 }
 
-void Loop::schedule(detail::PromiseBase& frame) noexcept {
-    assert(!frame.in_ready && "frame scheduled twice while already ready");
-    if (frame.in_ready) {
-        // Release-mode policy (rule 03): the awaitable's scheduled flag already
-        // guarantees a single wakeup, so a duplicate schedule carries no
-        // information; dropping it keeps the intrusive ready list intact.
-        return;
-    }
-    frame.in_ready = true;
-    frame.ready_next = nullptr;
-    if (ready_tail_ != nullptr) {
-        ready_tail_->ready_next = &frame;
-    } else {
-        ready_head_ = &frame;
-    }
-    ready_tail_ = &frame;
+void Loop::unregister_execution(detail::ExecutionRecord& record) noexcept {
+    record.registry_hook_.unlink();
 }
 
-void Loop::defer_reap(detail::PromiseBase& frame) noexcept {
-    assert(frame.continuation == nullptr && !frame.in_ready);
-    frame.reap_next = reap_head_;
-    reap_head_ = &frame;
-}
-
-void Loop::reap_completed() noexcept {
-    while (reap_head_ != nullptr) {
-        auto* frame = reap_head_;
-        reap_head_ = frame->reap_next;
-        frame->self.destroy();
+void Loop::reap_executions() noexcept {
+    // A frame destructor runs user code here. That code may add candidates,
+    // post to the inbox and cancel scopes, but it must not advance the runtime:
+    // a nested run/drain/reap would resume frames against a half-finished
+    // transaction. New candidates are popped by this same loop instead.
+    assert(!reaping_ && "recursive advance from inside the reap transaction");
+    if (reaping_) {
+        std::terminate();
     }
+    reaping_ = true;
+    while (detail::ExecutionRecord* record = reap_candidates_.pop_front()) {
+        record->begin_reap();
+        std::coroutine_handle<> frame = record->take_frame();
+        frame.destroy();
+        unregister_execution(*record);
+        detail::ExecutionRecord* const parent = record->parent();
+        record->detach_from_parent();
+        record->mark_retired();
+        // The result outlives the frame: this is what makes a value, defect or
+        // cancellation still consumable after the frame is gone.
+        record->result()->publish_ready();
+        if (parent != nullptr) {
+            // A terminated parent whose last execution child just retired
+            // becomes reapable; queueing it keeps the tree from recursing.
+            if (parent->phase() == detail::ExecutionPhase::TERMINAL && parent->unretired_children() == 0) {
+                reap_candidates_.push_back(parent->reap_hook_);
+            }
+        } else {
+            // The root's subtree has retired with it, so nothing may be left in
+            // the registry. Legitimate late work (an abandon worker, an inbox
+            // node) is not a record and never appears here.
+            assert(execution_registry_.empty() && "root retired while the execution registry is not empty");
+            if (!execution_registry_.empty()) {
+                std::terminate();
+            }
+        }
+        record->notify_retired();
+    }
+    reaping_ = false;
 }
 
 std::size_t Loop::drain_ready() {
-    detail::PromiseBase* batch = ready_head_;
-    ready_head_ = nullptr;
-    ready_tail_ = nullptr;
+    // Detach the batch before resuming anything: a record that queues itself
+    // again (checkpoint, a due sleep) must land in the next batch, or a
+    // self-refilling queue would starve poll() inside a single drain.
+    detail::ForwardList<std::coroutine_handle<>> batch;
+    batch.splice_all(execution_ready_);
     std::size_t resumed = 0;
-    while (batch != nullptr) {
-        detail::PromiseBase* next = batch->ready_next;
-        batch->ready_next = nullptr;
-        batch->in_ready = false;
-        batch->self.resume();
+    while (std::coroutine_handle<> frame = batch.pop_front()) {
+        // The ready hook is unlinked before resumption. Its frame token only
+        // borrows: ownership and retirement still belong to the record.
+        frame.resume();
         ++resumed;
-        batch = next;
     }
-    // Reap once per batch, not per frame: `next` was captured before resume(),
-    // so destroying completed frames cannot disturb the walk.
-    reap_completed();
+    // The whole detached batch is reaped before this call returns; the design
+    // requires retirement after the ready batch, not inside it.
+    if (!reap_candidates_.empty()) {
+        reap_executions();
+    }
     CORO_TRACE("Drained ready queue, resumed {} frame(s)", resumed);
     return resumed;
+}
+
+bool Loop::session_complete() const noexcept {
+    return execution_registry_.empty() && execution_ready_.empty() && reap_candidates_.empty() &&
+           offload_head_ == nullptr && offload_tail_ == nullptr &&
+           offload_pending_.load(std::memory_order_acquire) == 0 &&
+           inbox_head_.load(std::memory_order_acquire) == nullptr;
 }
 
 void Loop::post(std::function<void()> fn) {
@@ -305,14 +339,13 @@ void Loop::post_node(detail::InboxNode& node) noexcept {
     // Treiber push: link before the publishing CAS. Nodes are never re-posted
     // before running, so the stack needs no ABA guard (see detail/inbox_node.h).
     node.next = inbox_head_.load(std::memory_order_relaxed);
-    while (!inbox_head_.compare_exchange_weak(node.next, &node, std::memory_order_release,
-                                              std::memory_order_relaxed)) {
+    while (!inbox_head_.compare_exchange_weak(node.next, &node, std::memory_order_release, std::memory_order_relaxed)) {
     }
     // Diagnostics are emitted when the inbox is consumed on the loop thread.
     wake();
 }
 
-void Loop::process_inbox() {
+void Loop::drain_inbox() {
     // Steal the producer stack, then reverse it for FIFO dispatch. Producers
     // racing the steal land on the next stack; their wake() byte still arrives,
     // so nothing is lost — only deferred one round.
@@ -440,12 +473,27 @@ void Loop::set_trace_sink(TraceSink sink, void* context) noexcept {
 }
 
 void Loop::run() {
+    assert(!running_ && !reaping_ && "recursive loop advance");
+    if (running_ || reaping_) {
+        std::terminate();
+    }
+    running_ = true;
+
+    struct ResetRunning {
+        bool& running;
+
+        ~ResetRunning() noexcept { running = false; }
+    } reset{running_};
+
     assert(!fds_.empty() && "loop self-pipe unavailable: nothing could ever wake the loop");
     CORO_TRACE("run() starting");
-    while (!stopped_ || offload_pending_.load(std::memory_order_acquire) != 0 || offload_head_ != nullptr) {
+    // One predicate decides when the session is over, and both the loop
+    // condition and the body re-read it. Root completion is not a flag: it is
+    // the registry emptying, which only happens once the root retired.
+    while (!session_complete()) {
         // Worker completions and due timers run on every iteration, ahead of
         // the ready queue: a busy loop keeps re-filling the queue (every
-        // resumed frame can schedule the next one), so a ready-first order
+        // resumed record can schedule the next one), so a ready-first order
         // starves all three — a with_timeout would then fire late or never.
         process_inbox();
         // Worker completions free slots without any flag or callback: queued
@@ -454,19 +502,17 @@ void Loop::run() {
         if (offload_head_ != nullptr) {
             dispatch_offloads();
         }
-        // One time view per iteration: fire_timers no longer pays a virtual
-        // clock call per due timer. A timer that becomes due during inbox
-        // processing fires next iteration instead — sub-millisecond drift.
-        const TimePoint now = clock_->now();
-        fire_timers(now);
-        // Queued admissions hold the loop too: a worker's countdown lands
-        // before its wake, so the pending count alone can read idle while
-        // work still waits for a slot (~Loop terminates on live waiters).
-        if (stopped_ && ready_head_ == nullptr && offload_pending_.load(std::memory_order_acquire) == 0 &&
-            offload_head_ == nullptr) {
+        // An empty timer heap has no deadline to observe. When timers exist,
+        // keep one time view and check them before dispatching ready work.
+        if (!timers_.empty()) {
+            fire_timers(clock_->now());
+        }
+        // The last batch may have retired everything it ran; re-read the same
+        // predicate instead of blocking for an event that will never arrive.
+        if (session_complete()) {
             break;
         }
-        if (ready_head_ != nullptr) {
+        if (!execution_ready_.empty()) {
             frames_since_poll_ += drain_ready();
             // Keep I/O moving with a non-blocking scan, but paced: the frame
             // budget bounds the stretch a self-re-filling ready chain can run
@@ -478,13 +524,41 @@ void Loop::run() {
             }
             continue;
         }
+        if (!reap_candidates_.empty()) {
+            // A terminated execution with no ready work still has to retire;
+            // nothing else would ever wake the loop for it.
+            reap_executions();
+            continue;
+        }
+        // Queued admissions hold the loop too: a worker's countdown lands
+        // before its wake, so the pending count alone can read idle while
+        // work still waits for a slot (~Loop terminates on live waiters).
         poll_once(poll_timeout_ms());
     }
-    CORO_TRACE("run() returning, root task completed");
+    // A callback posted while the last batch drained — an offload completion,
+    // an application callback — is still part of this session. Pump once more
+    // and keep going until the same predicate holds.
+    while (!session_complete()) {
+        process_inbox();
+        if (!execution_ready_.empty()) {
+            drain_ready();
+            continue;
+        }
+        if (!reap_candidates_.empty()) {
+            reap_executions();
+            continue;
+        }
+        if (offload_head_ != nullptr) {
+            dispatch_offloads();
+            continue;
+        }
+        poll_once(poll_timeout_ms());
+    }
+    CORO_TRACE("run() returning, session complete");
 }
 
 int Loop::poll_timeout_ms() {
-    if (ready_head_ != nullptr) {
+    if (!execution_ready_.empty()) {
         return 0;
     }
     // Relaxed peek only: a post racing past it still writes the wake pipe,

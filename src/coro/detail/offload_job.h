@@ -8,20 +8,19 @@
 
 #include <atomic>
 #include <cassert>
+#include <coroutine>
 #include <exception>
 #include <functional>
 #include <memory>
 #include <stop_token>
 #include <type_traits>
 
-#include <coroutine>
-
 #include "coro/cancel_scope.h"
 #include "coro/detail/access.h"
-#include "coro/detail/frame.h"
 #include "coro/detail/inbox_node.h"
+#include "coro/detail/promise_base.h"
 #include "coro/detail/result_box.hpp"
-#include "coro/detail/wait_node.h"
+#include "coro/detail/wait_operation.h"
 #include "coro/loop.h"
 
 namespace coro::detail {
@@ -42,7 +41,7 @@ struct OffloadAdmission {
 ///
 /// Ownership: held by std::shared_ptr on both sides, so an abandoned await can
 /// return (and its frame die) while the worker is still running; the job's copy
-/// outlives it. `waiter`/`awaiting`/`node` are loop-thread state. Cancellation
+/// outlives it. `attached_waiter` is loop-thread state. Cancellation
 /// flags and stop_source synchronize cancellation with the worker; completed's
 /// release/acquire publishes its result/error.
 struct OffloadSlot {
@@ -52,9 +51,10 @@ struct OffloadSlot {
     std::atomic<bool> cancelled{false};
     std::stop_source stop;
     bool join_on_cancel = false;
-    PromiseBase* waiter = nullptr;
-    bool awaiting = false;
-    WaitNode node{};
+    /// Loop-thread-only attachment to the awaiting frame's wait operation. It is
+    /// cleared as soon as the wait is resolved, so a completion that arrives
+    /// after an abandoned await has nothing to touch. The worker never reads it.
+    WaitOperation* attached_waiter = nullptr;
     Loop* loop = nullptr;
     OffloadAdmission admission{};
     /// Embedded inbox node for the completion path: the worker posts it with
@@ -85,9 +85,11 @@ void offload_finish(OffloadState<R>& state) noexcept {
     if (!state.completed.load(std::memory_order_acquire)) {
         return;
     }
-    if (state.awaiting && state.waiter != nullptr && !state.node.scheduled) {
-        state.node.scheduled = true;
-        wake(*state.waiter);
+    // Detach before reporting: the wait operation lives in the awaiting frame,
+    // and a second completion must not reach it.
+    if (WaitOperation* waiter = state.attached_waiter; waiter != nullptr) {
+        state.attached_waiter = nullptr;
+        waiter->event_ready();
     }
 }
 
@@ -107,6 +109,12 @@ struct OffloadAwaitable {
 
     std::shared_ptr<Fn> fn;
     std::shared_ptr<OffloadState<R>> state = std::make_shared<OffloadState<R>>();
+    /// The wait this awaitable parks on. It lives in the awaiting frame, and the
+    /// slot only borrows it through attached_waiter while the await is live.
+    CancelSubscription subscription_{};
+    WaitOperation wait_{subscription_};
+    /// The scope this await parked on, kept for the resume-side priority check.
+    CancelScope* scope_ = nullptr;
 
     constexpr bool await_ready() const noexcept { return false; }
 
@@ -115,27 +123,23 @@ struct OffloadAwaitable {
     template<typename Promise>
     bool await_suspend(std::coroutine_handle<Promise> handle) {
         PromiseBase& promise = handle.promise();
-        Loop* loop = promise.loop;
-        CancelScope* scope = promise.scope;
+        Loop* loop = promise.exec->loop();
+        CancelScope* scope = promise.exec->scope();
         state->loop = loop;
-        state->node.scope = scope;
+        scope_ = scope;
         state->join_on_cancel = Joined;
-        state->node.wake_on_cancel = !Joined;
         assert(loop != nullptr && "offload must be awaited inside coro::run");
         if (scope != nullptr && scope->cancelled()) {
             return false;
         }
-        state->waiter = &promise;
-        state->awaiting = true;
+        wait_.begin(*promise.exec);
+        if (scope != nullptr) {
+            wait_.subscribe_cancel(*scope, state.get(), &OffloadAwaitable::on_cancel);
+        }
+        state->attached_waiter = &wait_;
         state->completion_node.context = state.get();
         state->completion_node.run = &OffloadAwaitable::completion_trampoline;
         state->completion_node.dispose = &OffloadAwaitable::dispose_completion;
-        if (scope != nullptr) {
-            state->node.waiter = &promise;
-            state->node.owner = state.get();
-            state->node.on_cancel = &OffloadAwaitable::on_cancel;
-            ScopeAccess::add_waiter(*scope, state->node);
-        }
         std::shared_ptr<Fn> work = std::move(fn);
         std::shared_ptr<OffloadState<R>> shared = state;
         try {
@@ -168,30 +172,32 @@ struct OffloadAwaitable {
             LoopAccess::admit_offload(*loop, state->admission);
         } catch (...) {
             state->admission.job = {};
-            if (scope != nullptr) {
-                ScopeAccess::remove_waiter(*scope, state->node);
-            }
+            state->attached_waiter = nullptr;
+            wait_.rollback();
             throw;
         }
+        wait_.commit_suspend();
         return true;
     }
 
     /// Yields the job's value, or `coro::Cancelled` when abandoned, or
     /// rethrows the defect the callable threw (possibly T's throwing move).
     R await_resume() {
-        if (state->node.linked && state->node.scope != nullptr) {
-            ScopeAccess::remove_waiter(*state->node.scope, state->node);
-        }
+        wait_.begin_resume();
+        wait_.finish();
+        // The wait is resolved: the slot must not reach this frame again, which
+        // is what lets an abandoned await return while the worker still runs.
+        state->attached_waiter = nullptr;
         if constexpr (Joined) {
             // Joining owns the defect boundary even if its caller stopped waiting.
             if (state->error) {
                 std::rethrow_exception(state->error);
             }
         }
-        if (state->node.scope != nullptr && state->node.scope->cancelled()) {
+        if (scope_ != nullptr && scope_->cancelled()) {
             // A completed job can be abandoned before its parent resumes too.
             state->abandoned.store(true, std::memory_order_release);
-            state->node.scope->throw_if_cancelled();
+            scope_->throw_if_cancelled();
         }
         if (state->error) {
             std::rethrow_exception(state->error);
@@ -209,6 +215,9 @@ struct OffloadAwaitable {
     /// rides the submission wrapper, not this node.
     static void completion_trampoline(InboxNode& node) noexcept {
         auto& state = *static_cast<OffloadState<R>*>(node.context);
+        // The worker posts only after taking the lease, and the loop runs or
+        // disposes a node exactly once, so the lease is always still here.
+        assert(state.completion_lease != nullptr && "offload completion ran without its self-lease");
         auto lease [[maybe_unused]] = std::move(state.completion_lease);  // breaks the self-reference
         offload_finish(state);
     }
@@ -217,25 +226,31 @@ struct OffloadAwaitable {
     /// without running the completion (the loop is gone).
     static void dispose_completion(InboxNode& node) noexcept {
         auto& state = *static_cast<OffloadState<R>*>(node.context);
+        assert(state.completion_lease != nullptr && "offload node disposed without its self-lease");
         state.completion_lease.reset();
     }
 
-    /// Cancellation hook: marks the job abandoned so a not-yet-started job is
-    /// dropped by the worker. Never throws; runs on the loop thread.
-    static void on_cancel(WaitNode& node) noexcept {
-        auto* state = static_cast<OffloadState<R>*>(node.owner);
+    /// Cancellation hook: mark the job cancelled so a not-yet-started job is
+    /// dropped by the worker, and decide whether the waiter may resume now.
+    /// A joined wait stays parked until the job really finished, because the
+    /// worker is still using the resources the awaiter owns; an abandon detaches
+    /// the waiter first and resumes. Never throws; runs on the loop thread.
+    static CancelAction on_cancel(void* context) noexcept {
+        auto* state = static_cast<OffloadState<R>*>(context);
         state->cancelled.store(true, std::memory_order_release);
         if (!state->admission.submitted) {
             LoopAccess::cancel_offload(*state->loop, state->admission);
-            node.wake_on_cancel = true;  // no submitted work remains to join
+            state->join_on_cancel = false;  // no submitted work remains to join
         }
         if (state->join_on_cancel) {
             // request_stop may invoke callbacks inline: the public contract
             // requires them to be non-blocking and not re-enter the loop.
             state->stop.request_stop();
-        } else {
-            state->abandoned.store(true, std::memory_order_release);
+            return CancelAction::WAIT_EXTERNAL;  // the completion will resume
         }
+        state->abandoned.store(true, std::memory_order_release);
+        state->attached_waiter = nullptr;  // the wait ends here; the worker runs on
+        return CancelAction::RESUME;
     }
 };
 

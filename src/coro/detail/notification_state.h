@@ -8,15 +8,15 @@
 
 namespace coro::detail {
 
-struct WaitNode;
+class WaitOperation;
 
 /// Shared state between a Notification and its one live wait.
 struct NotificationState {
     /// A delivered notification not yet consumed by a wait.
     bool pending = false;
-    /// The live wait's node, from its await_suspend until its await_resume.
-    /// A queued-but-unresumed wait is still live: unlinked is not finished.
-    WaitNode* waiter = nullptr;
+    /// The live wait's operation, from its await_suspend until its await_resume.
+    /// A queued-but-unresumed wait is still live: not resumed is not finished.
+    WaitOperation* waiter = nullptr;
 };
 
 }  // namespace coro::detail

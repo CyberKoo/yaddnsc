@@ -119,11 +119,13 @@ void run_update(const DriverCatalog& catalog, const app::LoggerPort& logger,
                 std::expected<void, domain::DriverError>& result) {
     coro::Loop loop;
     coro::run(loop, [&]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            plugin::DriverGateway gateway(catalog, logger, loop, group, default_options());
-            result = co_await gateway.update(DRIVER_NAME, make_command());
-            co_return;
-        });
+        co_await coro::with_nursery(
+            [&](coro::Nursery& group) -> coro::Task<void> {
+                plugin::DriverGateway gateway(catalog, logger, loop, group, default_options());
+                result = co_await gateway.update(DRIVER_NAME, make_command());
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
         co_return;
     }());
 }
@@ -133,11 +135,13 @@ void run_validate(const DriverCatalog& catalog, const app::LoggerPort& logger,
                   std::expected<void, domain::DriverError>& result) {
     coro::Loop loop;
     coro::run(loop, [&]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            plugin::DriverGateway gateway(catalog, logger, loop, group, default_options());
-            result = co_await gateway.validate_config(DRIVER_NAME, R"({"key":"value"})");
-            co_return;
-        });
+        co_await coro::with_nursery(
+            [&](coro::Nursery& group) -> coro::Task<void> {
+                plugin::DriverGateway gateway(catalog, logger, loop, group, default_options());
+                result = co_await gateway.validate_config(DRIVER_NAME, R"({"key":"value"})");
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
         co_return;
     }());
 }

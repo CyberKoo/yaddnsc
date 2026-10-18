@@ -12,7 +12,7 @@
 //     -> Bridge::exchange
 //          loop.post(spawn serve)
 //          future.wait_until(deadline)    serve(call)  [structured child of
-//          future.get()  <---- set_value <---            the bound TaskGroup]
+//          future.get()  <---- set_value <---            the bound Nursery]
 //                                            http::Client::exchange
 //
 // Why a promise is allowed here (the third synchronization boundary in the
@@ -65,7 +65,7 @@
 
 namespace coro {
 class Loop;
-class TaskGroup;
+class Nursery;
 class CancelScope;
 }  // namespace coro
 
@@ -114,7 +114,7 @@ struct BridgeCall {
 /// The owner and worker retain leases until HTTP children and real work finish.
 struct CallState {
     std::atomic<bool> cancelled{false};
-    coro::GroupToken lifetime;
+    coro::NurseryToken lifetime;
     // The group owns HTTP children; tracking borrows without a cycle->call->cycle ring.
     std::vector<std::weak_ptr<BridgeCall>> calls;
     /// Owner-side events: cancel requests, worker completion, subscriber exit.
@@ -191,8 +191,7 @@ public:
     /// @param wait_budget   Real-time budget for admission and I/O. The loop
     ///                      translates the remaining budget to its own clock;
     ///                      worker expiry cancels the loop-side request.
-    Bridge(coro::Loop& loop, coro::TaskGroup& spawn_group, http::Options options,
-           std::chrono::milliseconds wait_budget);
+    Bridge(coro::Loop& loop, coro::Nursery& spawn_group, http::Options options, std::chrono::milliseconds wait_budget);
 
     ~Bridge();
 
@@ -221,7 +220,7 @@ public:
 
 private:
     coro::Loop* loop_;
-    coro::GroupToken group_lifetime_;
+    coro::NurseryToken group_lifetime_;
     std::shared_ptr<const detail::BridgeState> state_;
 };
 

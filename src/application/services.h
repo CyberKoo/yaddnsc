@@ -38,15 +38,14 @@ struct Services {
 
 /// RuntimeServices — what the main loop needs.
 ///
-/// The driver gateway needs a TaskGroup to spawn its bridge coroutines into,
-/// and that group only exists inside coro::run; `make_gateway` is therefore
-/// called once, at the top of the run, with the main loop's root group, and the
-/// main loop owns the returned gateway for the whole run.
+/// The driver gateway starts bridge coroutines in the root nursery. Its factory
+/// is called once inside the run; runner-owned resources keep the gateway alive
+/// until every bridge coroutine has retired.
 struct RuntimeServices {
     ResolverPort& resolver;
     IpSourcePort& ip_source;
     const LoggerPort& logger;
-    std::function<std::unique_ptr<GatewayPort>(coro::TaskGroup& bridge_group)> make_gateway;
+    std::function<std::unique_ptr<GatewayPort>(coro::Nursery& bridge_nursery)> make_gateway;
     /// Latched process stop request; safe to query before launching work.
     /// Both callbacks are required and their owner must outlive coro::run.
     std::function<bool()> stop_requested;

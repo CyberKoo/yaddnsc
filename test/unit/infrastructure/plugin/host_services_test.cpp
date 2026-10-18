@@ -33,17 +33,17 @@
 
 #include "application/ports/log.h"
 #include "coro/cancel_scope.h"
-#include "coro/group.hpp"
 #include "coro/loop.h"
 #include "coro/run.hpp"
 #include "coro/task.hpp"
+#include "coro/with_nursery.hpp"
 #include "infrastructure/http/types.h"
 #include "infrastructure/plugin/bridge.h"
 #include "mocks/allocation_fault.h"
 #include "yaddnsc/sdk/driver_abi.h"
 
 namespace coro {
-class TaskGroup;
+class Nursery;
 }  // namespace coro
 
 namespace {
@@ -175,10 +175,12 @@ template<typename Mutate>
 [[nodiscard]] std::unique_ptr<plugin::Bridge> make_closed_bridge(coro::Loop& loop) {
     std::unique_ptr<plugin::Bridge> bridge;
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            bridge = std::make_unique<plugin::Bridge>(loop, group, http::Options{}, std::chrono::seconds{1});
-            co_return;
-        });
+        co_await coro::with_nursery(
+            [&](coro::Nursery& group) -> coro::Task<void> {
+                bridge = std::make_unique<plugin::Bridge>(loop, group, http::Options{}, std::chrono::seconds{1});
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
     };
     coro::run(loop, root());
     return bridge;

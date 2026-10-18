@@ -687,7 +687,7 @@ TEST(MainLoop, MainLoopSupervisesSubdomainsAndStopsOnSigint) {
         .resolver = resolver,
         .ip_source = ip_source,
         .logger = logger,
-        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+        .make_gateway = [&gateway_state](coro::Nursery&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
         .stop_requested = [&stop] { return stop.requested(); },
@@ -720,7 +720,7 @@ TEST(MainLoop, SubdomainDefectRetriesTheCycleAfterTheInterval) {
         .resolver = resolver,
         .ip_source = ip_source,
         .logger = logger,
-        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+        .make_gateway = [&gateway_state](coro::Nursery&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
         .stop_requested = [&stop] { return stop.requested(); },
@@ -775,7 +775,7 @@ TEST(MainLoop, SubdomainDefectIsReportedAndSiblingsSurvive) {
         .resolver = resolver,
         .ip_source = ip_source,
         .logger = logger,
-        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+        .make_gateway = [&gateway_state](coro::Nursery&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
         .stop_requested = [&stop] { return stop.requested(); },
@@ -819,7 +819,7 @@ TEST(MainLoop, SigtermStopsTheRunWithSuccess) {
         .resolver = resolver,
         .ip_source = ip_source,
         .logger = logger,
-        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+        .make_gateway = [&gateway_state](coro::Nursery&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
         .stop_requested = [&stop] { return stop.requested(); },
@@ -847,7 +847,7 @@ TEST(MainLoop, AlreadyRequestedStopSkipsValidationAndUpdates) {
         .resolver = resolver,
         .ip_source = ip_source,
         .logger = logger,
-        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+        .make_gateway = [&gateway_state](coro::Nursery&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
         .stop_requested = [&stop] { return stop.requested(); },
@@ -886,7 +886,7 @@ void run_until_second_sigint() {
         .resolver = resolver,
         .ip_source = ip_source,
         .logger = logger,
-        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+        .make_gateway = [&gateway_state](coro::Nursery&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
         .stop_requested = [&stop] { return stop.requested(); },
@@ -919,7 +919,7 @@ TEST(MainLoop, StartupValidation_RejectionFailsBeforeAnyUpdate) {
         .resolver = resolver,
         .ip_source = ip_source,
         .logger = logger,
-        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+        .make_gateway = [&gateway_state](coro::Nursery&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
         .stop_requested = [&stop] { return stop.requested(); },
@@ -957,7 +957,7 @@ TEST(MainLoop, StartupValidation_DriverWithoutEntryWarnsAndRuns) {
         .resolver = resolver,
         .ip_source = ip_source,
         .logger = logger,
-        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+        .make_gateway = [&gateway_state](coro::Nursery&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
         .stop_requested = [&stop] { return stop.requested(); },
@@ -997,7 +997,7 @@ TEST(MainLoop, StartupValidation_TimeoutFailsBeforeAnyUpdate) {
         .resolver = resolver,
         .ip_source = ip_source,
         .logger = logger,
-        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+        .make_gateway = [&gateway_state](coro::Nursery&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
         .stop_requested = [&stop] { return stop.requested(); },
@@ -1029,7 +1029,7 @@ TEST(MainLoop, StartupValidation_AncestorCancellationSkipsUpdates) {
         .resolver = resolver,
         .ip_source = ip_source,
         .logger = logger,
-        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+        .make_gateway = [&gateway_state](coro::Nursery&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
         .stop_requested = [&stop] { return stop.requested(); },
@@ -1062,7 +1062,7 @@ TEST(MainLoop, StopSignalCancelsStartupValidation) {
         .resolver = resolver,
         .ip_source = ip_source,
         .logger = logger,
-        .make_gateway = [state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+        .make_gateway = [state](coro::Nursery&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(state);
         },
         .stop_requested = [&stop] { return stop.requested(); },
@@ -1097,7 +1097,7 @@ TEST(MainLoop, SigtermDuringGatewayConstructionStopsBeforeAnyUpdate) {
         .resolver = resolver,
         .ip_source = ip_source,
         .logger = logger,
-        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+        .make_gateway = [&gateway_state](coro::Nursery&) -> std::unique_ptr<app::GatewayPort> {
             ::kill(::getpid(), SIGTERM);
             return std::make_unique<ProbeGateway>(gateway_state);
         },
@@ -1128,7 +1128,7 @@ TEST(MainLoop, StopWaitFailureCancelsRunBeforeAnyUpdate) {
         .resolver = resolver,
         .ip_source = ip_source,
         .logger = logger,
-        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+        .make_gateway = [&gateway_state](coro::Nursery&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
         .stop_requested = [&stop] { return stop.requested(); },
@@ -1170,7 +1170,7 @@ TEST(MainLoop, AncestorCancellation_KeepsGatewayAliveThroughBridgeChildCleanup) 
         .resolver = resolver,
         .ip_source = ip_source,
         .logger = logger,
-        .make_gateway = [state](coro::TaskGroup& root) -> std::unique_ptr<app::GatewayPort> {
+        .make_gateway = [state](coro::Nursery& root) -> std::unique_ptr<app::GatewayPort> {
             root.spawn_discard(gateway_child_cleanup(state));
             return std::make_unique<ProbeGateway>(state);
         },
@@ -1200,7 +1200,7 @@ TEST(MainLoop, MainLoop_AncestorCancellation_DrainsAndPropagates) {
         .resolver = resolver,
         .ip_source = ip_source,
         .logger = logger,
-        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+        .make_gateway = [&gateway_state](coro::Nursery&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
         .stop_requested = [&stop] { return stop.requested(); },

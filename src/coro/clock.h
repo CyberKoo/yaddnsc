@@ -37,7 +37,9 @@ public:
     virtual void jump_to([[maybe_unused]] TimePoint tp) noexcept {}
 };
 
-/// Wall-clock time source (std::chrono::steady_clock).
+/// Monotonic time source: `std::chrono::steady_clock`, never the wall clock, so
+/// an NTP step or manual clock change cannot reorder timers. Wall-clock dates
+/// belong to signatures, not to scheduling.
 class SystemClock final : public Clock {
 public:
     [[nodiscard]] TimePoint now() const noexcept override { return std::chrono::steady_clock::now(); }

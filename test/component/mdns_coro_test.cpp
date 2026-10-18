@@ -235,7 +235,7 @@ TEST_F(MdnsReceiveTest, Flood_DoesNotResetTheCallerWindow) {
     coro::Loop loop{clock};
     auto task = [&]() -> coro::Task<void> {
         co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
-            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
                 group.spawn(flood());
                 const auto outcome = co_await coro::with_timeout(5ms, [this] { return receive(); });
                 EXPECT_TRUE(outcome.timed_out);
@@ -259,7 +259,7 @@ TEST_F(MdnsReceiveTest, Backoff_OuterCancellationPropagates) {
     auto task = [&]() -> coro::Task<void> {
         co_await send_burst();
         const auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
-            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
                 group.spawn(waiting());
                 co_await coro::sleep_for(1ms);
                 scope.cancel();

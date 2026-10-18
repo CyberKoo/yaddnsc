@@ -16,7 +16,10 @@ class ManualClock;
 class MutexGuard;
 class Notification;
 class SystemClock;
-class TaskGroup;
+class Nursery;
+
+/// Child defect policy: stop siblings at first defect, or report unobserved errors at exit.
+enum class NurseryPolicy { FAIL_FAST, SUPERVISOR };
 
 template<typename T>
 class Handle;

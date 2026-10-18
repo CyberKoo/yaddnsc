@@ -184,9 +184,14 @@ early.
 Every host-service exchange runs under a wall-clock budget (5s), covering
 dispatch, loop I/O and worker waiting. Expiry returns `NETWORK_ERROR` with
 "the API server did not respond in time" and cancels any retiring loop-side
-request. A cycle cancellation or closed group returns `CANCELLED`. Neither
-status by itself proves host-global shutdown; `is_cancelled()` observes this
-cycle's cancellation state.
+request. A cycle cancellation or closed nursery ingress returns `CANCELLED`.
+Ingress closes when the cycle control body returns, before retiring HTTP is
+fully drained; late posted requests therefore cannot extend that cycle. The
+whole cycle, including work/HTTP drain, outcome publication and subscriber
+acknowledgement, stays shielded from ancestor cancellation while an observer
+translates it into an explicit cycle cancellation request. Neither status by
+itself proves host-global shutdown; `is_cancelled()` observes this cycle's
+cancellation state.
 
 Returning `YADDNSC_STATUS_CANCELLED` from `yaddnsc_driver_update()` stays
 meaningful only while the operation really is cancelled (`is_cancelled()`

@@ -3,7 +3,7 @@
 //
 // Cancellation is a property of a scope, not of a coroutine. A scope is a node
 // in a tree: every running frame has an innermost scope, combinators
-// (with_timeout / with_deadline / with_cancel_scope / task_group) create child
+// (with_timeout / with_deadline / with_cancel_scope / with_nursery) create child
 // scopes, and an await registers a waiter on the innermost scope before
 // parking. Cancelling a scope sets its flag and wakes every waiter in its
 // (unshielded) subtree; nothing uses file descriptors, pipes or a second
@@ -11,29 +11,31 @@
 //
 // The public surface is the four operations a caller performs on a scope it
 // was handed — observe, cancel, and observe cancellation again — plus the
-// constructor the runtime uses to build the tree. Waiter registration, cause
+// constructor the runtime uses to build the tree. Subscription membership, cause
 // selection and absorption are private and reached through detail::ScopeAccess,
-// because each is an invariant of the node that owns the waiter.
+// because each is an invariant of the node that owns the subscription.
 //
 
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_CANCEL_SCOPE_H
 #define YADDNSC_INFRASTRUCTURE_CORO_CANCEL_SCOPE_H
 
+#include "coro/detail/intrusive_list.hpp"
+
 namespace coro {
 class Cancelled;
 
 namespace detail {
-struct ScopeAccess;
+class CancelSubscription;
 enum class CancelCause;
-struct WaitNode;
+struct ScopeAccess;
 }  // namespace detail
 
 /// A node in the cancel-scope tree.
 ///
 /// Lifetime: a scope must outlive every frame that runs inside it, because
-/// frames park WaitNodes here. Both the combinators and the group create their
-/// scope as a local of the combinator's own frame and join their body before
-/// returning, which is what makes that guarantee structural.
+/// frames subscribe their wait operations here. Both the combinators and the
+/// group create their scope as a local of the combinator's own frame and join
+/// their body before returning, which is what makes that guarantee structural.
 /// Thread safety: loop thread only; a scope and its subtree are never touched
 /// from another thread.
 class CancelScope {
@@ -43,9 +45,9 @@ public:
     /// allocation-free; the parent must outlive this scope.
     explicit CancelScope(CancelScope* parent = nullptr, bool shielded = false) noexcept;
 
-    /// Detaches from the parent. Precondition: no waiter or child scope remains
-    /// (a scope is destroyed only after its subtree has finished). Violations
-    /// terminate in production, with assertions for Debug diagnosis.
+    /// Detaches from the parent. Precondition: no subscription or child scope
+    /// remains (a scope is destroyed only after its subtree has finished).
+    /// Violations terminate in production, with assertions for Debug diagnosis.
     ~CancelScope() noexcept;
 
     CancelScope(const CancelScope&) = delete;
@@ -85,28 +87,14 @@ private:
     /// Runtime-only cause selection; callers request cancellation with cancel().
     void cancel(detail::CancelCause cause) noexcept;
 
-    /// Runtime-only: register a parked awaiter. The caller keeps `node` alive
-    /// until it is resumed or removed; a node may be registered on one scope at a time.
-    void add_waiter(detail::WaitNode& node) noexcept;
-
-    /// Runtime-only: unlink a waiter. Idempotent, so both the normal-completion
-    /// and the cancellation path can call it.
-    void remove_waiter(detail::WaitNode& node) noexcept;
-
-    /// True when this scope itself was cancelled (used for scope absorption).
-    [[nodiscard]] bool cancelled_self() const noexcept { return cancelled_; }
-
-    /// True when this scope ignores ancestor cancellation (non_cancellable).
-    [[nodiscard]] bool shielded() const noexcept { return shielded_; }
-
-    /// Parent scope, or null for the root scope. Borrowed.
-    [[nodiscard]] CancelScope* parent() const noexcept { return parent_; }
+    /// Runtime-only: link a subscription. The subscriber keeps the subscription
+    /// alive and disarms it; a scope only ever holds borrowed links.
+    void add_subscriber(detail::CancelSubscription& subscription) noexcept;
 
     [[nodiscard]] const CancelScope* cancellation_origin() const noexcept;
 
     void wake_subtree() noexcept;
-    void wake_waiters() noexcept;
-    void unlink(detail::WaitNode& node) noexcept;
+    void wake_subscriptions() noexcept;
 
     // Borrowed intrusive tree links; scopes remain owned by their frames.
     // Appending children preserves registration order during cancellation.
@@ -116,7 +104,10 @@ private:
     // Neighbours may be const observer scopes; membership is bookkeeping.
     mutable CancelScope* next_sibling_ = nullptr;
     mutable CancelScope* prev_sibling_ = nullptr;
-    detail::WaitNode* waiters_head_ = nullptr;
+    // Cancellation subscriptions, owned by their subscribers. Popped one at a
+    // time during cancellation: a callback may legally disarm others, so no
+    // cursor may survive across it.
+    detail::IntrusiveList<detail::CancelSubscription> subscriptions_;
     bool cancelled_ = false;
     bool timed_out_ = false;
     bool shielded_ = false;

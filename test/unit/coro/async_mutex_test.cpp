@@ -46,8 +46,8 @@ TEST(AsyncMutex, lock_ThreeHolders_SerializesCriticalSections) {
     coro::Loop loop{clock};
 
     auto task = [&mutex, &counter, &max_overlap, &completed]() -> coro::Task<void> {
-        co_await coro::task_group(
-            [&mutex, &counter, &max_overlap, &completed](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery(
+            [&mutex, &counter, &max_overlap, &completed](coro::Nursery& group) -> coro::Task<void> {
                 for (int i = 0; i < 3; ++i) {
                     group.spawn(enter_hold_leave(mutex, counter, max_overlap, completed));
                 }
@@ -71,7 +71,7 @@ TEST(AsyncMutex, lock_ThreeWaiters_GrantsInFifoOrder) {
     auto task = [&mutex, &order]() -> coro::Task<void> {
         auto guard = co_await mutex.lock();
         EXPECT_TRUE(static_cast<bool>(guard));
-        co_await coro::task_group([&mutex, &order, &guard](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&mutex, &order, &guard](coro::Nursery& group) -> coro::Task<void> {
             for (int i = 0; i < 3; ++i) {
                 group.spawn(acquire_record_release(mutex, i, order));
             }
@@ -143,7 +143,7 @@ TEST(AsyncMutex, CancellationAfterHandoff_ReleasesGrantedLock) {
     };
     coro::run(loop, [&]() -> coro::Task<void> {
         auto guard = co_await mutex.lock();
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             group.spawn(waiter());
             co_await coro::sleep_for(1ms);
             EXPECT_NE(waiter_scope, nullptr);
@@ -176,10 +176,10 @@ TEST(AsyncMutex, SharedDescriptor_ConcurrentFramesHaveIndependentRegistrations) 
         --active;
     };
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             group.spawn(contender(1));
             group.spawn(contender(2));
-            co_await group.join();
+            co_return;
         });
     };
     coro::run(loop, root());
@@ -203,7 +203,7 @@ TEST(AsyncMutex, lock_ReusedAfterCancellationAndHandoff_HasIndependentWaitState)
             EXPECT_TRUE(static_cast<bool>(guard));
         }
         EXPECT_FALSE(mutex.locked());
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             auto guard = co_await operation;
             auto release = [&]() -> coro::Task<void> {
                 co_await coro::sleep_for(1ms);
@@ -215,7 +215,6 @@ TEST(AsyncMutex, lock_ReusedAfterCancellationAndHandoff_HasIndependentWaitState)
             handed.unlock();
             auto reused = co_await operation;
             EXPECT_TRUE(static_cast<bool>(reused));
-            co_await group.join();
             co_return;
         });
     };

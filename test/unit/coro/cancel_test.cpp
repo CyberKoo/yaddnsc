@@ -229,7 +229,7 @@ TEST(CancelScope, with_cancel_scope_CancelledByPeer_StopsBody) {
         co_return;
     };
     auto task = [&victim, &canceller]() -> coro::Task<void> {
-        co_await coro::task_group([&victim, &canceller](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&victim, &canceller](coro::Nursery& group) -> coro::Task<void> {
             group.spawn(victim());
             group.spawn(canceller());
             co_return;
@@ -462,17 +462,19 @@ TEST(CancelScope, with_timeout_BusyReadyQueue_TimerStillFires) {
     };
 
     auto task = [&]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            group.spawn(churn());
-            const auto outcome = co_await coro::with_timeout(1ms, []() -> coro::Task<void> {
-                co_await coro::sleep_for(10s);
+        co_await coro::with_nursery(
+            [&](coro::Nursery& group) -> coro::Task<void> {
+                group.spawn(churn());
+                const auto outcome = co_await coro::with_timeout(1ms, []() -> coro::Task<void> {
+                    co_await coro::sleep_for(10s);
+                    co_return;
+                });
+                timed_out = outcome.timed_out;
+                churned_when_timed_out = churned;
+                group.cancel();
                 co_return;
-            });
-            timed_out = outcome.timed_out;
-            churned_when_timed_out = churned;
-            group.cancel();
-            co_return;
-        });
+            },
+            coro::NurseryPolicy::SUPERVISOR);
         co_return;
     };
 

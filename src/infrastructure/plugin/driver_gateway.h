@@ -21,7 +21,7 @@ class LoggerPort;
 
 namespace coro {
 class Loop;
-class TaskGroup;
+class Nursery;
 }  // namespace coro
 
 namespace plugin {
@@ -67,9 +67,9 @@ public:
     ///                      here so bridge work is never detached.
     /// @param options       Exchange policy.
     DriverGateway(const DriverCatalog& catalog, const app::LoggerPort& logger, coro::Loop& loop,
-                  coro::TaskGroup& bridge_group);
+                  coro::Nursery& bridge_group);
     DriverGateway(const DriverCatalog& catalog, const app::LoggerPort& logger, coro::Loop& loop,
-                  coro::TaskGroup& bridge_group, Options options);
+                  coro::Nursery& bridge_group, Options options);
 
     DriverGateway(const DriverGateway&) = delete;
     DriverGateway& operator=(const DriverGateway&) = delete;

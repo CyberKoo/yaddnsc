@@ -8,10 +8,22 @@
 
 #include <deque>
 
-#include "coro/detail/access.h"
-#include "coro/detail/wait_node.h"
+#include "coro/detail/wait_operation.h"
 
 namespace coro::detail {
+
+/// One queued lock request.
+///
+/// The queue owns nothing: it points at the awaiting frame's wait operation and
+/// carries the hand-off flag. `granted` is set before the completion is
+/// reported, so a cancellation that lands between the hand-off and the resume
+/// still finds a lock to take.
+struct MutexWaiter {
+    /// The operation that will resume this waiter.
+    WaitOperation* operation = nullptr;
+    /// True once the lock was handed to this waiter.
+    bool granted = false;
+};
 
 /// The lock flag and the FIFO waiter queue of one AsyncMutex.
 ///
@@ -32,33 +44,30 @@ struct MutexState {
         return true;
     }
 
-    void enqueue(WaitNode* node) { queue.push_back(node); }
+    void enqueue(MutexWaiter* waiter) { queue.push_back(waiter); }
 
     /// Hand the lock to the next live waiter (FIFO); release it if none.
-    /// Never throws: it only walks the queue and schedules.
+    /// Never throws: it only walks the queue and reports the completion. The
+    /// hand-off flag is set first, so a cancellation racing the resume cannot
+    /// make the waiter believe it never got the lock.
     void release() noexcept {
         while (!queue.empty()) {
-            WaitNode* node = queue.front();
+            MutexWaiter* waiter = queue.front();
             queue.pop_front();
-            if (node->scheduled) {
+            if (waiter->operation->resume_pending()) {
                 continue;  // cancelled before the hand-off
             }
-            node->scheduled = true;
-            if (node->linked && node->scope != nullptr) {
-                ScopeAccess::remove_waiter(*node->scope, *node);
-            }
-            if (node->waiter != nullptr) {
-                wake(*node->waiter);
-            }
+            waiter->granted = true;
+            waiter->operation->event_ready();
             return;  // lock stays held, transferred to that waiter
         }
         locked = false;
     }
 
     /// Remove a waiter whose scope was cancelled before it was granted.
-    void drop(WaitNode& node) noexcept {
+    void drop(MutexWaiter& waiter) noexcept {
         for (auto it = queue.begin(); it != queue.end(); ++it) {
-            if (*it == &node) {
+            if (*it == &waiter) {
                 queue.erase(it);
                 return;
             }
@@ -66,7 +75,7 @@ struct MutexState {
     }
 
     bool locked = false;
-    std::deque<WaitNode*> queue;
+    std::deque<MutexWaiter*> queue;
 };
 
 }  // namespace coro::detail

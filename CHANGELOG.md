@@ -7,6 +7,83 @@ than repeat it. The plugin C ABI stability promise is defined in that same
 document. Release bodies on GitHub Releases are copied from the matching
 section here.
 
+## [1.1.0] - Unreleased
+
+The plugin C ABI is unchanged. These breaking changes concern the host's
+internal C++ coroutine API, not driver binaries or provider parameters.
+Migration: [coroutine lifecycle migration](docs/architecture.md#coroutine-lifecycle-migration).
+
+### Breaking
+
+- Structured concurrency uses `with_nursery`, `Nursery` and `NurseryPolicy`,
+  exposed by `coro/with_nursery.hpp` and `coro/nursery.hpp`; the old
+  `group.hpp` and `task_group.hpp` headers are removed, not compatibility aliases.
+  Handle/next consumption requires the owning loop and a structured descendant
+  of the nursery runner, including already-ready results.
+- Nursery body locals and parameters are not retained for children after body
+  return. Owners shared with children belong in runner-owned Resources or
+  outside the entire nursery await.
+- Results become ready only after their producer frame has been destroyed.
+  A child that terminated earlier in the same batch can therefore require an
+  additional Handle/next suspension; already-retired results retain fast paths.
+- `Nursery::next<T>()` returns a frame-free observation awaitable instead of a
+  `Task`; `co_await nursery.next<T>()` is unchanged, but code that names or
+  stores the returned `Task` must adapt. A call no longer creates a nested
+  execution for every result consumed. Already-retired results resume without
+  an extra queue round trip.
+- `Nursery::next<T>()` reserves its matching result before resuming the
+  consumer. Cancelling that wait releases the reservation; a result already
+  reserved by a Handle is no longer a `next<T>()` candidate.
+- Frame destruction moves to FIFO batch-end retirement, independently of
+  consumption. Ready ordering relative to other events can change.
+- Plugin cycle ingress closes before retiring HTTP requests finish draining;
+  late posted requests take the existing cancellation/rejection path.
+
+### Added
+
+- Runner-owned resource scopes with fail-fast or supervisor child policies,
+  admission closure and a single cancellation/drain/cleanup path.
+- Explicit execution ownership, independent result storage and shared
+  wait/cancellation arbitration, with Debug and Release contract tests.
+
+### Removed
+
+- The old `task_group`, `supervisor_group`, public `TaskGroup`, `join()` and
+  `with_children()` APIs, and `GroupToken`/`group_token` ingress tokens.
+
+### Changed
+
+- Ready dispatch uses a borrowed frame token to avoid an extra execution-record
+  lookup without transferring frame ownership or changing retirement order.
+- Avoid retrying every parked completion consumer when no matching result is
+  available, while preserving cancellation order and exhaustion notifications.
+- Reduce per-execution bookkeeping by sharing fixed completion roles, and keep
+  the empty cross-thread inbox path inline without changing dispatch order.
+
+### Fixed
+
+- A `next<T>()` waiter is no longer told it is exhausted while a published
+  result it could still take is merely reserved by another consumer. Handing a
+  reservation back now wakes those waiters, and consuming the entry delivers the
+  real exhaustion answer, so `while (auto outcome = co_await nursery.next<T>())`
+  can no longer lose a result that is released during a retirement transaction.
+- Retiring a record that still holds a queued resumption terminates instead of
+  resuming a frame the retirement transaction is about to destroy. The ready queue
+  carries a borrowed frame token, so this is the only check left for that state and
+  it is enforced in Release as well as Debug.
+- Cancelling a reserved `next<T>()` result preserves its original publication
+  order instead of returning it behind newer results. A `nullopt` observation
+  does not preclude results from later spawns or released reservations.
+- Cancellation callbacks can disarm another subscription without skipping
+  older live subscribers.
+- Result invalidation releases values and exceptions even when invalid Handle
+  copies survive nursery exit; cleanup also runs if error aggregation fails.
+- Lock handoff remains owned across cancellation, joined offload waits through
+  callable destruction, and abandon completion cannot revisit a retired waiter.
+  These guarantees are preserved and covered by deterministic regressions.
+- Existing single-consumer semantics remain unchanged: a throwing result move
+  still consumes the result, while cancellation releases only its reservation.
+
 ## [1.0.0-alpha.7] - 2026-10-17
 
 This revision keeps the plugin C ABI at **1.0** (frozen at 1.0.0-alpha.5;

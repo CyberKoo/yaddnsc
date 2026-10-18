@@ -135,12 +135,24 @@ add_unit_test(coro
            coro/loop_test.cpp
            coro/loop_fd_events_test.cpp
            coro/context_contract_test.cpp
-           coro/task_group_contract_test.cpp
-           coro/scope_group_paths_test.cpp
+           coro/nursery_contract_test.cpp
+           coro/scope_nursery_paths_test.cpp
            coro/host_test.cpp
            coro/notification_test.cpp
 )
 target_link_libraries(test_coro PRIVATE yaddnsc_coro)
+
+# Execution, wait arbitration and runner-owned nursery lifetime contracts.
+add_unit_test(coro_lifecycle
+    SOURCE coro/nursery_test.cpp
+           coro/wait_protocol_test.cpp
+           coro/execution_record_test.cpp
+           coro/forward_list_test.cpp
+           coro/lifecycle_observation_test.cpp
+           coro/intrusive_list_test.cpp
+)
+target_link_libraries(test_coro_lifecycle PRIVATE yaddnsc_coro)
+set_tests_properties(test_coro_lifecycle PROPERTIES TIMEOUT 60)
 
 # GNU linker wrapping stays in an isolated Linux-only fault-injection binary.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

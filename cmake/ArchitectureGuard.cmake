@@ -120,8 +120,8 @@ guard_check("coro detail types are runtime-private outside src/coro (hosts use c
 #    include runtime internals themselves; application code cannot name them.
 # ------------------------------------------------------------------------------
 set(application_coro_headers
-    async_mutex.hpp cancel_scope.h cancelled.h checkpoint.hpp fwd.h group.hpp group_error.h mutex_guard.hpp notification.hpp
-    now.hpp offload.hpp scope.hpp scope_outcome.hpp sleep.hpp task.hpp task_group.hpp time.h)
+    async_mutex.hpp cancel_scope.h cancelled.h checkpoint.hpp fwd.h group_error.h mutex_guard.hpp notification.hpp
+    now.hpp nursery.hpp offload.hpp scope.hpp scope_outcome.hpp sleep.hpp task.hpp time.h with_nursery.hpp)
 file(GLOB_RECURSE application_check_files RELATIVE ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src/application/*.h
     ${PROJECT_SOURCE_DIR}/src/application/*.hpp
@@ -254,7 +254,7 @@ foreach (f ${application_check_files})
         endif ()
     endwhile ()
 
-    set(coro_internal_types "detail|Context|GetContext|PromiseBase|TaskPromise|TaskAwaiter|FinalSuspend|TaskAccess|WaitNode|TimerNode|CancelCause|LoopAccess|ScopeAccess|GroupState|ChildSlot|Loop|Clock|SystemClock|ManualClock|FdAwaitable|FdEntry|ResultBox")
+    set(coro_internal_types "detail|Context|GetContext|PromiseBase|TaskPromise|TaskAwaiter|FinalSuspend|TaskAccess|WaitOperation|WaitCore|NextAwaitable|NextWaiter|CancelSubscription|TimerNode|CancelCause|LoopAccess|ScopeAccess|ExecutionRecord|ExecutionPhase|Activation|ResultState|ResultStateBase|ResultProduction|ResultContent|ResultConsumption|ChildEntry|ChildEntryBase|NurseryState|NurseryLifetime|NurseryAccess|WaitPhase|CancelAction|SubscriptionAccess|IntrusiveList|IntrusiveHook|ForwardList|ForwardHook|Loop|Clock|SystemClock|ManualClock|FdAwaitable|FdEntry|ResultBox")
     if (application_code MATCHES "(^|[^A-Za-z_0-9])coro::(${coro_internal_types})([^A-Za-z_0-9]|$)"
         OR application_code MATCHES "using namespace *(::)?coro([ ;:]|$)"
         OR application_code MATCHES "namespace [A-Za-z_][A-Za-z_0-9]* *= *(::)?coro::"
@@ -262,11 +262,11 @@ foreach (f ${application_check_files})
         set(violations "${violations}\n  ${f}: application must use public coro APIs, not runtime types/context or namespace imports")
     endif ()
 
-    # Loop scheduling/registration and CancelScope waiter bookkeeping are private
-    # members reached through coro::detail::LoopAccess / ScopeAccess. cancel()
-    # and throw_if_cancelled() are public scope operations and stay allowed.
-    # These names also cover unrelated objects' release()/parent() methods.
-    if (application_code MATCHES "(\\.|->|::) *(add_waiter|remove_waiter|timeout_action|bind_context|absorbs)([^A-Za-z_0-9]|$)")
+    # Loop scheduling/registration and CancelScope subscription bookkeeping are
+    # private members reached through coro::detail::LoopAccess / ScopeAccess.
+    # cancel() and throw_if_cancelled() are public scope operations and stay
+    # allowed. These names also cover unrelated objects' release()/parent() methods.
+    if (application_code MATCHES "(\\.|->|::) *(add_subscriber|remove_subscriber|timeout_action|bind_context|absorbs)([^A-Za-z_0-9]|$)")
         set(violations "${violations}\n  ${f}: application must not call coroutine waiter/context management methods")
     endif ()
 endforeach ()

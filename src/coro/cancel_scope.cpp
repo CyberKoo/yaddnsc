@@ -9,7 +9,7 @@
 
 #include "coro/cancelled.h"
 #include "coro/detail/access.h"
-#include "coro/detail/wait_node.h"
+#include "coro/detail/wait_operation.h"
 
 namespace coro {
 
@@ -26,10 +26,16 @@ CancelScope::CancelScope(CancelScope* parent, bool shielded) noexcept : parent_(
 }
 
 CancelScope::~CancelScope() noexcept {
-    assert(waiters_head_ == nullptr && "cancel scope destroyed while a waiter is still parked");
+    // An armed subscription outlives its scope only if its owner died with the
+    // wait still parked; the scope would then keep a link into released storage.
+    const bool orphaned = !subscriptions_.empty();
+    assert(!orphaned && "cancel scope destroyed while a subscription is still armed");
+    if (orphaned) {
+        std::terminate();
+    }
     assert(children_head_ == nullptr && "cancel scope destroyed before its children");
-    if (waiters_head_ != nullptr || children_head_ != nullptr) {
-        std::terminate();  // live nodes would retain dangling tree/waiter links
+    if (children_head_ != nullptr) {
+        std::terminate();  // live nodes would retain dangling tree/subscription links
     }
     if (parent_ != nullptr) {
         if (prev_sibling_ != nullptr) {
@@ -80,37 +86,37 @@ bool CancelScope::absorbs(const Cancelled& error) const noexcept {
     return error.origin_ == this && cancellation_origin() == this;
 }
 
-void CancelScope::unlink(detail::WaitNode& node) noexcept {
-    if (!node.linked) {
+void CancelScope::add_subscriber(detail::CancelSubscription& subscription) noexcept {
+    assert(!subscription.armed() && "cancellation subscription already armed");
+    // Push front: a callback may walk the remaining chain, and cancellation
+    // order across scopes stays registration order within one scope.
+    subscriptions_.push_front(subscription.hook_);
+}
+
+void detail::SubscriptionAccess::subscribe(CancelScope& scope, detail::CancelSubscription& subscription, void* context,
+                                           detail::CancelAction (*on_cancel)(void*) noexcept) {
+    // Already cancelled: throw before the subscription exists, so a failed start
+    // leaves nothing armed and no event source running.
+    scope.throw_if_cancelled();
+    subscription.arm(scope, context, on_cancel);
+}
+
+void detail::CancelSubscription::arm(CancelScope& scope, void* context,
+                                     detail::CancelAction (*on_cancel)(void*) noexcept) noexcept {
+    const bool valid = !armed() && on_cancel != nullptr;
+    assert(valid && "invalid cancellation subscription arm");
+    if (!valid) {
+        std::terminate();
+    }
+    context_ = context;
+    on_cancel_ = on_cancel;
+    if (scope.cancelled()) {
+        // Already cancelled: notify once, inline, and stay unarmed. A pure
+        // observer depends on this to fire during construction.
+        on_cancel_(context);
         return;
     }
-    if (node.prev != nullptr) {
-        node.prev->next = node.next;
-    } else {
-        waiters_head_ = node.next;
-    }
-    if (node.next != nullptr) {
-        node.next->prev = node.prev;
-    }
-    node.next = nullptr;
-    node.prev = nullptr;
-    node.linked = false;
-}
-
-void CancelScope::add_waiter(detail::WaitNode& node) noexcept {
-    assert(!node.linked && "wait node already registered");
-    node.scope = this;
-    node.prev = nullptr;
-    node.next = waiters_head_;
-    if (waiters_head_ != nullptr) {
-        waiters_head_->prev = &node;
-    }
-    waiters_head_ = &node;
-    node.linked = true;
-}
-
-void CancelScope::remove_waiter(detail::WaitNode& node) noexcept {
-    unlink(node);
+    detail::ScopeAccess::add_subscriber(scope, *this);
 }
 
 void CancelScope::cancel(detail::CancelCause cause) noexcept {
@@ -125,7 +131,7 @@ void CancelScope::cancel(detail::CancelCause cause) noexcept {
 void CancelScope::wake_subtree() noexcept {
     CancelScope* scope = this;
     for (;;) {
-        scope->wake_waiters();
+        scope->wake_subscriptions();
         CancelScope* child = scope->children_head_;
         while (child != nullptr && child->shielded_) {
             child = child->next_sibling_;
@@ -153,24 +159,12 @@ void CancelScope::wake_subtree() noexcept {
     }
 }
 
-void CancelScope::wake_waiters() noexcept {
-    detail::WaitNode* node = waiters_head_;
-    while (node != nullptr) {
-        detail::WaitNode* next = node->next;
-        unlink(*node);
-        if (node->on_cancel != nullptr) {
-            node->on_cancel(*node);
-        }
-        if (!node->scheduled && node->wake_on_cancel) {
-            node->scheduled = true;
-            if (node->cancelled_flag != nullptr) {
-                *node->cancelled_flag = true;
-            }
-            if (node->waiter != nullptr) {
-                detail::wake(*node->waiter);
-            }
-        }
-        node = next;
+void CancelScope::wake_subscriptions() noexcept {
+    // Pop → notify → pop. A callback may legally disarm other subscriptions
+    // (CancelObserver, an event adapter dropping its own registration), so no
+    // cursor may be cached across it: every step re-reads the head of the chain.
+    while (detail::CancelSubscription* subscription = subscriptions_.pop_front()) {
+        subscription->notify();
     }
 }
 

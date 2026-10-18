@@ -1,16 +1,15 @@
 #include "diagnostic_commands.h"
 
 #include <chrono>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <exception>
+#include <expected>
 #include <memory>
 #include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
 
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-
-#include <expected>
 #include <magic_enum/magic_enum.hpp>
 #include <spdlog/spdlog.h>
 
@@ -19,11 +18,11 @@
 #include "cli/command.h"
 #include "cli/presenter.h"
 #include "composition/assembly.h"
-#include "coro/group.hpp"
+#include "coro/fwd.h"
 #include "coro/loop.h"
 #include "coro/run.hpp"
 #include "coro/task.hpp"
-#include "coro/task_group.hpp"
+#include "coro/with_nursery.hpp"
 #include "domain/config/dns_config.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "domain/config/runtime_config.h"
 #include "domain/error/error.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
@@ -39,6 +38,10 @@
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_gateway.h"
 #include "support/exception.h"
+
+namespace coro {
+class Nursery;
+}  // namespace coro
 
 namespace net {
 class TlsContext;
@@ -140,24 +143,22 @@ int execute_command(const Cli::ConfigTestCommand& command) {
         const auto http_options = internal::make_coro_http_options(config.resolver, nullptr);
         coro::Loop loop;
         internal::install_loop_trace_sink(loop);
-        coro::run(loop, coro::supervisor_group([&config, &driver_catalog, &logger, &loop,
-                                                &http_options](coro::TaskGroup& group) -> coro::Task<void> {
-                      plugin::DriverGateway gateway(driver_catalog, logger, loop, group,
-                                                    internal::make_gateway_options(http_options));
-                      // Keep gateway alive through child cleanup, including a
-                      // validation defect or host cancellation.
-                      co_await group.with_children([&]() -> coro::Task<void> {
-                          // `config test` exists to answer whether the
-                          // configuration is good, so a driver that cannot be
-                          // checked is a failure, not a warning.
+        coro::run(loop,
+                  coro::with_nursery(
+                      std::unique_ptr<plugin::DriverGateway>{},
+                      [&config, &driver_catalog, &logger, &loop, &http_options](
+                          coro::Nursery& nursery, std::unique_ptr<plugin::DriverGateway>& gateway) -> coro::Task<void> {
+                          gateway = std::make_unique<plugin::DriverGateway>(
+                              driver_catalog, logger, loop, nursery, internal::make_gateway_options(http_options));
+                          // The runner keeps the gateway alive through every bridge child.
                           const auto outcome = co_await app::validate_driver_configs(
-                              gateway, config, app::ConfigValidationMode::REQUIRE_VALIDATION,
+                              *gateway, config, app::ConfigValidationMode::REQUIRE_VALIDATION,
                               internal::CONFIG_VALIDATION_BUDGET);
                           if (!outcome.rejection.empty()) {
                               throw ConfigException(outcome.rejection);
                           }
-                      });
-                  }));
+                      },
+                      coro::NurseryPolicy::SUPERVISOR));
 
         return Cli::present_config_test({.quiet = command.quiet, .error = std::nullopt});
     } catch (const ConfigException& e) {

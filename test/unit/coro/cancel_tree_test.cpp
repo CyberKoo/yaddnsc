@@ -10,34 +10,29 @@
 
 #include "coro/cancel_scope.h"
 #include "coro/detail/access.h"
-#include "coro/detail/wait_node.h"
+#include "coro/detail/wait_operation.h"
 
 namespace {
 
 // The caller reserves enough order entries before cancellation. Recording is
-// therefore allocation-free, as required by WaitNode's noexcept hook.
+// therefore allocation-free, as required by the subscription's noexcept hook.
 class WaitProbe {
 public:
     WaitProbe(coro::CancelScope& scope, std::vector<int>& order, int tag) : order_(&order), tag_(tag) {
-        node.owner = this;
-        node.cancelled_flag = &cancelled;
-        node.on_cancel = [](coro::detail::WaitNode& waiter) noexcept {
-            auto& probe = *static_cast<WaitProbe*>(waiter.owner);
+        node.arm(scope, this, [](void* context) noexcept {
+            auto& probe = *static_cast<WaitProbe*>(context);
+            probe.cancelled = true;
             probe.order_->push_back(probe.tag_);
-        };
-        coro::detail::ScopeAccess::add_waiter(scope, node);
+            return coro::detail::CancelAction::WAIT_EXTERNAL;
+        });
     }
 
     WaitProbe(const WaitProbe&) = delete;
     WaitProbe& operator=(const WaitProbe&) = delete;
 
-    ~WaitProbe() noexcept {
-        if (node.linked) {
-            coro::detail::ScopeAccess::remove_waiter(*node.scope, node);
-        }
-    }
+    ~WaitProbe() noexcept { node.disarm(); }
 
-    coro::detail::WaitNode node{};
+    coro::detail::CancelSubscription node{};
     bool cancelled = false;
 
 private:
@@ -73,14 +68,14 @@ TEST(CancelTree, BranchTraversal_PreservesPreorderWaiterOrderAndShieldBoundaries
     root.cancel();
     EXPECT_EQ(order, (std::vector<int>{9, 0, 1, 2, 4, 5, 6, 8}));
     EXPECT_TRUE(tail_wait.cancelled);
-    EXPECT_TRUE(leaf_wait.node.scheduled);
-    EXPECT_FALSE(leaf_wait.node.linked);
+    EXPECT_TRUE(leaf_wait.cancelled);
+    EXPECT_FALSE(leaf_wait.node.armed());
     EXPECT_TRUE(after_shield.cancelled());
     EXPECT_FALSE(after_shield.timed_out());
     EXPECT_FALSE(shield.cancelled());
     EXPECT_FALSE(shield_leaf.cancelled());
-    EXPECT_FALSE(shield_wait.node.scheduled);
-    EXPECT_TRUE(shield_leaf_wait.node.linked);
+    EXPECT_FALSE(shield_wait.cancelled);
+    EXPECT_TRUE(shield_leaf_wait.node.armed());
     EXPECT_FALSE(tail_shield_wait.cancelled);
     root.cancel();
     EXPECT_EQ(order.size(), 8u);  // idempotence must not duplicate hooks/wakeups
@@ -89,7 +84,7 @@ TEST(CancelTree, BranchTraversal_PreservesPreorderWaiterOrderAndShieldBoundaries
     tail_shield.cancel();
     EXPECT_EQ(order, (std::vector<int>{9, 0, 1, 2, 4, 5, 6, 8, 3, 30, 7}));
     EXPECT_TRUE(shield_leaf_wait.cancelled);
-    EXPECT_FALSE(shield_leaf_wait.node.linked);
+    EXPECT_FALSE(shield_leaf_wait.node.armed());
 }
 
 TEST(CancelTree, ChildCancellation_DoesNotWalkIntoAncestorsOrTheirOtherChildren) {
@@ -180,8 +175,8 @@ bool cancel_deep_chain() {
     WaitProbe leaf_wait{*parent, order, 42};
     root.cancel();
     root.cancel();
-    return leaf_wait.cancelled && leaf_wait.node.scheduled && !leaf_wait.node.linked && parent->cancelled() &&
-           !parent->timed_out() && order == std::vector<int>{42};
+    return leaf_wait.cancelled && !leaf_wait.node.armed() && parent->cancelled() && !parent->timed_out() &&
+           order == std::vector<int>{42};
 }
 
 TEST(CancelTree, DeepChain_CancelsWithoutGrowingTheNativeStack) {

@@ -6,8 +6,11 @@
 
 #include <algorithm>
 #include <chrono>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstddef>
 #include <cstdint>
+#include <exception>
+#include <expected>
 #include <map>
 #include <new>
 #include <optional>
@@ -19,19 +22,16 @@
 #include <utility>
 #include <vector>
 
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-
-#include <expected>
 #include <magic_enum/magic_enum.hpp>
 #include <spdlog/spdlog.h>
 
 #include "coro/cancel_scope.h"
 #include "coro/cancelled.h"
-#include "coro/group.hpp"
+#include "coro/nursery.hpp"
 #include "coro/scope.hpp"
 #include "coro/scope_outcome.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "coro/sleep.hpp"
-#include "coro/task_group.hpp"
+#include "coro/with_nursery.hpp"
 #include "domain/error/dns_error.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/dns_packet_exception.h"
@@ -148,7 +148,7 @@ private:
     // A child scope lets the winner cancel its siblings while the group still
     // joins and reaps every child on exit.
     co_await coro::with_cancel_scope([&](coro::CancelScope& race) -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             auto pending = resolvers.begin();
             const auto launch = [&group, &pending, resolvers, &host, kind] {
                 if (pending != resolvers.end()) {
@@ -163,7 +163,7 @@ private:
             while (auto outcome = co_await group.next<Attempt>()) {
                 // A defective child can never surface here: its completion
                 // cancels this group scope before next() is woken, so the next
-                // call raises Cancelled at its checkpoint and run_group rethrows
+                // call raises Cancelled at its checkpoint and the runner rethrows
                 // the defect after the join. Cancelled children are skipped by
                 // next() itself, so every outcome below carries a value.
                 const Attempt& attempt = outcome->value();

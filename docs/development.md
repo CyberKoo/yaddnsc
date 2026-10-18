@@ -183,6 +183,33 @@ be run concurrently outside CTest.
 
 ### Coroutine cancellation regressions
 
+`test_coro_lifecycle` covers execution retirement, nursery resource ownership,
+intrusive-list and forward-list contracts and cancellation arbitration. Its death tests also run
+in Release, where production failure handling must not depend on assertions.
+
+Frame-destructor reentrancy is covered there too, because a parameter destructor
+runs inside the loop's retirement transaction: unregistering its own timer and fd
+registration, cancelling a sibling's parked wait, posting to the inbox and
+spawning into an open nursery each have a case. Those cases assert observable
+state — a dispatch count that stays zero, a resumed waiter, a batch-order
+observation — never elapsing real time: timers run on `ManualClock`, and the
+only way a manual clock advances is the loop jumping to the next timer deadline,
+so a lost disarming shows up as a checked deadline jump instead of a sleep bet.
+`test_coro` covers the paced I/O scan in whole resumed frames:
+`DRAIN_POLL_FRAME_BUDGET` frames into a self-refilling ready chain the loop still
+polls without blocking, and a new fd registration forces a scan ahead of that
+budget. Both record the frame index as a GoogleTest XML property, so tuning the
+budget is a visible change rather than a silently retuned test.
+`test_coro_allocation_failure` additionally checks control-allocation counts,
+no-allocation shutdown/drain and cleanup after error-aggregation failure. Frame
+and retained-handle storage measurements are available as GoogleTest XML
+properties in its allocation-counting cases.
+
+```bash
+cmake --build build-tests --target test_coro_lifecycle test_coro_allocation_failure --parallel 2
+ctest --test-dir build-tests -R '^test_coro_(lifecycle|allocation_failure)$' --output-on-failure
+```
+
 The runtime suite covers reusable mutex/sleep operations, cancellable Handle
 reservations and offload admission/capture release. `test_net_coro_unit` covers
 fd-operation reuse, while runtime tests exercise concurrent lock descriptors,
@@ -216,6 +243,54 @@ are added. The real TLS component verifies a peer after snapshot source removal.
 and `/1` (offload round trip). Run benchmarks in Release without sanitizers;
 these compare cost, not a guaranteed kernel-call latency or throughput improvement.
 Existing loopback, TLS and multicast test environment requirements still apply.
+
+`bench_coro_lifecycle` keeps inline, fan-out, race and destructor-overlay actors
+in separate translation units from registration and loop setup. This reduces
+cross-scenario layout coupling but does not eliminate compiler/linker layout
+sensitivity; compare both runtime variants before and after benchmark changes.
+`BM_reservation_pressure/children/mixed/cancel` adds 4–1024 concurrent result
+reservations, optionally alternating int/long producers and cancelling half the
+claimed consumers before they resume. Recovery checks publication order and
+exactly-once consumption. It reports CPU time per batch and allocations per
+batch (unlike the older cases' amortized inner-operation counters); throughput
+counts producer results. The same scenario runs in `test_coro` at 4–256 children.
+Use interleaved fixed-iteration runs and retain individual samples rather than
+attributing a benchmark-only layout change to the runtime.
+
+`bench_coro_observation` is a separate binary so latency/residency instrumentation
+cannot perturb the throughput benchmark's code layout. `BM_ready_burst/children/mode`
+releases 8–4096 children into one batch. Mode 0 is light; mode 1 adds 256 unsigned
+mixing rounds to each resumption, mode 2 to each frame-parameter destructor.
+A timer becomes due and an empty pipe receives a byte during the first
+resumption. ManualClock controls timer eligibility only: service, execution and
+retirement spans use the real monotonic clock. This measures a controlled
+in-burst service delay, not production-clock deadline lateness or external
+kernel-arrival latency. The retirement span covers the first through last
+parameter destructor, including intervening reaper work, not the entire reaper.
+Each repetition is exactly one fresh-loop observation; retain JSON `iteration`
+rows for percentile analysis rather than treating aggregate rows as samples.
+
+`BM_payload_residency/children/bytes/hold_ms/consume_early` uses the system clock
+for actual 1-second residence, plus 60-second 1024 × 4096-byte cases. It records
+owned payload buffer bytes and producer-frame counts at 0%, 10% and 100% of the
+hold. It verifies that consumption or nursery exit releases the payload,
+including when invalid Handle copies remain. These counters are not RSS,
+array/allocator overhead, usable sizes or entry/control-block bytes. The same
+observation workloads have formal lifecycle tests with manual-clock holds;
+those tests verify ordering/ownership, not timing budgets or a real-time soak.
+
+```bash
+cmake --build build-release --target bench_coro_observation --parallel 1
+build-release/test/perf/bench_coro_observation --benchmark_filter=BM_ready_burst \
+  --benchmark_repetitions=512 --benchmark_out=latency.json --benchmark_out_format=json
+# Excludes the two 60-second cases; run those separately when needed.
+build-release/test/perf/bench_coro_observation --benchmark_filter='BM_payload_residency/.*/1000/' \
+  --benchmark_repetitions=3 --benchmark_out=residency.json --benchmark_out_format=json
+```
+
+Pin a CPU when comparing distributions, retain raw repetitions and report
+machine/load limitations. No timer/I/O latency SLO, payload retention limit or
+automatic admission/expiry policy is implied by these observations.
 
 ### Installed SDK consumer validation
 

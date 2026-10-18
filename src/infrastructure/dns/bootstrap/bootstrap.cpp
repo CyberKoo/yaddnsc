@@ -5,8 +5,11 @@
 #include "bootstrap.h"
 
 #include <algorithm>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstddef>
 #include <cstdint>
+#include <exception>
+#include <expected>
 #include <span>
 #include <string>
 #include <string_view>
@@ -14,15 +17,12 @@
 #include <utility>
 #include <vector>
 
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-
-#include <expected>
 #include <spdlog/spdlog.h>
 
 #include "coro/cancel_scope.h"
-#include "coro/group.hpp"
+#include "coro/nursery.hpp"
 #include "coro/scope.hpp"
-#include "coro/task_group.hpp"
+#include "coro/with_nursery.hpp"
 #include "domain/config/dns_config.h"
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error.h"
@@ -155,7 +155,7 @@ struct ServerResult {
     KindResult result{host, kind};
     bool has_failure = false;
     co_await coro::with_cancel_scope([&](coro::CancelScope& race) -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             std::size_t pending = 0;
             const auto launch = [&] {
                 if (pending < servers.size()) {
@@ -261,7 +261,7 @@ coro::Task<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>
     KindResult ipv4{host, domain::RecordKind::A};
     KindResult ipv6{host, domain::RecordKind::AAAA};
     co_await coro::with_cancel_scope([&](coro::CancelScope& collection) -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             group.spawn(resolve_kind(host, domain::RecordKind::A, servers, policy));
             group.spawn(resolve_kind(host, domain::RecordKind::AAAA, servers, policy));
             const auto collect = [&](KindResult result) {

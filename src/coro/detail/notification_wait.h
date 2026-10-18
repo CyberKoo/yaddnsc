@@ -12,16 +12,16 @@
 
 #include "coro/cancel_scope.h"
 #include "coro/detail/access.h"
-#include "coro/detail/frame.h"
 #include "coro/detail/notification_state.h"
-#include "coro/detail/wait_node.h"
+#include "coro/detail/promise_base.h"
+#include "coro/detail/wait_operation.h"
 
 namespace coro::detail {
 
 /// Awaits one notification round on a Notification.
 ///
-/// Each co_await owns an independent WaitNode, so consecutive waits on the same
-/// notification never inherit a previous round's registration or wake state.
+/// Each co_await owns an independent wait operation, so consecutive waits on the
+/// same notification never inherit a previous round's registration or wake state.
 class NotificationWaiter {
 public:
     explicit NotificationWaiter(NotificationState& state) noexcept : state_(&state) {}
@@ -45,7 +45,7 @@ public:
     template<typename Promise>
     bool await_suspend(std::coroutine_handle<Promise> handle) {
         PromiseBase& promise = handle.promise();
-        scope_ = promise.scope;
+        scope_ = promise.exec->scope();
         if (scope_ != nullptr && scope_->cancelled()) {
             return false;
         }
@@ -53,22 +53,22 @@ public:
             state_->pending = false;
             return false;
         }
-        node_.waiter = &promise;
-        state_->waiter = &node_;
+        wait_.begin(*promise.exec);
         if (scope_ != nullptr) {
-            ScopeAccess::add_waiter(*scope_, node_);
+            wait_.subscribe_cancel(*scope_, this, &NotificationWaiter::on_cancel);
         }
+        state_->waiter = &wait_;
+        wait_.commit_suspend();
         return true;
     }
 
     /// Ends the registration first, then lets cancellation beat the
     /// notification — a cancelled wait leaves the pending notification for the
-    /// next round — and finally consumes the notification that woke this wait.
+    /// next round — and only a completed round consumes it.
     void await_resume() {
+        wait_.begin_resume();
+        wait_.finish();
         state_->waiter = nullptr;
-        if (node_.linked) {
-            ScopeAccess::remove_waiter(*node_.scope, node_);
-        }
         if (scope_ != nullptr) {
             scope_->throw_if_cancelled();
         }
@@ -76,9 +76,17 @@ public:
     }
 
 private:
+    /// Cancellation hook: leave the notification pending for the next round and
+    /// take the resume.
+    static CancelAction on_cancel(void* context) noexcept {
+        static_cast<void>(context);
+        return CancelAction::RESUME;
+    }
+
     NotificationState* state_;
     CancelScope* scope_ = nullptr;
-    WaitNode node_{};
+    CancelSubscription subscription_{};
+    WaitOperation wait_{subscription_};
 };
 
 /// Reusable wait operation; each await owns an independent registration.

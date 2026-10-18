@@ -14,16 +14,15 @@
 //
 
 #include <chrono>
+#include <coroutine>
 #include <exception>
 #include <string>
 #include <system_error>
 
-#include <coroutine>
-
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
-#include "coro/detail/frame.h"
+#include "coro/detail/promise_base.h"
 
 #ifndef NDEBUG
 

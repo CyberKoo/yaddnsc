@@ -104,7 +104,8 @@ INSTANTIATE_TEST_SUITE_P(
     PublicApi, ApplicationCoroGuard,
     ::testing::Values(
         GuardCase{"PublicHeaders", R"(#include "coro/task.hpp"
-#include "coro/group.hpp"
+#include "coro/nursery.hpp"
+#include "coro/with_nursery.hpp"
 #include "coro/scope.hpp"
 #include "coro/now.hpp"
 #include "coro/time.h"
@@ -252,7 +253,7 @@ auto note = "net::Stream; class NetworkInterfaces;";
                   true},
         GuardCase{"CompositionMayUseConcreteTypes", "namespace n = net; class RenamedBackend;", true,
                   "src/composition/probe.cpp"},
-        GuardCase{"PublicCancellation", "void stop(coro::TaskGroup& g) { g.scope().cancel(); g.cancel(); }", true},
+        GuardCase{"PublicCancellation", "void stop(coro::Nursery& g) { g.scope().cancel(); g.cancel(); }", true},
         GuardCase{"PublicState", "bool read(coro::CancelScope& s) { return s.cancelled() || s.timed_out(); }", true},
         GuardCase{"UnrelatedRelease", "auto result = file.release(); auto other = tree.parent();", true},
         GuardCase{"PublicAlias", "namespace c = ::coro; c::Task<void> f();", true},
@@ -302,14 +303,18 @@ auto note = "net::Stream; class NetworkInterfaces;";
                   "auto u = \"https://dns.google\";\n// coro::Loop loop;\n/* coro::detail::GetContext */\n", true},
         GuardCase{"LoopHeader", "#include \"coro/loop.h\"\n", false},
         GuardCase{"ClockHeader", "#include \"coro/clock.h\"\n", false},
-        GuardCase{"FrameHeader", "#include \"coro/detail/frame.h\"\n", false},
+        GuardCase{"PromiseBaseHeader", "#include \"coro/detail/promise_base.h\"\n", false},
+        GuardCase{"TaskPromiseHeader", "#include \"coro/detail/task_promise.hpp\"\n", false},
+        GuardCase{"NurseryStateHeader", "#include \"coro/detail/nursery_state.hpp\"\n", false},
+        GuardCase{"RetiredTaskGroupHeader", "#include \"coro/task_group.hpp\"\n", false},
+        GuardCase{"RetiredGroupHeader", "#include \"coro/group.hpp\"\n", false},
         GuardCase{"FdHeader", "#include \"coro/fd_wait.hpp\"\n", false},
         GuardCase{"ResultBoxHeader", "#include \"coro/detail/result_box.hpp\"\n", false},
-        GuardCase{"WaitNodeHeader", "#include \"coro/detail/wait_node.h\"\n", false},
+        GuardCase{"WaitOperationHeader", "#include \"coro/detail/wait_operation.h\"\n", false},
         GuardCase{"TimerNodeHeader", "#include \"coro/detail/timer_node.h\"\n", false},
         GuardCase{"PluginDetailHeader", "#include \"coro/detail/access.h\"\n", false,
                   "src/infrastructure/plugin/probe.cpp", "coro detail headers are runtime-private"},
-        GuardCase{"PluginDetailSymbol", "coro::detail::WaitNode* node = nullptr;\n", false,
+        GuardCase{"PluginDetailSymbol", "coro::detail::WaitOperation* node = nullptr;\n", false,
                   "src/infrastructure/plugin/probe.cpp", "coro detail types are runtime-private"},
         GuardCase{"PluginHostHeader", "#include \"coro/host.hpp\"\n", true, "src/infrastructure/plugin/probe.cpp"},
         GuardCase{"ApplicationHostHeader", "#include \"coro/host.hpp\"\n", false, "src/application/probe.cpp",
@@ -320,7 +325,12 @@ auto note = "net::Stream; class NetworkInterfaces;";
         GuardCase{"InternalContext", "auto c = co_await coro::detail::GetContext{};", false},
         GuardCase{"LoopObject", "coro::Loop loop;", false}, GuardCase{"ClockObject", "coro::ManualClock clock;", false},
         GuardCase{"FrameType", "coro::PromiseBase* frame;", false},
-        GuardCase{"WaitType", "coro::WaitNode node;", false},
+        GuardCase{"WaitType", "coro::WaitOperation node;", false},
+        GuardCase{"ExecutionRecord", "coro::ExecutionRecord record;", false},
+        GuardCase{"ResultState", "coro::ResultState<int> result;", false},
+        GuardCase{"ChildEntry", "coro::ChildEntry<int>* entry;", false},
+        GuardCase{"NurseryState", "coro::NurseryState* state;", false},
+        GuardCase{"CancelSubscription", "coro::CancelSubscription* subscription;", false},
         GuardCase{"Alias", "namespace c = coro; auto c = co_await c::detail::GetContext{};", false},
         GuardCase{"AliasChain", "namespace c = ::coro; namespace d = c; d::Loop loop;", false},
         GuardCase{"UsingType", "using coro::Loop; Loop loop;", false},
@@ -328,7 +338,7 @@ auto note = "net::Stream; class NetworkInterfaces;";
         GuardCase{"GlobalUsingNamespace", "using namespace ::coro; Loop loop;", false},
         GuardCase{"InternalAlias", "namespace d = coro::detail;", false},
         GuardCase{"SplitQualifier", "auto c = co_await coro\n :: detail\n :: GetContext{};", false},
-        GuardCase{"DeducedWaiter", "scope.remove_waiter(node);", false},
+        GuardCase{"DeducedWaiter", "scope.remove_subscriber(node);", false},
         GuardCase{"CallbackAddress", "auto action = &coro::CancelScope::timeout_action;", false},
         GuardCase{"TaskContext", "task.bind_context(loop, scope);", false},
         GuardCase{"PromiseAlias", "using P = coro::Task<void>::promise_type;", false},

@@ -1,7 +1,7 @@
 //
 // Coroutine runtime — the outcome of a cancellation combinator.
 //
-// Split from scope.hpp for the same reason as TaskGroup: the combinators' body
+// Split from scope.hpp for the same reason as Nursery: the combinators' body
 // builds a ScopeOutcome and therefore needs it complete, so it lives in a public
 // header that detail/scope_runner.hpp can include without a cycle.
 //

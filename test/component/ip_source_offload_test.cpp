@@ -60,7 +60,7 @@ TEST(IpSourceOffload, BlockedMetadata_TimerCancelsAndSourceMayDieBeforeWorkerEnd
             auto iface = std::make_unique<ipsource::InterfaceIpSource>("test-interface", domain::AddressFamily::IPV6);
             auto multicast = std::make_unique<ipsource::MdnsIpSource>("test.invalid", domain::RecordKind::AAAA, "");
             auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
-                co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
                     auto cancel = [&]() -> coro::Task<void> {
                         while (!metadata_started.load()) {
                             co_await coro::checkpoint();
@@ -100,14 +100,14 @@ TEST(IpSourceOffload, DefaultIpv4_NoMetadata_DoesNotWaitForSaturatedPool) {
     coro::Loop loop;
     loop.set_offload_workers(1);
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             auto blocker = [&]() -> coro::Task<void> {
                 co_await coro::offload_joined([&] {
                     worker_started.store(true);
                     release_worker.wait(false);
                 });
             };
-            group.spawn_discard(blocker());
+            auto blocker_handle = group.spawn(blocker());
             while (!worker_started.load()) {
                 co_await coro::checkpoint();
             }
@@ -122,7 +122,7 @@ TEST(IpSourceOffload, DefaultIpv4_NoMetadata_DoesNotWaitForSaturatedPool) {
             EXPECT_FALSE(metadata_started.load());
             release_worker.store(true);
             release_worker.notify_one();
-            co_await group.join();
+            co_await blocker_handle;
         });
     };
     coro::run(loop, root());
@@ -189,7 +189,7 @@ TEST(IpSourceOffload, StopSignal_CancelsBlockedMetadataBeforeWorkerDrain) {
     auto root = [&]() -> coro::Task<void> {
         ipsource::InterfaceIpSource source{"eligible", domain::AddressFamily::IPV6};
         auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
-            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
                 auto stop = [&]() -> coro::Task<void> {
                     while (!metadata_started.load()) {
                         co_await coro::checkpoint();

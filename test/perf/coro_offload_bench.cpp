@@ -31,7 +31,7 @@ coro::Task<int> child_value() {
 }
 
 coro::Task<void> group_consumption(bool next) {
-    co_await coro::task_group([next](coro::TaskGroup& group) -> coro::Task<void> {
+    co_await coro::with_nursery([next](coro::Nursery& group) -> coro::Task<void> {
         for (int i = 0; i < kIter; ++i) {
             auto handle = group.spawn(child_value());
             if (next) {

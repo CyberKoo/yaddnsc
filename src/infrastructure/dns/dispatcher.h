@@ -1,7 +1,7 @@
 //
 // dns — resolver dispatcher: fallback, shuffle and concurrent strategies.
 //
-// The concurrent race is the redesign's task_group showcase: at most
+// The concurrent race uses a nursery to bound execution: at most
 // the configured concurrency limit queries fly at once; each endpoint failure launches
 // the next backend at once, the winner cancels its siblings through a child
 // cancel scope, and scope exit still joins and reaps every child (design §3.2).
@@ -14,11 +14,10 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <string>
 #include <vector>
-
-#include <expected>
 
 #include "coro/task.hpp"
 #include "domain/error/dns_error_info.h"

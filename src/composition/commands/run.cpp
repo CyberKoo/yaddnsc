@@ -41,7 +41,7 @@
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace coro {
-class TaskGroup;
+class Nursery;
 }  // namespace coro
 
 namespace net {
@@ -111,7 +111,7 @@ int execute_command(const Cli::RunCommand& command, const coro::StopSignals& sig
         coro::Loop loop;
         internal::install_loop_trace_sink(loop);
 
-        // The driver gateway needs the main loop's bridge TaskGroup, which only
+        // The driver gateway needs the main loop's bridge nursery, which only
         // exists inside the run; the main loop calls make_gateway with its root
         // group and owns the gateway for the whole run.
         const app::RuntimeServices services{
@@ -119,7 +119,7 @@ int execute_command(const Cli::RunCommand& command, const coro::StopSignals& sig
             .ip_source = ip_source,
             .logger = logger,
             .make_gateway =
-                [&driver_catalog, &logger, &loop, &http_options](coro::TaskGroup& group) {
+                [&driver_catalog, &logger, &loop, &http_options](coro::Nursery& group) {
                     return std::make_unique<plugin::DriverGateway>(driver_catalog, logger, loop, group,
                                                                    internal::make_gateway_options(http_options));
                 },

@@ -1,7 +1,7 @@
 //
-// Coroutine runtime — scope-combinator and group paths that the main suite does
+// Coroutine runtime — scope-combinator and nursery paths that the main suite does
 // not reach: every combinator with a non-void result, deadline arms, the
-// body-defect and body-cancellation exits of a group body, supervised
+// body-defect and body-cancellation exits of a nursery body, supervised
 // aggregation, and the empty-Handle contract.
 //
 // NOTE: ASSERT_* macros expand to `return;`, which is ill-formed inside a
@@ -49,7 +49,7 @@ coro::Task<void> sleep_then_flag(coro::Duration delay, bool& flag) {
 // Handle<T> — the empty contract
 // ---------------------------------------------------------------------------
 
-TEST(ScopeGroupPaths, Handle_DefaultConstructed_ReportsInvalid) {
+TEST(ScopeNurseryPaths, Handle_DefaultConstructed_ReportsInvalid) {
     coro::Handle<void> void_handle;
     coro::Handle<int> int_handle;
     EXPECT_FALSE(void_handle.valid());
@@ -60,7 +60,7 @@ TEST(ScopeGroupPaths, Handle_DefaultConstructed_ReportsInvalid) {
 // Combinators with a non-void body
 // ---------------------------------------------------------------------------
 
-TEST(ScopeGroupPaths, WithTimeout_ValueBody_CompletesWithValue) {
+TEST(ScopeNurseryPaths, WithTimeout_ValueBody_CompletesWithValue) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     bool has_value = false;
@@ -84,7 +84,7 @@ TEST(ScopeGroupPaths, WithTimeout_ValueBody_CompletesWithValue) {
     EXPECT_EQ(value, 42);
 }
 
-TEST(ScopeGroupPaths, WithTimeout_ValueBodyExpires_AbsorbsWithoutValue) {
+TEST(ScopeNurseryPaths, WithTimeout_ValueBodyExpires_AbsorbsWithoutValue) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     bool has_value = true;
@@ -103,7 +103,7 @@ TEST(ScopeGroupPaths, WithTimeout_ValueBodyExpires_AbsorbsWithoutValue) {
     EXPECT_TRUE(timed_out);
 }
 
-TEST(ScopeGroupPaths, WithDeadline_ValueBody_CompletesWithValue) {
+TEST(ScopeNurseryPaths, WithDeadline_ValueBody_CompletesWithValue) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     bool has_value = false;
@@ -124,7 +124,7 @@ TEST(ScopeGroupPaths, WithDeadline_ValueBody_CompletesWithValue) {
     EXPECT_EQ(value, 7);
 }
 
-TEST(ScopeGroupPaths, WithCancelScope_ValueBody_CompletesWithValue) {
+TEST(ScopeNurseryPaths, WithCancelScope_ValueBody_CompletesWithValue) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     bool has_value = false;
@@ -148,7 +148,7 @@ TEST(ScopeGroupPaths, WithCancelScope_ValueBody_CompletesWithValue) {
     EXPECT_EQ(value, 3);
 }
 
-TEST(ScopeGroupPaths, NonCancellable_ValueBody_CompletesWithValue) {
+TEST(ScopeNurseryPaths, NonCancellable_ValueBody_CompletesWithValue) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     bool has_value = false;
@@ -173,7 +173,7 @@ TEST(ScopeGroupPaths, NonCancellable_ValueBody_CompletesWithValue) {
 // Combinators — body defect and body-initiated cancellation
 // ---------------------------------------------------------------------------
 
-TEST(ScopeGroupPaths, WithCancelScope_BodyDefect_Propagates) {
+TEST(ScopeNurseryPaths, WithCancelScope_BodyDefect_Propagates) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     bool caught = false;
@@ -192,7 +192,7 @@ TEST(ScopeGroupPaths, WithCancelScope_BodyDefect_Propagates) {
     EXPECT_TRUE(caught);
 }
 
-TEST(ScopeGroupPaths, NonCancellable_BodyDefect_Propagates) {
+TEST(ScopeNurseryPaths, NonCancellable_BodyDefect_Propagates) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     bool caught = false;
@@ -210,7 +210,7 @@ TEST(ScopeGroupPaths, NonCancellable_BodyDefect_Propagates) {
     EXPECT_TRUE(caught);
 }
 
-TEST(ScopeGroupPaths, WithCancelScope_BodyCancelsItsOwnScope_ReportsCancelled) {
+TEST(ScopeNurseryPaths, WithCancelScope_BodyCancelsItsOwnScope_ReportsCancelled) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     bool cancelled = false;
@@ -238,7 +238,7 @@ TEST(ScopeGroupPaths, WithCancelScope_BodyCancelsItsOwnScope_ReportsCancelled) {
 // Group bodies — defect and cancellation exits
 // ---------------------------------------------------------------------------
 
-TEST(ScopeGroupPaths, TaskGroup_BodyThrows_PropagatesBodyDefect) {
+TEST(ScopeNurseryPaths, Nursery_BodyThrows_PropagatesBodyDefect) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     bool caught = false;
@@ -246,7 +246,7 @@ TEST(ScopeGroupPaths, TaskGroup_BodyThrows_PropagatesBodyDefect) {
 
     auto root = [&]() -> coro::Task<void> {
         try {
-            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
                 group.spawn(sleep_then_flag(5ms, child_ran));
                 return throw_after(1ms, "body defect");
             });
@@ -260,14 +260,14 @@ TEST(ScopeGroupPaths, TaskGroup_BodyThrows_PropagatesBodyDefect) {
     EXPECT_FALSE(child_ran);
 }
 
-TEST(ScopeGroupPaths, TaskGroup_BodyCancelled_PropagatesCancellation) {
+TEST(ScopeNurseryPaths, Nursery_BodyCancelled_PropagatesCancellation) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     bool cancelled = false;
 
     auto root = [&]() -> coro::Task<void> {
         const auto outcome = co_await coro::with_cancel_scope([](coro::CancelScope& scope) -> coro::Task<void> {
-            // Cancel from a sibling child while the group body is parked on the drain.
+            // Cancel from a sibling child while the nursery body is parked on the drain.
             struct CancelOnFirstTurn {
                 coro::CancelScope* scope;
                 [[nodiscard]] coro::Task<void> run() const {
@@ -277,8 +277,8 @@ TEST(ScopeGroupPaths, TaskGroup_BodyCancelled_PropagatesCancellation) {
                 }
             };
             const CancelOnFirstTurn canceller{&scope};
-            // A nested group waits for its child, so the sibling cancellation lands first.
-            co_await coro::task_group([&canceller](coro::TaskGroup& group) -> coro::Task<void> {
+            // A nested nursery waits for its child, so the sibling cancellation lands first.
+            co_await coro::with_nursery([&canceller](coro::Nursery& group) -> coro::Task<void> {
                 group.spawn(canceller.run());
                 co_return;
             });
@@ -290,17 +290,19 @@ TEST(ScopeGroupPaths, TaskGroup_BodyCancelled_PropagatesCancellation) {
     EXPECT_TRUE(cancelled);
 }
 
-TEST(ScopeGroupPaths, SupervisorGroup_UnobservedChildFailure_IsReported) {
+TEST(ScopeNurseryPaths, SupervisorNursery_UnobservedChildFailure_IsReported) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     bool reported = false;
 
     auto root = [&]() -> coro::Task<void> {
         try {
-            co_await coro::supervisor_group([](coro::TaskGroup& group) -> coro::Task<void> {
-                group.spawn_discard(throw_after(1ms, "discarded child"));
-                co_return;
-            });
+            co_await coro::with_nursery(
+                [](coro::Nursery& group) -> coro::Task<void> {
+                    group.spawn_discard(throw_after(1ms, "discarded child"));
+                    co_return;
+                },
+                coro::NurseryPolicy::SUPERVISOR);
         } catch (const coro::GroupError&) {
             reported = true;
         }
@@ -310,17 +312,19 @@ TEST(ScopeGroupPaths, SupervisorGroup_UnobservedChildFailure_IsReported) {
     EXPECT_TRUE(reported);
 }
 
-TEST(ScopeGroupPaths, SupervisorGroup_BodyDefectAfterChildFailure_ReportsBoth) {
+TEST(ScopeNurseryPaths, SupervisorNursery_BodyDefectAfterChildFailure_ReportsBoth) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     std::size_t reported = 0;
 
     auto root = [&]() -> coro::Task<void> {
         try {
-            co_await coro::supervisor_group([](coro::TaskGroup& group) -> coro::Task<void> {
-                group.spawn_discard(throw_after(1ms, "child defect"));
-                return throw_after(2ms, "body defect");
-            });
+            co_await coro::with_nursery(
+                [](coro::Nursery& group) -> coro::Task<void> {
+                    group.spawn_discard(throw_after(1ms, "child defect"));
+                    return throw_after(2ms, "body defect");
+                },
+                coro::NurseryPolicy::SUPERVISOR);
         } catch (const coro::GroupError& error) {
             reported = error.errors().size();
         }
@@ -330,14 +334,14 @@ TEST(ScopeGroupPaths, SupervisorGroup_BodyDefectAfterChildFailure_ReportsBoth) {
     EXPECT_EQ(reported, 2u);
 }
 
-TEST(ScopeGroupPaths, SupervisorGroup_CancelledBodyWithChildFailure_ReportsChildOnly) {
+TEST(ScopeNurseryPaths, SupervisorNursery_CancelledBodyWithChildFailure_ReportsChildOnly) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     std::size_t reported = 0;
     bool saw_cancellation = false;
 
     struct CancelSoon {
-        coro::TaskGroup* group;
+        coro::Nursery* group;
         [[nodiscard]] coro::Task<void> run() const {
             co_await coro::sleep_for(2ms);
             group->cancel();
@@ -347,13 +351,15 @@ TEST(ScopeGroupPaths, SupervisorGroup_CancelledBodyWithChildFailure_ReportsChild
 
     auto root = [&]() -> coro::Task<void> {
         try {
-            co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-                group.spawn_discard(throw_after(1ms, "child defect"));
-                const CancelSoon canceller{&group};
-                group.spawn_discard(canceller.run());
-                co_await coro::sleep_for(1h);
-                co_return;
-            });
+            co_await coro::with_nursery(
+                [&](coro::Nursery& group) -> coro::Task<void> {
+                    group.spawn_discard(throw_after(1ms, "child defect"));
+                    const CancelSoon canceller{&group};
+                    group.spawn_discard(canceller.run());
+                    co_await coro::sleep_for(1h);
+                    co_return;
+                },
+                coro::NurseryPolicy::SUPERVISOR);
         } catch (const coro::GroupError& error) {
             reported = error.errors().size();
         } catch (const coro::Cancelled&) {
@@ -366,41 +372,40 @@ TEST(ScopeGroupPaths, SupervisorGroup_CancelledBodyWithChildFailure_ReportsChild
     EXPECT_EQ(reported, 1u);
 }
 
-TEST(ScopeGroupPaths, SupervisorGroup_CleanBodyWithValueChildren_Completes) {
+TEST(ScopeNurseryPaths, SupervisorNursery_CleanBodyWithValueChildren_Completes) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     int sum = 0;
 
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            group.spawn(value_after(1ms, 1));
-            group.spawn(value_after(2ms, 2));
-            while (auto result = co_await group.next<int>()) {
-                if (result->has_value()) {
-                    sum += **result;
+        co_await coro::with_nursery(
+            [&](coro::Nursery& group) -> coro::Task<void> {
+                group.spawn(value_after(1ms, 1));
+                group.spawn(value_after(2ms, 2));
+                while (auto result = co_await group.next<int>()) {
+                    if (result->has_value()) {
+                        sum += **result;
+                    }
                 }
-            }
-            co_return;
-        });
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
         co_return;
     };
     coro::run(loop, root());
     EXPECT_EQ(sum, 3);
 }
 
-TEST(ScopeGroupPaths, TaskGroup_WithChildren_RunsBodyThenDrains) {
+TEST(ScopeNurseryPaths, Nursery_RunsBodyThenDrains) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     bool child_done = false;
     bool body_done = false;
 
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            co_await group.with_children([&]() -> coro::Task<void> {
-                group.spawn(sleep_then_flag(1ms, child_done));
-                body_done = true;
-                co_return;
-            });
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
+            group.spawn(sleep_then_flag(1ms, child_done));
+            body_done = true;
             co_return;
         });
         co_return;
@@ -410,7 +415,7 @@ TEST(ScopeGroupPaths, TaskGroup_WithChildren_RunsBodyThenDrains) {
     EXPECT_TRUE(child_done);
 }
 
-TEST(ScopeGroupPaths, TaskGroup_WithChildren_DefectDrainsBeforeRethrow) {
+TEST(ScopeNurseryPaths, Nursery_DefectDrainsBeforeRethrow) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     bool child_done = false;
@@ -418,11 +423,9 @@ TEST(ScopeGroupPaths, TaskGroup_WithChildren_DefectDrainsBeforeRethrow) {
 
     auto root = [&]() -> coro::Task<void> {
         try {
-            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-                co_await group.with_children([&]() -> coro::Task<void> {
-                    group.spawn(sleep_then_flag(1ms, child_done));
-                    return throw_after(2ms, "with_children defect");
-                });
+            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
+                group.spawn(sleep_then_flag(1ms, child_done));
+                co_await throw_after(2ms, "nursery body defect");
             });
         } catch (const std::runtime_error&) {
             caught = true;

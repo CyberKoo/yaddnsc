@@ -4,12 +4,13 @@
 #define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_CONTEXT_AWAITABLES_H
 
 #include <cassert>
-
 #include <coroutine>
+#include <exception>
 
 #include "coro/cancel_scope.h"
 #include "coro/detail/access.h"
-#include "coro/detail/frame.h"
+#include "coro/detail/execution_record.h"
+#include "coro/detail/promise_base.h"
 #include "coro/loop.h"
 #include "coro/time.h"
 
@@ -25,8 +26,8 @@ public:
     template<typename Promise>
     bool await_suspend(std::coroutine_handle<Promise> handle) noexcept {
         PromiseBase& promise = handle.promise();
-        assert(promise.loop != nullptr && "current_time() must be awaited inside coro::run");
-        now_ = promise.loop->now();
+        assert(promise.exec != nullptr && "current_time() must be awaited inside coro::run");
+        now_ = promise.exec->loop()->now();
         return false;  // never actually suspends
     }
 
@@ -39,8 +40,8 @@ private:
 /// Yields to the loop and observes sticky cancellation.
 ///
 /// Precondition: awaited inside coro::run (the frame must run on a loop).
-/// The frame is re-queued rather than resumed inline, so a checkpoint cannot
-/// deepen the stack.
+/// The record is re-queued rather than resumed inline, so a checkpoint cannot
+/// deepen the stack; it lands in the next batch, like any other schedule.
 class CheckpointAwaitable {
 public:
     constexpr bool await_ready() const noexcept { return false; }
@@ -48,12 +49,12 @@ public:
     template<typename Promise>
     void await_suspend(std::coroutine_handle<Promise> handle) {
         PromiseBase& frame = handle.promise();
-        assert(frame.loop != nullptr && "checkpoint() must be awaited inside coro::run");
-        scope_ = frame.scope;
+        assert(frame.exec != nullptr && "checkpoint() must be awaited inside coro::run");
+        scope_ = frame.exec->scope();
         if (scope_ != nullptr) {
             scope_->throw_if_cancelled();
         }
-        LoopAccess::schedule(*frame.loop, frame);
+        wake(frame);
     }
 
     void await_resume() const {
@@ -64,6 +65,33 @@ public:
 
 private:
     CancelScope* scope_ = nullptr;
+};
+
+/// Reads the execution record of the awaiting frame.
+///
+/// Runtime-only: the combinators and the group runner need the record that owns
+/// their own frame in order to enter it into the execution tree. It never
+/// parks, and it hands out a borrow — the record outlives this await.
+class CurrentRecord {
+public:
+    constexpr bool await_ready() const noexcept { return false; }
+
+    template<typename Promise>
+    bool await_suspend(std::coroutine_handle<Promise> handle) noexcept {
+        record_ = handle.promise().exec;
+        return false;  // never actually suspends
+    }
+
+    [[nodiscard]] ExecutionRecord& await_resume() const noexcept {
+        assert(record_ != nullptr && "the runtime context must be read inside coro::run");
+        if (record_ == nullptr) {
+            std::terminate();  // a started frame always has its record bound
+        }
+        return *record_;
+    }
+
+private:
+    ExecutionRecord* record_ = nullptr;
 };
 
 /// Reads the innermost cancel scope of the awaiting frame.
@@ -78,7 +106,7 @@ public:
 
     template<typename Promise>
     bool await_suspend(std::coroutine_handle<Promise> handle) noexcept {
-        scope_ = handle.promise().scope;
+        scope_ = handle.promise().exec->scope();
         return false;  // never actually suspends
     }
 

@@ -7,15 +7,17 @@
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_ACCESS_H
 #define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_ACCESS_H
 
+#include <cassert>
 #include <functional>
 #include <utility>
 
 #include "coro/cancel_scope.h"
+#include "coro/detail/execution_record.h"
 #include "coro/detail/fd_entry.h"
-#include "coro/detail/frame.h"
 #include "coro/detail/inbox_node.h"
+#include "coro/detail/promise_base.h"
 #include "coro/detail/timer_node.h"
-#include "coro/detail/wait_node.h"
+#include "coro/detail/wait_operation.h"
 #include "coro/loop.h"
 
 namespace coro::detail {
@@ -26,9 +28,13 @@ namespace coro::detail {
 /// caller's stack; the registration calls are the loop side of a timer, fd or
 /// signal awaitable and always pair with a matching removal.
 struct LoopAccess {
-    static void schedule(Loop& loop, PromiseBase& frame) noexcept { loop.schedule(frame); }
+    static void schedule(Loop& loop, ExecutionRecord& record) noexcept { loop.schedule(record); }
 
-    static void defer_reap(Loop& loop, PromiseBase& frame) noexcept { loop.defer_reap(frame); }
+    /// Terminal entry: the frame reached final_suspend. Marks the record and
+    /// queues it for retirement when it has no execution children left.
+    static void mark_terminal(Loop& loop, ExecutionRecord& record) noexcept { loop.mark_terminal(record); }
+
+    static void register_execution(Loop& loop, ExecutionRecord& record) noexcept { loop.register_execution(record); }
 
     static void add_timer(Loop& loop, TimerNode& timer, TimePoint deadline, void (*action)(void*) noexcept,
                           void* context) {
@@ -58,9 +64,9 @@ struct LoopAccess {
 struct ScopeAccess {
     static void cancel(CancelScope& scope, CancelCause cause) noexcept { scope.cancel(cause); }
 
-    static void add_waiter(CancelScope& scope, WaitNode& node) noexcept { scope.add_waiter(node); }
-
-    static void remove_waiter(CancelScope& scope, WaitNode& node) noexcept { scope.remove_waiter(node); }
+    static void add_subscriber(CancelScope& scope, CancelSubscription& subscription) noexcept {
+        scope.add_subscriber(subscription);
+    }
 
     [[nodiscard]] static bool absorbs(const CancelScope& scope, const Cancelled& error) noexcept {
         return scope.absorbs(error);
@@ -70,12 +76,27 @@ struct ScopeAccess {
     static void timeout_action(void* context) noexcept;
 };
 
-/// Resumes a parked frame through the loop's ready queue. A frame with no loop
-/// was never started, so there is nothing to wake.
+/// Resumes a parked frame through the loop's ready queue, addressed by the
+/// record that owns it. Every started frame has an execution record bound by its
+/// activation, so the loop and the cancel scope both come from the record
+/// itself. A frame that was never started has no record and nothing to wake.
 inline void wake(PromiseBase& frame) noexcept {
-    if (frame.loop != nullptr) {
-        LoopAccess::schedule(*frame.loop, frame);
+    assert(frame.exec != nullptr && "waking a frame that was never started");
+    if (frame.exec == nullptr) {
+        return;
     }
+    LoopAccess::schedule(*frame.exec->loop(), *frame.exec);
+}
+
+/// Resumes a record directly, for callers that already hold one.
+inline void wake(ExecutionRecord& record) noexcept {
+    LoopAccess::schedule(*record.loop(), record);
+}
+
+/// Defined in detail/access.h rather than next to the wait protocol, so that the
+/// protocol header stays independent of Loop.
+inline void schedule_resume(ExecutionRecord& record) noexcept {
+    wake(record);
 }
 
 }  // namespace coro::detail

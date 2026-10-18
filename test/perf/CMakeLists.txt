@@ -92,11 +92,25 @@ target_link_libraries(bench_coro_offload PRIVATE yaddnsc_coro yaddnsc_ip_source_
 #  itself rather than inheriting it from test_support.
 # ============================================================================
 
-add_benchmark(coro_lifecycle)
+# Keep coroutine actors out of the registration/driver TU. This reduces, but
+# does not eliminate, code-layout sensitivity when adding benchmark cases.
+add_benchmark(coro_lifecycle SOURCES
+    coro_lifecycle_inline.cpp
+    coro_lifecycle_fanout.cpp
+    coro_lifecycle_race.cpp
+    coro_lifecycle_overlay.cpp
+    coro_lifecycle_reservation_bench.cpp
+)
 target_include_directories(bench_coro_lifecycle PRIVATE
     ${PROJECT_SOURCE_DIR}/test
 )
 target_link_libraries(bench_coro_lifecycle PRIVATE yaddnsc_coro test_allocation_fault)
+
+# Separate observation binary: latency/residency instrumentation must not
+# perturb the existing lifecycle throughput benchmark's code layout.
+add_benchmark(coro_observation)
+target_include_directories(bench_coro_observation PRIVATE ${PROJECT_SOURCE_DIR}/test)
+target_link_libraries(bench_coro_observation PRIVATE yaddnsc_coro test_allocation_fault)
 
 add_benchmark(tcp_prefix)
 target_link_libraries(bench_tcp_prefix PRIVATE yaddnsc_net)

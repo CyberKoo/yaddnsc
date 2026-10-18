@@ -3,15 +3,14 @@
 #define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_SLEEP_AWAITABLE_H
 
 #include <cassert>
-
 #include <coroutine>
 
 #include "coro/cancel_scope.h"
 #include "coro/detail/access.h"
-#include "coro/detail/frame.h"
+#include "coro/detail/promise_base.h"
 #include "coro/detail/time_math.h"
 #include "coro/detail/timer_node.h"
-#include "coro/detail/wait_node.h"
+#include "coro/detail/wait_operation.h"
 #include "coro/loop.h"
 #include "coro/time.h"
 
@@ -20,7 +19,7 @@ namespace coro::detail {
 /// Awaits a point in time on the loop clock.
 ///
 /// Precondition: awaited inside coro::run (the frame must run on a loop).
-/// Ownership: the timer node and the scope waiter are members, so they live in
+/// Ownership: the timer node and the wait operation are members, so they live in
 /// the awaiting frame and die with it; the loop and the scope hold pointers to
 /// them only while the frame is parked.
 /// Cancellation: a checkpoint — a cancelled scope resumes the frame early.
@@ -43,27 +42,42 @@ public:
     template<typename Promise>
     bool await_suspend(std::coroutine_handle<Promise> handle) {
         PromiseBase& promise = handle.promise();
-        loop_ = promise.loop;
-        scope_ = promise.scope;
+        assert(promise.exec != nullptr && "sleep must be awaited inside coro::run");
+        loop_ = promise.exec->loop();
+        scope_ = promise.exec->scope();
         assert(loop_ != nullptr && "sleep_for()/sleep_until() must be awaited inside coro::run");
         const TimePoint deadline = relative_ ? saturated_deadline(loop_->now(), delay_) : deadline_;
         if (scope_ != nullptr && scope_->cancelled()) {
             return false;
         }
+        // A due sleep still yields to the loop: it queues the resume and parks,
+        // rather than continuing inline.
+        wait_.begin(*promise.exec);
         if (deadline <= loop_->now()) {
-            LoopAccess::schedule(*loop_, promise);
-            return true;  // due sleeps still yield to other tasks
+            wait_.event_ready();
+            wait_.commit_suspend();
+            return true;
         }
-        arm(*this, promise, deadline);
+        if (scope_ != nullptr) {
+            wait_.subscribe_cancel(*scope_, this, &SleepAwaiter::on_cancel);
+        }
+        try {
+            LoopAccess::add_timer(*loop_, timer_, deadline, &SleepAwaiter::on_timer, this);
+        } catch (...) {
+            // The timer was not linked, so only the wait binding is left to undo.
+            wait_.rollback();
+            throw;
+        }
+        armed_ = true;
+        wait_.commit_suspend();
         return true;
     }
 
     /// Returns nothing on a completed sleep, `coro::Cancelled` when the
     /// scope cancelled the wait. Cancellation throws `Cancelled`.
     void await_resume() {
-        if (node_.linked && node_.scope != nullptr) {
-            ScopeAccess::remove_waiter(*node_.scope, node_);
-        }
+        wait_.begin_resume();
+        wait_.finish();
         if (armed_) {
             LoopAccess::remove_timer(*loop_, timer_);
             armed_ = false;
@@ -78,15 +92,10 @@ public:
         : delay_(delay), deadline_(deadline), relative_(relative) {}
 
 private:
-    static void arm(SleepAwaiter& self, PromiseBase& promise, TimePoint deadline) {
-        self.frame_ = &promise;
-        LoopAccess::add_timer(*self.loop_, self.timer_, deadline, &SleepAwaiter::on_timer, &self);
-        self.armed_ = true;
-        self.node_.waiter = &promise;
-        self.node_.owner = &self;
-        self.node_.on_cancel = &SleepAwaiter::on_cancel;
-        if (self.scope_ != nullptr) {
-            ScopeAccess::add_waiter(*self.scope_, self.node_);
+    static void disarm(SleepAwaiter& self) noexcept {
+        if (self.armed_) {
+            LoopAccess::remove_timer(*self.loop_, self.timer_);
+            self.armed_ = false;
         }
     }
 
@@ -95,22 +104,17 @@ private:
     static void on_timer(void* context) noexcept {
         auto* self = static_cast<SleepAwaiter*>(context);
         self->armed_ = false;
-        if (self->node_.linked && self->node_.scope != nullptr) {
-            ScopeAccess::remove_waiter(*self->node_.scope, self->node_);
-        }
-        if (self->frame_ != nullptr) {
-            wake(*self->frame_);
-        }
+        // The only completion entry: the operation decides whether this becomes
+        // the resume, or whether a cancellation already took it.
+        self->wait_.event_ready();
     }
 
-    /// Cancellation hook: drop the timer so the deadline cannot fire later.
-    /// Never throws; runs on the loop thread.
-    static void on_cancel(WaitNode& node) noexcept {
-        auto* self = static_cast<SleepAwaiter*>(node.owner);
-        if (self->armed_) {
-            LoopAccess::remove_timer(*self->loop_, self->timer_);
-            self->armed_ = false;
-        }
+    /// Cancellation hook: drop the timer so the deadline cannot fire later, and
+    /// take the resume. Never throws; runs on the loop thread.
+    static detail::CancelAction on_cancel(void* context) noexcept {
+        auto* self = static_cast<SleepAwaiter*>(context);
+        disarm(*self);
+        return detail::CancelAction::RESUME;
     }
 
     Duration delay_{};
@@ -118,9 +122,9 @@ private:
     bool relative_ = true;
     Loop* loop_ = nullptr;
     CancelScope* scope_ = nullptr;
-    PromiseBase* frame_ = nullptr;
     TimerNode timer_{};
-    WaitNode node_{};
+    CancelSubscription subscription_{};
+    detail::WaitOperation wait_{subscription_};
     bool armed_ = false;
 };
 

@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <expected>
 #include <initializer_list>
 #include <map>
 #include <memory>
@@ -34,11 +35,10 @@
 #include <utility>
 #include <vector>
 
-#include <expected>
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
-#include "coro/detail/group_state.h"
+#include "coro/detail/nursery_state.hpp"
 #include "domain/network/inet_address.h"
 #include "infrastructure/http/error.h"
 #include "infrastructure/http/persistent_client.h"
@@ -332,7 +332,7 @@ TEST(HttpSessionQueue, secondExchange_ExpiresItsQueueBudget) {
     std::optional<Error> second;
 
     coro::run(loop, [&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             auto holder = group.spawn(session.exchange("/first", NO_REQUEST));
             auto waiter = group.spawn(session.exchange("/second", NO_REQUEST));
             if (const auto held = co_await holder; held) {

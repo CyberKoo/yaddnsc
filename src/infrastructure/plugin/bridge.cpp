@@ -24,8 +24,8 @@
 #include "coro/host.hpp"
 #include "coro/loop.h"
 #include "coro/now.hpp"
+#include "coro/nursery.hpp"
 #include "coro/scope.hpp"
-#include "coro/task_group.hpp"
 #include "infrastructure/http/client.h"
 #include "infrastructure/http/error.h"
 #include "infrastructure/http/wire_request.h"
@@ -172,9 +172,9 @@ coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::s
 
 }  // namespace detail
 
-Bridge::Bridge(coro::Loop& loop, coro::TaskGroup& spawn_group, http::Options options,
+Bridge::Bridge(coro::Loop& loop, coro::Nursery& spawn_group, http::Options options,
                std::chrono::milliseconds wait_budget)
-    : loop_(&loop), group_lifetime_(coro::group_token(spawn_group)),
+    : loop_(&loop), group_lifetime_(coro::nursery_token(spawn_group)),
       state_(std::make_shared<const detail::BridgeState>(detail::BridgeState{std::move(options), wait_budget})) {}
 
 Bridge::~Bridge() = default;

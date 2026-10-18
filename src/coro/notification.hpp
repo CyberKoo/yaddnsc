@@ -43,7 +43,7 @@
 #include "coro/detail/access.h"
 #include "coro/detail/notification_state.h"
 #include "coro/detail/notification_wait.h"  // IWYU pragma: export
-#include "coro/detail/wait_node.h"
+#include "coro/detail/wait_operation.h"
 
 namespace coro {
 
@@ -69,14 +69,13 @@ public:
     Notification(Notification&&) = delete;
     Notification& operator=(Notification&&) = delete;
 
-    /// Deliver a notification: wake the live waiter through the ready queue,
-    /// or retain one pending notification when nobody waits. Never allocates.
+    /// Deliver a notification: report the completion to the live waiter, which
+    /// arbitrates its own resume, or retain one pending notification when nobody
+    /// waits. Never allocates.
     void notify() noexcept {
         state_.pending = true;
-        detail::WaitNode* waiter = state_.waiter;
-        if (waiter != nullptr && !waiter->scheduled) {
-            waiter->scheduled = true;
-            detail::wake(*waiter->waiter);
+        if (detail::WaitOperation* waiter = state_.waiter; waiter != nullptr) {
+            waiter->event_ready();
         }
     }
 

@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <new>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -72,11 +73,11 @@ TEST(PluginCancellationPublication, CancelDuringRequestCopy_LoopRejectsLateAdmis
     NullLogger logger;
     yaddnsc_status status = YADDNSC_STATUS_OK;
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             auto cycle = std::make_shared<plugin::CallState>();
-            cycle->lifetime = coro::group_token(group);
+            cycle->lifetime = coro::nursery_token(group);
             auto bridge = std::make_shared<plugin::Bridge>(loop, group, http::Options{}, std::chrono::seconds{5});
-            co_await group.with_children([&]() -> coro::Task<void> {
+            {
                 auto worker = coro::offload_joined([&] {
                     plugin::HostServicesContext context{*bridge, logger, cycle};
                     context.set_phase(plugin::HostServicesContext::Phase::UPDATE);
@@ -94,7 +95,7 @@ TEST(PluginCancellationPublication, CancelDuringRequestCopy_LoopRejectsLateAdmis
                     return services.http_exchange(services.context, &request, &response, &error);
                 });
                 auto run_worker = [&]() -> coro::Task<void> { status = co_await std::move(worker); };
-                group.spawn(run_worker());
+                auto worker_handle = group.spawn(run_worker());
                 while (!allocation_reached.load()) {
                     co_await coro::checkpoint();
                 }
@@ -102,9 +103,9 @@ TEST(PluginCancellationPublication, CancelDuringRequestCopy_LoopRejectsLateAdmis
                 cycle->request_cancel();
                 release_allocation.store(true);
                 release_allocation.notify_one();
-                co_await group.join();
+                co_await worker_handle;
                 EXPECT_TRUE(cycle->calls.empty());
-            });
+            }
         });
     };
     coro::run(loop, root());
@@ -114,9 +115,9 @@ TEST(PluginCancellationPublication, CancelDuringRequestCopy_LoopRejectsLateAdmis
 TEST(PluginAllocationFailure, PostAllocationFailure_ReportsWorkerDefectWithoutRetainedRequest) {
     coro::Loop loop;
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             auto cycle = std::make_shared<plugin::CallState>();
-            cycle->lifetime = coro::group_token(group);
+            cycle->lifetime = coro::nursery_token(group);
             auto bridge = std::make_shared<plugin::Bridge>(loop, group, http::Options{}, std::chrono::seconds{5});
             auto call = std::make_shared<plugin::BridgeCall>();
             call->cycle = cycle;
@@ -144,9 +145,9 @@ TEST(PluginAllocationFailure, PostAllocationFailure_ReportsWorkerDefectWithoutRe
 TEST(PluginAllocationFailure, LoopAdmissionAllocationFailure_CompletesPromiseAndReleasesRequest) {
     coro::Loop loop;
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             auto cycle = std::make_shared<plugin::CallState>();
-            cycle->lifetime = coro::group_token(group);
+            cycle->lifetime = coro::nursery_token(group);
             auto bridge = std::make_shared<plugin::Bridge>(loop, group, http::Options{}, std::chrono::seconds{5});
             auto call = std::make_shared<plugin::BridgeCall>();
             call->cycle = cycle;
@@ -201,19 +202,22 @@ TEST(PluginAllocationFailure, Gateway_HostRequestCopyFailure_RethrownAfterActual
     ASSERT_GT(bridge_call_allocation_size, sizeof(plugin::BridgeCall));
     coro::Loop loop;
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            plugin::DriverGateway gateway(catalog, logger, loop, group);
-            co_await group.with_children([&]() -> coro::Task<void> {
-                domain::DriverUpdateCommand command{
-                    .driver_params = R"({"op":"log_then_exchange","url":"http://127.0.0.1/"})",
-                    .ip_addr = "192.0.2.1",
-                    .rd_type = "A",
-                    .domain = "example.test",
-                    .subdomain = "www",
-                    .fqdn = "www.example.test"};
-                EXPECT_THROW(co_await gateway.update("test_driver_plugin", std::move(command)), std::bad_alloc);
-            });
-        });
+        co_await coro::with_nursery(
+            std::unique_ptr<plugin::DriverGateway>{},
+            [&](coro::Nursery& group, std::unique_ptr<plugin::DriverGateway>& owner) -> coro::Task<void> {
+                auto& gateway = *(owner = std::make_unique<plugin::DriverGateway>(catalog, logger, loop, group));
+                {
+                    domain::DriverUpdateCommand command{
+                        .driver_params = R"({"op":"log_then_exchange","url":"http://127.0.0.1/"})",
+                        .ip_addr = "192.0.2.1",
+                        .rd_type = "A",
+                        .domain = "example.test",
+                        .subdomain = "www",
+                        .fqdn = "www.example.test"};
+                    EXPECT_THROW(co_await gateway.update("test_driver_plugin", std::move(command)), std::bad_alloc);
+                };
+            },
+            coro::NurseryPolicy::SUPERVISOR);
     };
     EXPECT_NO_THROW(coro::run(loop, root()));
 }

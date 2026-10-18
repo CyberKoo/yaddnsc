@@ -123,7 +123,7 @@ TEST(Offload, offload_AbandonedWhileRunning_JobStillFinishes) {
             // Cancellation is unreachable until the callable is running: a job
             // whose pool worker has not started yet is dropped without running
             // it, so a deadline armed at admission would abandon nothing.
-            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
                 group.spawn(worker());
                 while (!started.load()) {
                     co_await coro::checkpoint();
@@ -180,11 +180,13 @@ TEST(Offload, offload_AbandonedWhileQueued_DropsJob) {
         co_return;
     };
     auto task = [&]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            group.spawn(blocker());
-            group.spawn(second());
-            co_return;
-        });
+        co_await coro::with_nursery(
+            [&](coro::Nursery& group) -> coro::Task<void> {
+                group.spawn(blocker());
+                group.spawn(second());
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
         co_return;
     };
 
@@ -211,7 +213,7 @@ TEST(Offload, offload_MoreJobsThanWorkers_BoundsConcurrency) {
     };
 
     auto task = [&job]() -> coro::Task<void> {
-        co_await coro::task_group([&job](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&job](coro::Nursery& group) -> coro::Task<void> {
             for (int i = 0; i < 6; ++i) {
                 group.spawn(run_pooled_job(job));
             }
@@ -244,7 +246,7 @@ TEST(Offload, loop_DestroyedWithAbandonedWorker_JoinsBeforeClosingWakePipe) {
         coro::Loop loop;
         auto root = [&]() -> coro::Task<void> {
             auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
-                co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
                     group.spawn(run_pooled_job([&started, &finished] {
                         started.store(true);
                         std::this_thread::sleep_for(50ms);
@@ -287,7 +289,7 @@ TEST(Offload, Joined_CancellationWaitsForWorkerBeforeUnwindingBorrowedResources)
             // Cancellation must land while the worker is running: a job still
             // queued is dropped without running it, which would leave the
             // borrowed-resource ordering untested.
-            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
                 group.spawn(worker());
                 while (!started.load()) {
                     co_await coro::checkpoint();
@@ -319,7 +321,7 @@ TEST(Offload, Joined_CooperativeWorkerReceivesStopAndIsJoined) {
         auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
             // Cancel only after the worker is running: a queued job is dropped
             // without running it, and no stop token would be observed.
-            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
                 group.spawn(worker());
                 while (!started.load()) {
                     co_await coro::checkpoint();
@@ -366,7 +368,7 @@ TEST(Offload, Joined_AdmissionCancellation_SkipsWorkWithoutWaitingForBusyWorker)
         });
     };
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             group.spawn(blocker());
             while (!blocker_started.load()) {
                 co_await coro::checkpoint();
@@ -404,7 +406,7 @@ TEST(Offload, RootExit_PumpsInboxUntilAbandonedWorkersFinish) {
             // whose pool worker has not started yet is dropped without running
             // it, so a deadline armed at admission would abandon nothing and
             // leave the test asserting nothing.
-            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
                 group.spawn(worker());
                 while (!worker_started.load()) {
                     co_await coro::checkpoint();
@@ -454,7 +456,7 @@ TEST(Offload, Admission_RepeatedCancellation_ReleasesCapturesBeforeWorkerFinishe
         });
     };
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             group.spawn(blocker());
             while (!started.load()) {
                 co_await coro::checkpoint();
@@ -478,7 +480,7 @@ TEST(Offload, Admission_RepeatedCancellation_ReleasesCapturesBeforeWorkerFinishe
 
 TEST(Offload, Joined_DefectAfterCancellation_IsStillReported) {
     auto root = []() -> coro::Task<void> {
-        co_await coro::task_group([](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([](coro::Nursery& group) -> coro::Task<void> {
             std::atomic<bool> started{false};
             EXPECT_THROW(co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
                              auto cancel = [&]() -> coro::Task<void> {
@@ -531,8 +533,8 @@ TEST(Offload, Admission_FifoSurvivesRunningCancellationAndHoldsCapacityUntilActu
             caller_finished = true;
         };
         auto root = [&]() -> coro::Task<void> {
-            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-                group.spawn(running());
+            co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
+                auto running_handle = group.spawn(running());
                 while (!started.load()) {
                     co_await coro::checkpoint();
                 }
@@ -565,7 +567,7 @@ TEST(Offload, Admission_FifoSurvivesRunningCancellationAndHoldsCapacityUntilActu
                 // This sentinel queues behind the three admissions and proves
                 // their nodes have been submitted before their storage leaves.
                 co_await coro::offload_joined([] {});
-                co_await group.join();
+                co_await running_handle;
                 EXPECT_EQ(order, (std::vector<int>{0, 1, 2}));
             });
         };

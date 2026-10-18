@@ -1,12 +1,13 @@
 //
 // Coroutine runtime — the loop.
 //
-// One loop, running on the thread that called run(). It owns four structures —
-// a poll() file-descriptor table, a timer heap, the ready queue and a
-// cross-thread inbox — plus the offload worker pool it hands out to offload().
-// Every coroutine resumption goes through the ready queue (axiom 4): a resumed
-// frame never runs on a caller's stack, so stack depth stays bounded and
-// scheduling stays fair.
+// One loop, running on the thread that called run(). It owns a poll()
+// file-descriptor table, a timer heap, an execution registry with its ready and
+// reap-candidate queues, and a cross-thread inbox — plus the offload worker
+// pool it hands out to offload(). Every coroutine resumption goes through the
+// ready queue (axiom 4): a resumed frame never runs on a caller's stack, so
+// stack depth stays bounded and scheduling stays fair. A started frame is owned
+// by its ExecutionRecord, and only the reap transaction destroys it.
 //
 // The self-pipe wakes poll() for cross-thread inbox delivery. StopSignals owns
 // process handlers separately and uses ordinary fd readiness for stop waits.
@@ -30,8 +31,10 @@
 #define YADDNSC_INFRASTRUCTURE_CORO_LOOP_H
 
 #include <atomic>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <source_location>
@@ -41,13 +44,15 @@
 #include <poll.h>  // pollfd scratch members below; a POSIX header in a public header, accepted — the runtime is POSIX-only
 
 #include "coro/clock.h"
+#include "coro/detail/execution_record.h"
 #include "coro/detail/fd_entry.h"
+#include "coro/detail/forward_list.hpp"
+#include "coro/detail/intrusive_list.hpp"
 #include "coro/time.h"
 #include "support/util/fd.hpp"
 
 namespace coro {
 namespace detail {
-struct PromiseBase;
 struct TimerNode;
 struct LoopAccess;
 struct OffloadAdmission;
@@ -81,13 +86,6 @@ public:
 
     /// Current loop-clock time.
     [[nodiscard]] TimePoint now() const noexcept { return clock_->now(); }
-
-    /// True once the root task has completed and run() has been asked to return.
-    [[nodiscard]] bool stopped() const noexcept { return stopped_; }
-
-    /// Mark root completion; run() still drains submitted workers. Loop thread only.
-    /// This is not cancellation: external stop with a live root is fatal in coro::run.
-    void request_stop() noexcept { stopped_ = true; }
 
     /// Cross-thread ingress: enqueue a callback for the loop thread.
     /// Callable from any thread; the callback itself runs on the loop thread.
@@ -129,8 +127,17 @@ public:
     /// Zero is normalized to one; capacity never uses BS hardware defaults.
     void set_offload_workers(unsigned workers) noexcept;
 
-    /// Run until root completion and submitted-worker drain. Runs on the caller.
+    /// Run one session: until nothing is outstanding — every started execution
+    /// retired, every batch and reap candidate drained, every submitted worker
+    /// finished and every posted callback processed. Runs on the caller. A loop
+    /// hosts one session; coro::run documents why a fresh loop is used per run.
     void run();
+
+    /// True when nothing is outstanding: no live execution, no queued batch or
+    /// reap candidate, no offload admission or submitted worker, no inbox
+    /// callback. run() leaves through this predicate and nowhere else, so no
+    /// path can abandon a live execution or drop a posted completion.
+    [[nodiscard]] bool session_complete() const noexcept;
 
 private:
     friend struct detail::LoopAccess;
@@ -147,10 +154,35 @@ private:
         short revents;
     };
 
-    /// Enqueue a frame for resumption on the next drain. Never throws and never
-    /// resumes inline: the caller keeps running. A frame already queued is not
-    /// queued twice — a duplicate wakeup carries no information.
-    void schedule(detail::PromiseBase& frame) noexcept;
+    /// Enqueue a record for resumption on the next drain. Never throws and never
+    /// resumes inline: the caller keeps running. A queued record is not queued
+    /// twice — its ready-hook membership is the only queue state.
+    void schedule(detail::ExecutionRecord& record) noexcept {
+        assert(!record.ready_hook_.linked() && "record scheduled twice while already ready");
+        if (record.ready_hook_.linked()) {
+            std::terminate();
+        }
+        execution_ready_.push_back(record.ready_hook_);
+    }
+
+    /// Terminal entry, reached from a frame's final suspend: marks the
+    /// execution and queues it for retirement once no execution child is left.
+    void mark_terminal(detail::ExecutionRecord& record) noexcept {
+        record.mark_terminal();
+        if (record.unretired_children() == 0) {
+            reap_candidates_.push_back(record.reap_hook_);
+        }
+    }
+
+    /// Add a started record to the non-owning execution registry. Membership
+    /// is a borrow: the registry never destroys a record and never extends the
+    /// life of its host.
+    void register_execution(detail::ExecutionRecord& record) noexcept {
+        execution_registry_.push_back(record.registry_hook_);
+    }
+
+    /// Undo register_execution(). Idempotent.
+    static void unregister_execution(detail::ExecutionRecord& record) noexcept;
 
     /// Admission precedes submission; queued registrations are loop-owned borrows.
     void admit_offload(detail::OffloadAdmission& admission);
@@ -179,12 +211,27 @@ private:
     void close_self_pipe() noexcept;
     static void on_pipe_ready(void* context, short revents) noexcept;
 
-    void defer_reap(detail::PromiseBase& frame) noexcept;
-    void reap_completed() noexcept;
+    /// Retires every reap candidate, one complete transaction each: take the
+    /// frame out of its record and destroy it, unlink the execution, publish
+    /// the result, commit the parent's child count and publish the quiet
+    /// completion. Never throws and never allocates; a candidate appended
+    /// while it runs is popped by the same loop.
+    void reap_executions() noexcept;
+
     /// Resumes the queued batch; returns the resumed frame count (the drain
     /// budget input that paces post-drain poll scans).
     std::size_t drain_ready();
-    void process_inbox();
+
+    void process_inbox() {
+        // Keep the common empty path visible without inlining callback dispatch.
+        // A concurrent post after this peek still wakes poll for the next turn.
+        if (inbox_head_.load(std::memory_order_relaxed) != nullptr) {
+            drain_inbox();
+        }
+    }
+
+    void drain_inbox();
+
     /// Fires due timers against the iteration's single time view.
     void fire_timers(TimePoint now) noexcept;
     [[nodiscard]] int poll_timeout_ms();
@@ -195,6 +242,7 @@ private:
     /// attempt; the loop itself keeps running (timers, inbox, ready queue are
     /// not poll()-dependent). Never throws.
     void on_poll_impaired(int error) noexcept;
+
     /// The errno of the current poll() impairment, or 0 when healthy. fd wait
     /// resolution reads this to tell a loop-level wait failure (reported to the
     /// waiter) from a socket-level POLLERR (left for the next syscall).
@@ -218,9 +266,20 @@ private:
     Clock* clock_ = nullptr;
     SystemClock system_clock_{};
 
-    detail::PromiseBase* ready_head_ = nullptr;
-    detail::PromiseBase* ready_tail_ = nullptr;
-    detail::PromiseBase* reap_head_ = nullptr;
+    // Execution records: the non-owning registry of started records, their
+    // ready queue, and the FIFO queue of records that reached final_suspend and
+    // wait for the reap transaction. All three only borrow their records; the
+    // loop destroys no frame it finds in them here. The registry drops an
+    // arbitrary record. Ready and reap only append and pop the front.
+    detail::IntrusiveList<detail::ExecutionRecord> execution_registry_;
+    detail::ForwardList<std::coroutine_handle<>> execution_ready_;
+    detail::ForwardList<detail::ExecutionRecord*> reap_candidates_;
+    /// Set for the duration of reap_executions(): a frame destructor that
+    /// recursed into run/drain/reap would advance the runtime from inside a
+    /// transaction whose state it cannot see.
+    bool reaping_ = false;
+    /// run() cannot be reentered from a dispatched callback or frame destructor.
+    bool running_ = false;
     // Frames resumed since the last poll; paces the post-drain poll(0) scan.
     std::size_t frames_since_poll_ = 0;
 
@@ -265,8 +324,6 @@ private:
 
     TraceSink trace_sink_ = nullptr;
     void* trace_context_ = nullptr;
-
-    bool stopped_ = false;
 };
 
 }  // namespace coro

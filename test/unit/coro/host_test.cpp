@@ -3,7 +3,7 @@
 //
 // The contracts the plugin host relies on: a CancelObserver fires exactly once
 // on scope cancellation — inline during construction when the scope is already
-// cancelled — and a GroupToken outlives its group without dangling.
+// cancelled — and a NurseryToken outlives its group without dangling.
 //
 
 #include "coro/host.hpp"
@@ -69,20 +69,22 @@ TEST(HostSurface, DestroyedObserverIsNotNotified) {
     EXPECT_EQ(fired, 0);
 }
 
-TEST(HostSurface, GroupTokenOutlivesItsGroup) {
+TEST(HostSurface, NurseryTokenOutlivesItsGroup) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
-    coro::GroupToken token{};
+    coro::NurseryToken token{};
     EXPECT_FALSE(token);
     EXPECT_EQ(token.get(), nullptr);
     bool inside_ok = false;
 
     coro::run(loop, [&]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            token = coro::group_token(group);
-            inside_ok = token.get() == &group;
-            co_return;
-        });
+        co_await coro::with_nursery(
+            [&](coro::Nursery& group) -> coro::Task<void> {
+                token = coro::nursery_token(group);
+                inside_ok = token.get() == &group;
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
     }());
 
     EXPECT_TRUE(inside_ok);

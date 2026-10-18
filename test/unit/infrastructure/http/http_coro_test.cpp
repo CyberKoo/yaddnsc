@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <expected>
 #include <initializer_list>
 #include <map>
 #include <memory>
@@ -27,11 +28,10 @@
 #include <utility>
 #include <vector>
 
-#include <expected>
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
-#include "coro/detail/group_state.h"
+#include "coro/detail/nursery_state.hpp"
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
 #include "domain/network/address_family.h"
@@ -838,7 +838,7 @@ TEST(HttpSession, close_DuringQueuedExchange_DefersTeardownUntilCompletion) {
     coro::Loop loop{clock};
 
     auto task = [&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             auto first = group.spawn(session.exchange("/first", request));
             auto second = group.spawn(session.exchange("/second", request));
             // 2ms: the first exchange has completed on connection 1 and the

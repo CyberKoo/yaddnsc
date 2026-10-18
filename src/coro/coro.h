@@ -40,11 +40,11 @@
 #include "coro/clock.h"
 #include "coro/fd_wait.hpp"
 #include "coro/fwd.h"
-#include "coro/group.hpp"
 #include "coro/loop.h"
 #include "coro/mutex_guard.hpp"
 #include "coro/notification.hpp"
 #include "coro/now.hpp"
+#include "coro/nursery.hpp"
 #include "coro/offload.hpp"
 #include "coro/run.hpp"
 #include "coro/scope.hpp"
@@ -52,8 +52,8 @@
 #include "coro/sleep.hpp"
 #include "coro/stop_signals.h"
 #include "coro/task.hpp"
-#include "coro/task_group.hpp"
 #include "coro/time.h"
+#include "coro/with_nursery.hpp"
 // IWYU pragma: end_exports
 
 #endif  // YADDNSC_INFRASTRUCTURE_CORO_CORO_H

@@ -4,12 +4,12 @@
 
 #include "classic.h"
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <expected>
 #include <new>
 #include <span>
+#include <vector>
 
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-
-#include <expected>
 #include <spdlog/spdlog.h>
 
 #include "coro/task.hpp"

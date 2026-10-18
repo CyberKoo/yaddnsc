@@ -78,7 +78,7 @@ TEST(TraceSink, CrossThreadPosts_SinkAlwaysRunsOnLoopThread) {
         },
         &state);
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::task_group([](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([](coro::Nursery& group) -> coro::Task<void> {
             for (int i = 0; i < 20; ++i) {
                 group.spawn(coro::offload([] {}));
             }

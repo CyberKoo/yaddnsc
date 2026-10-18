@@ -100,11 +100,13 @@ TEST(Notification, RepeatedNotificationsCoalesce) {
         changed.notify();
         changed.notify();
         changed.notify();
-        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            group.spawn_discard(wait_rounds(changed, 2, completed));
-            group.spawn_discard(observe_second_wait());
-            co_await group.join();
-        });
+        co_await coro::with_nursery(
+            [&](coro::Nursery& group) -> coro::Task<void> {
+                group.spawn_discard(wait_rounds(changed, 2, completed));
+                group.spawn_discard(observe_second_wait());
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
     }());
 
     EXPECT_TRUE(parked_after_one);
@@ -124,11 +126,13 @@ TEST(Notification, ConsecutiveRoundsWakeEachWait) {
         }
     };
     coro::run(loop, [&]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            group.spawn_discard(wait_rounds(changed, 3, completed));
-            group.spawn_discard(notify_three_times());
-            co_await group.join();
-        });
+        co_await coro::with_nursery(
+            [&](coro::Nursery& group) -> coro::Task<void> {
+                group.spawn_discard(wait_rounds(changed, 3, completed));
+                group.spawn_discard(notify_three_times());
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
     }());
 
     EXPECT_EQ(completed, 3);
@@ -142,11 +146,13 @@ TEST(Notification, CancelDuringWaitThrowsCancelled) {
     bool cancelled = false;
 
     coro::run(loop, [&]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            group.spawn_discard(wait_under_scope(changed, scope, cancelled));
-            group.spawn_discard(cancel_scope_soon(scope));
-            co_await group.join();
-        });
+        co_await coro::with_nursery(
+            [&](coro::Nursery& group) -> coro::Task<void> {
+                group.spawn_discard(wait_under_scope(changed, scope, cancelled));
+                group.spawn_discard(cancel_scope_soon(scope));
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
     }());
 
     EXPECT_TRUE(cancelled);
@@ -161,11 +167,13 @@ TEST(Notification, CancelAfterNotifyWinsAndKeepsTheNotification) {
     bool retained = false;
 
     coro::run(loop, [&]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            group.spawn_discard(wait_under_scope(changed, scope, cancelled));
-            group.spawn_discard(notify_then_cancel(changed, scope));
-            co_await group.join();
-        });
+        co_await coro::with_nursery(
+            [&](coro::Nursery& group) -> coro::Task<void> {
+                group.spawn_discard(wait_under_scope(changed, scope, cancelled));
+                group.spawn_discard(notify_then_cancel(changed, scope));
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
         // The cancelled wait lost, so the delivered notification must still be
         // there: this probe completes without anyone notifying again.
         const auto probe = co_await coro::with_timeout(1ms, [&]() -> coro::Task<void> { co_await changed.wait(); });
@@ -184,11 +192,13 @@ TEST(Notification, SecondLiveWaitThrowsLogicError) {
     bool rejected = false;
 
     coro::run(loop, [&]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            group.spawn_discard(wait_rounds(changed, 1, completed));
-            group.spawn_discard(second_wait_is_rejected(changed, rejected));
-            co_await group.join();
-        });
+        co_await coro::with_nursery(
+            [&](coro::Nursery& group) -> coro::Task<void> {
+                group.spawn_discard(wait_rounds(changed, 1, completed));
+                group.spawn_discard(second_wait_is_rejected(changed, rejected));
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
     }());
 
     EXPECT_TRUE(rejected);
@@ -202,14 +212,16 @@ TEST(Notification, DestroyWithQueuedWaiterTerminates) {
             coro::Loop loop{clock};
             auto changed = std::make_unique<coro::Notification>();
             coro::run(loop, [&]() -> coro::Task<void> {
-                co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-                    int completed = 0;
-                    group.spawn_discard(wait_rounds(*changed, 1, completed));
-                    co_await coro::sleep_for(1ms);  // let the waiter park
-                    changed->notify();              // queued, not yet resumed
-                    changed.reset();                // a live wait forbids destruction
-                    co_await group.join();
-                });
+                co_await coro::with_nursery(
+                    [&](coro::Nursery& group) -> coro::Task<void> {
+                        int completed = 0;
+                        group.spawn_discard(wait_rounds(*changed, 1, completed));
+                        co_await coro::sleep_for(1ms);  // let the waiter park
+                        changed->notify();              // queued, not yet resumed
+                        changed.reset();                // a live wait forbids destruction
+                        co_return;
+                    },
+                    coro::NurseryPolicy::SUPERVISOR);
             }());
         },
         "");

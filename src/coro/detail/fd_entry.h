@@ -9,8 +9,8 @@ namespace coro::detail {
 /// One fd readiness registration, owned by its awaitable.
 ///
 /// The registering object owns this node and keeps it alive until the wait
-/// completes or is removed — the same ownership pattern as WaitNode and
-/// TimerNode. The loop holds only the pointer in its poll-order table, so
+/// completes or is removed — the same ownership pattern as the wait operation
+/// and TimerNode. The loop holds only the pointer in its poll-order table, so
 /// removal is by node identity: O(1), and idempotent through `linked`.
 /// Thread safety: loop thread only.
 struct FdEntry {

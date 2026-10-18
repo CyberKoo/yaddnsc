@@ -166,3 +166,100 @@ TEST(LoopTeardown, PostedBeforeShutdown_StillRuns) {
     EXPECT_EQ(coro::run(loop, []() -> coro::Task<int> { co_return 42; }()), 42);
     EXPECT_TRUE(ran.load(std::memory_order_acquire));
 }
+
+// ---------------------------------------------------------------------------
+// Paced I/O scanning inside a long ready chain
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct PollProgress {
+    int step = -1;
+    bool child_done = false;
+};
+
+/// Named coroutine rather than a capturing lambda: a lambda coroutine would keep
+/// reading its temporary closure after the call expression that made it ended.
+coro::Task<void> wait_for_readable_then_mark(int fd, PollProgress& progress) {
+    const std::error_code ec = co_await coro::wait_readable(fd);
+    EXPECT_FALSE(ec);
+    progress.child_done = true;
+}
+
+}  // namespace
+
+TEST(PollBudget, LongReadyChain_ScansFdsWithoutBlocking) {
+    TracingLoop tracing;
+    auto [read_end, write_end] = Utils::make_pipe();
+    ASSERT_TRUE(read_end);
+    ASSERT_TRUE(write_end);
+    const char byte = 'x';
+
+    PollProgress progress;
+    const int fd = read_end.get();
+    auto body = [&](coro::Nursery& nursery) -> coro::Task<void> {
+        nursery.spawn_discard(wait_for_readable_then_mark(fd, progress));
+        // Two batches first: the child registers and poll() runs once with the
+        // descriptor still empty, so the fd-table revision is already synced when
+        // the chain starts. Only the paced scan can report the readiness after
+        // this write.
+        co_await coro::checkpoint();
+        co_await coro::checkpoint();
+        EXPECT_EQ(::write(write_end.get(), &byte, 1), 1);
+        // A self-refilling chain: without the paced scan this descriptor would
+        // only be observed after the loop returns to a blocking poll.
+        for (int step = 0; step < 400; ++step) {
+            if (progress.child_done) {
+                break;
+            }
+            progress.step = step;
+            co_await coro::checkpoint();
+        }
+        if (!progress.child_done) {
+            // Liveness only, and never reached while the paced scan works: a scan
+            // regression would otherwise park this child forever. The verdict
+            // stays with the frame index asserted below.
+            EXPECT_EQ(::write(write_end.get(), &byte, 1), 1);
+        }
+    };
+    coro::run(tracing.loop(), coro::with_nursery(body));
+
+    RecordProperty("chain_step", progress.step);
+    EXPECT_TRUE(progress.child_done) << "the paced scan must service the descriptor inside the chain";
+    // Past the first few batches (so the scan really was paced) but well before
+    // the chain would have ended on its own.
+    EXPECT_GT(progress.step, 32);
+    EXPECT_LT(progress.step, 128);
+    EXPECT_TRUE(any_line_contains(tracing.recorder(), "timeout 0 ms")) << "the in-chain scan must be non-blocking";
+}
+
+TEST(PollBudget, NewFdRegistration_PollsAheadOfTheFrameBudget) {
+    TracingLoop tracing;
+    auto [read_end, write_end] = Utils::make_pipe();
+    ASSERT_TRUE(read_end);
+    ASSERT_TRUE(write_end);
+    const char byte = 'x';
+    ASSERT_EQ(::write(write_end.get(), &byte, 1), 1);
+
+    PollProgress progress;
+    const int fd = read_end.get();
+    auto body = [&](coro::Nursery& nursery) -> coro::Task<void> {
+        nursery.spawn_discard(wait_for_readable_then_mark(fd, progress));
+        // The child's registration changes the fd table; that revision must win
+        // over the frame budget, so the readiness is seen almost immediately
+        // instead of after the next paced scan.
+        for (int step = 0; step < 400; ++step) {
+            if (progress.child_done) {
+                break;
+            }
+            progress.step = step;
+            co_await coro::checkpoint();
+        }
+    };
+    coro::run(tracing.loop(), coro::with_nursery(body));
+
+    RecordProperty("chain_step", progress.step);
+    EXPECT_TRUE(progress.child_done);
+    EXPECT_GE(progress.step, 0);
+    EXPECT_LE(progress.step, 4) << "a new registration must force a scan ahead of the frame budget";
+}

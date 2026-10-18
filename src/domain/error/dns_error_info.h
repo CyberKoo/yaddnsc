@@ -2,7 +2,6 @@
 #define YADDNSC_DOMAIN_ERROR_DNS_ERROR_INFO_H
 
 #include <string>
-#include <string_view>
 
 #include "domain/error/dns_error.h"
 
@@ -19,8 +18,6 @@ namespace domain {
 struct DnsErrorInfo {
     DnsError code{DnsError::UNKNOWN};
     std::string message;
-
-    [[nodiscard]] std::string_view error_name() const noexcept { return error_to_str(code); }
 };
 
 }  // namespace domain

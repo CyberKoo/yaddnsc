@@ -1,10 +1,10 @@
+#include <chrono>
+#include <coroutine>
 #include <functional>
 #include <initializer_list>
 #include <stdexcept>
 #include <string>
 #include <system_error>
-
-#include <coroutine>
 
 #include <gtest/gtest.h>
 
@@ -12,6 +12,20 @@
 #include "support/util/fd.hpp"
 
 namespace {
+
+struct CountingClock final : coro::Clock {
+    coro::ManualClock clock;
+    mutable int reads = 0;
+
+    coro::TimePoint now() const noexcept override {
+        ++reads;
+        return clock.now();
+    }
+
+    bool manual() const noexcept override { return true; }
+
+    void jump_to(coro::TimePoint time) noexcept override { clock.jump_to(time); }
+};
 
 coro::Task<int> forty_two() {
     co_return 42;
@@ -62,6 +76,35 @@ TEST(FdWait, Hangup_RemainsReadinessRatherThanAnInvalidDescriptor) {
         EXPECT_FALSE(co_await coro::wait_readable(fd));
     };
     EXPECT_NO_THROW(coro::run(loop, root()));
+}
+
+TEST(Loop, TimerFreeReadyWork_DoesNotReadClock) {
+    CountingClock clock;
+    coro::Loop loop{clock};
+    auto root = []() -> coro::Task<void> {
+        for (int i = 0; i < 8; ++i) {
+            EXPECT_EQ(co_await forty_two(), 42);
+            co_await coro::checkpoint();
+        }
+    };
+    coro::run(loop, root());
+    EXPECT_EQ(clock.reads, 0);
+}
+
+TEST(Loop, TimersAddedAfterTimerFreeTurns_StillAdvanceAndFire) {
+    using namespace std::chrono_literals;
+    CountingClock clock;
+    coro::Loop loop{clock};
+    auto root = [&]() -> coro::Task<void> {
+        for (int i = 0; i < 2; ++i) {
+            co_await coro::checkpoint();
+            const int before = clock.reads;
+            co_await coro::sleep_for(5ms);
+            EXPECT_GT(clock.reads, before);
+        }
+    };
+    coro::run(loop, root());
+    EXPECT_EQ(clock.clock.now(), coro::TimePoint{} + 10ms);
 }
 
 TEST(Loop, SequentialLoopsRunIndependently) {

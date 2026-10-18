@@ -13,7 +13,7 @@
 // Debug builds, undefined behavior in Release.
 //
 // The promise, the awaiter and the ownership backdoor live in
-// detail/task_promise.h. What stays here is the task itself plus the two
+// detail/task_promise.hpp. What stays here is the task itself plus the two
 // get_return_object() definitions, which have to follow Task<T> because they
 // construct one.
 //
@@ -21,12 +21,11 @@
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_TASK_HPP
 #define YADDNSC_INFRASTRUCTURE_CORO_TASK_HPP
 
+#include <coroutine>
 #include <utility>
 
-#include <coroutine>
-
-#include "coro/detail/frame.h"
-#include "coro/detail/task_promise.h"  // IWYU pragma: export
+#include "coro/detail/promise_base.h"
+#include "coro/detail/task_promise.hpp"  // IWYU pragma: export
 #include "coro/fwd.h"
 #include "coro/loop.h"
 
@@ -35,8 +34,8 @@ namespace coro {
 /// A lazy coroutine handle that owns its frame.
 ///
 /// Ownership: exactly one Task owns the frame. Moving transfers it; awaiting
-/// transfers it to the awaiter; the runtime transfers it to a group or coro::run.
-/// The destructor destroys an un-started or completed frame, so a dropped Task
+/// transfers it to an awaiter; activation transfers it to its execution record.
+/// The destructor destroys only an unstarted frame, so a dropped Task
 /// runs nothing and leaks nothing.
 /// Failure: a task never throws out of its own body — a defect is captured and
 /// rethrown at the co_await point (or read by the group).
@@ -83,16 +82,6 @@ private:
 
     [[nodiscard]] FrameHandle release() noexcept { return std::exchange(handle_, {}); }
 
-    void bind_context(Loop& loop, CancelScope& scope) noexcept {
-        if (!handle_) {
-            return;
-        }
-        detail::PromiseBase& promise = handle_.promise();
-        promise.loop = &loop;
-        promise.scope = &scope;
-        promise.context_bound = true;
-    }
-
     void reset() noexcept {
         if (handle_) {
             handle_.destroy();
@@ -108,13 +97,11 @@ namespace detail {
 template<typename T>
 Task<T> TaskPromise<T>::get_return_object() {
     const auto handle = std::coroutine_handle<TaskPromise>::from_promise(*this);
-    this->self = handle;
     return Task<T>{handle};
 }
 
 inline Task<void> TaskPromise<void>::get_return_object() {
     const auto handle = std::coroutine_handle<TaskPromise>::from_promise(*this);
-    this->self = handle;
     return Task<void>{handle};
 }
 

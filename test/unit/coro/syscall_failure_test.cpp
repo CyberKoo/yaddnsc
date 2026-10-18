@@ -188,8 +188,10 @@ TEST(CoroSyscallFailure, Dispatch_CallbackRegistersDescriptors_PreservesRemainin
         const char byte = 1;
         ASSERT_EQ(::write(write_end.get(), &byte, 1), 1);
 
+        coro::Notification completed;
         struct Callbacks {
             coro::Loop& loop;
+            coro::Notification& completed;
             std::array<coro::detail::FdEntry, 32> initial{};
             std::array<coro::detail::FdEntry, 256> added{};
             std::size_t fired = 0;
@@ -210,15 +212,23 @@ TEST(CoroSyscallFailure, Dispatch_CallbackRegistersDescriptors_PreservesRemainin
                         }
                     } catch (...) {
                         self.failed = true;
-                        self.loop.request_stop();
+                        self.completed.notify();
                         return;
                     }
                 }
                 if (self.fired == self.initial.size()) {
-                    self.loop.request_stop();
+                    // Finish this dispatch experiment before the root's queued
+                    // retirement; later poll phases must not start another round.
+                    for (auto& entry : self.initial) {
+                        coro::detail::LoopAccess::remove_fd(self.loop, entry);
+                    }
+                    for (auto& entry : self.added) {
+                        coro::detail::LoopAccess::remove_fd(self.loop, entry);
+                    }
+                    self.completed.notify();
                 }
             }
-        } callbacks{loop};
+        } callbacks{loop, completed};
 
         for (auto& entry : callbacks.initial) {
             entry.fd = read_end.get();
@@ -228,7 +238,7 @@ TEST(CoroSyscallFailure, Dispatch_CallbackRegistersDescriptors_PreservesRemainin
             coro::detail::LoopAccess::add_fd(loop, entry);
         }
         persistent_poll_error = error;
-        loop.run();
+        coro::run(loop, [&completed]() -> coro::Task<void> { co_await completed.wait(); }());
         persistent_poll_error = 0;
         for (auto& entry : callbacks.initial) {
             coro::detail::LoopAccess::remove_fd(loop, entry);

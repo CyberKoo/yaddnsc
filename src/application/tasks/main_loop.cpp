@@ -4,22 +4,24 @@
 
 #include "main_loop.h"
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstdlib>
 #include <functional>
 #include <memory>
 #include <optional>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <string>
+#include <utility>
 #include <vector>
-
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 #include "application/diagnostics.h"
 #include "application/log_macros.h"
+#include "application/ports/gateway.h"
 #include "application/services.h"
 #include "application/tasks/subdomain_task.h"
 #include "coro/cancel_scope.h"
-#include "coro/group.hpp"
-#include "coro/task_group.hpp"
+#include "coro/fwd.h"
+#include "coro/nursery.hpp"
+#include "coro/with_nursery.hpp"
 #include "domain/config/runtime_config.h"
 
 namespace app {
@@ -50,22 +52,30 @@ coro::Task<void> watch_stop(const RuntimeServices& services, coro::CancelScope*&
 /// Returns false on validation rejection; cancellation follows scope semantics.
 coro::Task<bool> run_work(const std::shared_ptr<const domain::RuntimeConfig>& config, const Services& services,
                           coro::CancelScope*& work_scope, const std::function<bool()>& stop_requested) {
-    // The group may propagate a body defect or ancestor cancellation. Clear
-    // the borrowed scope on every body exit while the scope is still alive.
-    struct ResetWorkScope {
-        coro::CancelScope*& scope;
+    // Runner-owned publication: only its post-drain destruction clears the borrow.
+    struct WorkResources {
+        coro::CancelScope** published;
 
-        ~ResetWorkScope() noexcept { scope = nullptr; }
+        explicit WorkResources(coro::CancelScope*& scope) noexcept : published(&scope) {}
+
+        WorkResources(WorkResources&& other) noexcept : published(std::exchange(other.published, nullptr)) {}
+
+        WorkResources(const WorkResources&) = delete;
+        WorkResources& operator=(const WorkResources&) = delete;
+        WorkResources& operator=(WorkResources&&) = delete;
+
+        ~WorkResources() noexcept {
+            if (published != nullptr) {
+                *published = nullptr;
+            }
+        }
     };
 
     bool rejected = false;
-    co_await coro::supervisor_group([&](coro::TaskGroup& work) -> coro::Task<void> {
-        work_scope = &work.scope();
-        const ResetWorkScope reset{work_scope};
-        // This phase needs a drain, not cancellable result collection. Keep
-        // reset outside the child body so even partial-launch defects cancel
-        // and join every loop before the published scope borrow is cleared.
-        co_await work.with_children([&]() -> coro::Task<void> {
+    co_await coro::with_nursery(
+        WorkResources{work_scope},
+        [&](coro::Nursery& work, WorkResources&) -> coro::Task<void> {
+            work_scope = &work.scope();
             if (stop_requested()) {
                 work.cancel();
                 co_return;
@@ -100,9 +110,8 @@ coro::Task<bool> run_work(const std::shared_ptr<const domain::RuntimeConfig>& co
                     work.spawn(subdomain_task(domain, subdomain, services));
                 }
             }
-        });
-        co_return;
-    });
+        },
+        coro::NurseryPolicy::SUPERVISOR);
     co_return !rejected;
 }
 
@@ -115,19 +124,21 @@ coro::Task<int> main_loop(std::shared_ptr<const domain::RuntimeConfig> config, R
     // The work phase reports whether it got as far as running the loops: a
     // rejected configuration leaves nothing running and is a startup failure.
     bool ran_updates = false;
-    co_await coro::task_group([&](coro::TaskGroup& root) -> coro::Task<void> {
-        const auto gateway = services.make_gateway(root);
-        const Services svc{services.resolver, services.ip_source, *gateway, services.logger, services.policy};
 
-        // gateway/svc stay in this outer body while with_children drains both
-        // stop watcher and bridge requests, including defect/cancellation exits.
-        co_await root.with_children([&]() -> coro::Task<void> {
+    struct RootResources {
+        std::unique_ptr<GatewayPort> gateway;
+        std::optional<Services> services;
+    };
+
+    co_await coro::with_nursery(
+        RootResources{}, [&](coro::Nursery& root, RootResources& resources) -> coro::Task<void> {
+            resources.gateway = services.make_gateway(root);
+            resources.services.emplace(services.resolver, services.ip_source, *resources.gateway, services.logger,
+                                       services.policy);
             root.spawn(watch_stop(services, work_scope));
-            ran_updates = co_await run_work(config, svc, work_scope, services.stop_requested);
+            ran_updates = co_await run_work(config, *resources.services, work_scope, services.stop_requested);
             root.cancel();
         });
-        co_return;
-    });
     YLOG_INFO(services.logger, "All tasks drained, shutting down");
 
     if (!ran_updates && !services.stop_requested()) {

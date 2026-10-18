@@ -13,7 +13,9 @@
 //
 
 #include <chrono>
+#include <coroutine>
 #include <exception>
+#include <expected>
 #include <functional>
 #include <initializer_list>
 #include <memory>
@@ -25,14 +27,11 @@
 #include <utility>
 #include <vector>
 
-#include <coroutine>
-
-#include <expected>
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
-#include "coro/detail/group_state.h"
-#include "coro/detail/wait_node.h"
+#include "coro/detail/nursery_state.hpp"
+#include "coro/detail/wait_operation.h"
 
 namespace coro::detail {
 struct FdEntry;
@@ -72,7 +71,7 @@ template<typename T>
 concept PublicLoopPool = requires(T& loop) { loop.offload_pool(); };
 
 template<typename T>
-concept PublicScopeWaiter = requires(T& scope, coro::detail::WaitNode& node) { scope.add_waiter(node); };
+concept PublicScopeWaiter = requires(T& scope, coro::detail::CancelSubscription& node) { scope.add_subscriber(node); };
 
 template<typename T>
 concept PublicScopeCause = requires(T& scope) {
@@ -125,7 +124,7 @@ coro::Task<void> wait_until_cancelled(bool& cancelled) {
     co_return;
 }
 
-coro::Task<void> cancel_after_sleep(coro::TaskGroup& group, std::chrono::milliseconds delay) {
+coro::Task<void> cancel_after_sleep(coro::Nursery& group, std::chrono::milliseconds delay) {
     co_await coro::sleep_for(delay);
     group.cancel();
     co_return;
@@ -161,8 +160,8 @@ TEST(Task, PublicApi_FrameAndContextAccess_IsUnavailable) {
     EXPECT_FALSE(PublicContextBinding<coro::Task<void>>);
     using Frame = std::coroutine_handle<coro::Task<int>::promise_type>;
     EXPECT_FALSE((std::is_constructible_v<coro::Task<int>, Frame>) );
-    EXPECT_FALSE((std::is_constructible_v<coro::TaskGroup, coro::detail::GroupState*>) );
-    EXPECT_FALSE((std::is_constructible_v<coro::Handle<int>, coro::detail::ChildSlot*>) );
+    EXPECT_FALSE((std::is_constructible_v<coro::Nursery, coro::detail::NurseryState*>) );
+    EXPECT_FALSE((std::is_constructible_v<coro::Handle<int>, coro::detail::ChildEntry<int>*>) );
     EXPECT_FALSE(PublicScopeParent<coro::CancelScope>);
 }
 
@@ -218,10 +217,10 @@ TEST(Task, run_RootTask_RunsOnCallingThread) {
 // spawn + Handle join
 // ---------------------------------------------------------------------------
 
-TEST(TaskGroup, spawn_ThenJoin_YieldsEveryValue) {
+TEST(Nursery, spawn_ThenJoin_YieldsEveryValue) {
     int total = 0;
     auto task = [&total]() -> coro::Task<void> {
-        co_await coro::task_group([&total](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&total](coro::Nursery& group) -> coro::Task<void> {
             auto first = group.spawn(constant(20));
             auto second = group.spawn(constant(22));
             total = (co_await first) + (co_await second);
@@ -233,20 +232,22 @@ TEST(TaskGroup, spawn_ThenJoin_YieldsEveryValue) {
     EXPECT_EQ(total, 42);
 }
 
-TEST(TaskGroup, spawn_AwaitHandleOfThrowingChild_RethrowsAtJoin) {
+TEST(Nursery, spawn_AwaitHandleOfThrowingChild_RethrowsAtJoin) {
     bool caught = false;
     auto task = [&caught]() -> coro::Task<void> {
-        // Handle consumption observes the defect. supervisor_group must not
+        // Handle consumption observes the defect. A supervisor nursery must not
         // report that same failure again as an unobserved exit error.
-        co_await coro::supervisor_group([&caught](coro::TaskGroup& group) -> coro::Task<void> {
-            auto handle = group.spawn(throw_runtime_error("child boom"));
-            try {
-                co_await handle;
-            } catch (const std::runtime_error& error) {
-                caught = std::string(error.what()) == "child boom";
-            }
-            co_return;
-        });
+        co_await coro::with_nursery(
+            [&caught](coro::Nursery& group) -> coro::Task<void> {
+                auto handle = group.spawn(throw_runtime_error("child boom"));
+                try {
+                    co_await handle;
+                } catch (const std::runtime_error& error) {
+                    caught = std::string(error.what()) == "child boom";
+                }
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
         co_return;
     };
     coro::run(task());
@@ -254,15 +255,15 @@ TEST(TaskGroup, spawn_AwaitHandleOfThrowingChild_RethrowsAtJoin) {
 }
 
 // ---------------------------------------------------------------------------
-// task_group: join-all, first failure cancels siblings then propagates
+// FAIL_FAST nursery: drain all; first failure cancels siblings then propagates
 // ---------------------------------------------------------------------------
 
-TEST(TaskGroup, task_group_NormalExit_JoinsEveryChild) {
+TEST(Nursery, NormalExit_DrainsEveryChild) {
     int completed = 0;
     coro::ManualClock clock;
     coro::Loop loop{clock};
     auto task = [&completed]() -> coro::Task<void> {
-        co_await coro::task_group([&completed](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&completed](coro::Nursery& group) -> coro::Task<void> {
             for (int i = 0; i < 4; ++i) {
                 group.spawn(increment_after_sleep(completed, 10ms));
             }
@@ -274,15 +275,15 @@ TEST(TaskGroup, task_group_NormalExit_JoinsEveryChild) {
     EXPECT_EQ(completed, 4);
 }
 
-TEST(TaskGroup, task_group_FirstChildThrows_CancelsSiblingsThenPropagates) {
+TEST(Nursery, FirstChildThrows_CancelsSiblingsThenPropagates) {
     bool sibling_started = false;
     bool sibling_saw_cancellation = false;
     int sibling_ticks = 0;
     coro::ManualClock clock;
     coro::Loop loop{clock};
     auto task = [&sibling_started, &sibling_saw_cancellation, &sibling_ticks]() -> coro::Task<void> {
-        co_await coro::task_group(
-            [&sibling_started, &sibling_saw_cancellation, &sibling_ticks](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery(
+            [&sibling_started, &sibling_saw_cancellation, &sibling_ticks](coro::Nursery& group) -> coro::Task<void> {
                 group.spawn(fail_after_sleep(10ms, "sibling failed"));
                 group.spawn(tick_until_cancelled(sibling_started, sibling_saw_cancellation, sibling_ticks));
                 co_return;
@@ -301,18 +302,18 @@ TEST(TaskGroup, task_group_FirstChildThrows_CancelsSiblingsThenPropagates) {
 }
 
 // ---------------------------------------------------------------------------
-// supervisor_group: a child failure is reported, siblings are untouched
+// SUPERVISOR nursery: a child failure is reported, siblings are untouched
 // ---------------------------------------------------------------------------
 
-TEST(TaskGroup, supervisor_group_ChildThrows_ReportsAndLeavesSiblings) {
+TEST(Nursery, SupervisorChildThrows_ReportsAndLeavesSiblings) {
     bool saw_error = false;
     bool saw_value = false;
     bool sibling_finished = false;
     coro::ManualClock clock;
     coro::Loop loop{clock};
     auto task = [&saw_error, &saw_value, &sibling_finished]() -> coro::Task<void> {
-        co_await coro::supervisor_group(
-            [&saw_error, &saw_value, &sibling_finished](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery(
+            [&saw_error, &saw_value, &sibling_finished](coro::Nursery& group) -> coro::Task<void> {
                 group.spawn(fail_immediately("supervised failure"));
                 group.spawn(set_flag_after_sleep(sibling_finished, 20ms, 7));
                 while (auto outcome = co_await group.next<int>()) {
@@ -323,7 +324,8 @@ TEST(TaskGroup, supervisor_group_ChildThrows_ReportsAndLeavesSiblings) {
                     }
                 }
                 co_return;
-            });
+            },
+            coro::NurseryPolicy::SUPERVISOR);
         co_return;
     };
     coro::run(loop, task());
@@ -336,12 +338,12 @@ TEST(TaskGroup, supervisor_group_ChildThrows_ReportsAndLeavesSiblings) {
 // next(): completion-order consumption
 // ---------------------------------------------------------------------------
 
-TEST(TaskGroup, next_ChildrenFinishOutOfOrder_YieldsCompletionOrder) {
+TEST(Nursery, next_ChildrenFinishOutOfOrder_YieldsCompletionOrder) {
     std::vector<int> order;
     coro::ManualClock clock;
     coro::Loop loop{clock};
     auto task = [&order]() -> coro::Task<void> {
-        co_await coro::task_group([&order](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&order](coro::Nursery& group) -> coro::Task<void> {
             group.spawn(sleep_then_value(30ms, 1));
             group.spawn(sleep_then_value(10ms, 2));
             group.spawn(sleep_then_value(20ms, 3));
@@ -358,16 +360,18 @@ TEST(TaskGroup, next_ChildrenFinishOutOfOrder_YieldsCompletionOrder) {
     EXPECT_EQ(order, (std::vector<int>{2, 3, 1}));
 }
 
-TEST(TaskGroup, next_ChildThrows_ReportsDefectAsValue) {
+TEST(Nursery, next_ChildThrows_ReportsDefectAsValue) {
     bool saw_error = false;
     auto task = [&saw_error]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&saw_error](coro::TaskGroup& group) -> coro::Task<void> {
-            group.spawn(throw_runtime_error("next reports this"));
-            while (auto outcome = co_await group.next<void>()) {
-                saw_error = !outcome->has_value();
-            }
-            co_return;
-        });
+        co_await coro::with_nursery(
+            [&saw_error](coro::Nursery& group) -> coro::Task<void> {
+                group.spawn(throw_runtime_error("next reports this"));
+                while (auto outcome = co_await group.next<void>()) {
+                    saw_error = !outcome->has_value();
+                }
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
         co_return;
     };
     coro::run(task());
@@ -378,12 +382,12 @@ TEST(TaskGroup, next_ChildThrows_ReportsDefectAsValue) {
 // explicit group cancellation
 // ---------------------------------------------------------------------------
 
-TEST(TaskGroup, cancel_Requested_StopsChildren) {
+TEST(Nursery, cancel_Requested_StopsChildren) {
     bool child_cancelled = false;
     coro::ManualClock clock;
     coro::Loop loop{clock};
     auto task = [&child_cancelled]() -> coro::Task<void> {
-        co_await coro::task_group([&child_cancelled](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&child_cancelled](coro::Nursery& group) -> coro::Task<void> {
             group.spawn(wait_until_cancelled(child_cancelled));
             group.spawn(cancel_after_sleep(group, 5ms));
             co_return;
@@ -398,41 +402,45 @@ TEST(TaskGroup, cancel_Requested_StopsChildren) {
 // spawn_discard: fire-and-forget children with bounded bookkeeping
 // ---------------------------------------------------------------------------
 
-TEST(TaskGroup, spawn_discard_ScopeExitJoinsAChildStillInFlight) {
+TEST(Nursery, spawn_discard_ScopeExitJoinsAChildStillInFlight) {
     int completed = 0;
     coro::ManualClock clock;
     coro::Loop loop{clock};
     auto task = [&completed]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&completed](coro::TaskGroup& group) -> coro::Task<void> {
-            group.spawn_discard(increment_after_sleep(completed, 20ms));
-            // The body leaves at once; the group must still join the child
-            // instead of reaping its live frame.
-            co_return;
-        });
+        co_await coro::with_nursery(
+            [&completed](coro::Nursery& group) -> coro::Task<void> {
+                group.spawn_discard(increment_after_sleep(completed, 20ms));
+                // The body leaves at once; the group must still join the child
+                // instead of reaping its live frame.
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
         co_return;
     };
     coro::run(loop, task());
     EXPECT_EQ(completed, 1);
 }
 
-TEST(TaskGroup, spawn_discard_IsNeverDeliveredThroughNext) {
+TEST(Nursery, spawn_discard_IsNeverDeliveredThroughNext) {
     int discard_completed = 0;
     std::vector<int> delivered;
     coro::ManualClock clock;
     coro::Loop loop{clock};
     auto task = [&discard_completed, &delivered]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&discard_completed, &delivered](coro::TaskGroup& group) -> coro::Task<void> {
-            // The discard child finishes last, so the parked next() loop is
-            // woken by a completion it must not observe.
-            group.spawn(sleep_then_value(10ms, 7));
-            group.spawn_discard(increment_after_sleep(discard_completed, 30ms));
-            while (auto outcome = co_await group.next<int>()) {
-                if (outcome->has_value()) {
-                    delivered.push_back(outcome->value());
+        co_await coro::with_nursery(
+            [&discard_completed, &delivered](coro::Nursery& group) -> coro::Task<void> {
+                // The discard child finishes last, so the parked next() loop is
+                // woken by a completion it must not observe.
+                group.spawn(sleep_then_value(10ms, 7));
+                group.spawn_discard(increment_after_sleep(discard_completed, 30ms));
+                while (auto outcome = co_await group.next<int>()) {
+                    if (outcome->has_value()) {
+                        delivered.push_back(outcome->value());
+                    }
                 }
-            }
-            co_return;
-        });
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
         co_return;
     };
     coro::run(loop, task());
@@ -440,14 +448,14 @@ TEST(TaskGroup, spawn_discard_IsNeverDeliveredThroughNext) {
     EXPECT_EQ(discard_completed, 1);
 }
 
-TEST(TaskGroup, spawn_discard_DefectCancelsSiblingsAndPropagates) {
-    // A discard child's defect is a child defect like any other: task_group
+TEST(Nursery, spawn_discard_DefectCancelsSiblingsAndPropagates) {
+    // A discard child's defect is a child defect like any other: the nursery
     // cancels the siblings and rethrows it at scope exit.
     bool sibling_cancelled = false;
     coro::ManualClock clock;
     coro::Loop loop{clock};
     auto task = [&sibling_cancelled]() -> coro::Task<void> {
-        co_await coro::task_group([&sibling_cancelled](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&sibling_cancelled](coro::Nursery& group) -> coro::Task<void> {
             group.spawn_discard(fail_after_sleep(10ms, "discard boom"));
             group.spawn(wait_until_cancelled(sibling_cancelled));
             co_return;
@@ -463,17 +471,19 @@ TEST(TaskGroup, spawn_discard_DefectCancelsSiblingsAndPropagates) {
     EXPECT_TRUE(sibling_cancelled);
 }
 
-TEST(TaskGroup, spawn_discard_ManyChildren_AllRunAndAreJoined) {
+TEST(Nursery, spawn_discard_ManyChildren_AllRunAndAreJoined) {
     // Churn through many discard children in one group: every completion
     // retires the previous one's frame, which the sanitizer build validates.
     int completed = 0;
     auto task = [&completed]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&completed](coro::TaskGroup& group) -> coro::Task<void> {
-            for (int i = 0; i < 500; ++i) {
-                group.spawn_discard(increment_after_sleep(completed, 0ms));
-            }
-            co_return;
-        });
+        co_await coro::with_nursery(
+            [&completed](coro::Nursery& group) -> coro::Task<void> {
+                for (int i = 0; i < 500; ++i) {
+                    group.spawn_discard(increment_after_sleep(completed, 0ms));
+                }
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
         co_return;
     };
     coro::run(task());
@@ -518,12 +528,12 @@ TEST(Task, await_ResultMoveThrows_ReleasesChildFrame) {
     EXPECT_EQ(token.use_count(), 1);
 }
 
-TEST(TaskGroup, next_NoMatchingChildren_ReturnsWithoutWaitingForOtherTypes) {
+TEST(Nursery, next_NoMatchingChildren_ReturnsWithoutWaitingForOtherTypes) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     bool cancelled = false;
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             group.spawn(wait_until_cancelled(cancelled));
             EXPECT_FALSE((co_await group.next<int>()).has_value());
             group.cancel();
@@ -532,12 +542,12 @@ TEST(TaskGroup, next_NoMatchingChildren_ReturnsWithoutWaitingForOtherTypes) {
     coro::run(loop, root());
 }
 
-TEST(TaskGroup, next_LastMatchingChildConsumed_ReturnsWhileOtherTypesRun) {
+TEST(Nursery, next_LastMatchingChildConsumed_ReturnsWhileOtherTypesRun) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     bool cancelled = false;
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             group.spawn(wait_until_cancelled(cancelled));
             group.spawn(constant(42));
             auto result = co_await group.next<int>();
@@ -549,9 +559,9 @@ TEST(TaskGroup, next_LastMatchingChildConsumed_ReturnsWhileOtherTypesRun) {
     coro::run(loop, root());
 }
 
-TEST(TaskGroup, join_ResultClaimedOnce_AcrossCopiesAndNext) {
+TEST(Nursery, join_ResultClaimedOnce_AcrossCopiesAndNext) {
     auto root = []() -> coro::Task<void> {
-        co_await coro::task_group([](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([](coro::Nursery& group) -> coro::Task<void> {
             auto handle = group.spawn(constant(42));
             auto copy = handle;
             EXPECT_EQ(co_await handle, 42);
@@ -563,9 +573,9 @@ TEST(TaskGroup, join_ResultClaimedOnce_AcrossCopiesAndNext) {
     coro::run(root());
 }
 
-TEST(TaskGroup, join_NextConsumedResult_RejectsJoin) {
+TEST(Nursery, join_NextConsumedResult_RejectsJoin) {
     auto root = []() -> coro::Task<void> {
-        co_await coro::task_group([](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([](coro::Nursery& group) -> coro::Task<void> {
             auto handle = group.spawn(constant(42));
             EXPECT_TRUE((co_await group.next<int>()).has_value());
             EXPECT_THROW(co_await handle, std::logic_error);
@@ -576,10 +586,10 @@ TEST(TaskGroup, join_NextConsumedResult_RejectsJoin) {
     coro::run(root());
 }
 
-TEST(TaskGroup, join_HandleOutlivingGroup_FailsSafely) {
+TEST(Nursery, join_HandleOutlivingGroup_FailsSafely) {
     coro::Handle<int> smuggled;
     auto root = [&smuggled]() -> coro::Task<void> {
-        co_await coro::task_group([&smuggled](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&smuggled](coro::Nursery& group) -> coro::Task<void> {
             smuggled = group.spawn(constant(42));
             co_return;
         });
@@ -611,115 +621,131 @@ coro::Task<void> hold_parameter(std::shared_ptr<int> token) {
     co_await coro::checkpoint();
 }
 
-TEST(TaskGroup, next_LocalTimeout_DetachesWaitWithoutCancellingOrClaimingChild) {
+TEST(Nursery, next_LocalTimeout_DetachesWaitWithoutCancellingOrClaimingChild) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     auto root = []() -> coro::Task<void> {
-        co_await coro::supervisor_group([](coro::TaskGroup& group) -> coro::Task<void> {
-            auto handle = group.spawn(sleep_then_value(100ms, 42));
-            const auto start = co_await coro::current_time();
-            for (int i = 0; i < 3; ++i) {
-                auto outcome = co_await coro::with_timeout(10ms, [&group]() -> coro::Task<void> {
-                    [[maybe_unused]] auto result = co_await group.next<int>();
-                    ADD_FAILURE() << "cancelled result wait must not consume";
-                });
-                EXPECT_TRUE(outcome.timed_out);
-                EXPECT_TRUE(handle.valid());
-                EXPECT_FALSE(group.scope().cancelled());
-            }
-            EXPECT_EQ((co_await coro::current_time()) - start, 30ms);
-            auto result = co_await group.next<int>();
-            EXPECT_EQ(result->value(), 42);
-            EXPECT_FALSE(handle.valid());
-            EXPECT_FALSE((co_await group.next<int>()).has_value());
-        });
+        co_await coro::with_nursery(
+            [](coro::Nursery& group) -> coro::Task<void> {
+                auto handle = group.spawn(sleep_then_value(100ms, 42));
+                const auto start = co_await coro::current_time();
+                for (int i = 0; i < 3; ++i) {
+                    auto outcome = co_await coro::with_timeout(10ms, [&group]() -> coro::Task<void> {
+                        [[maybe_unused]] auto result = co_await group.next<int>();
+                        ADD_FAILURE() << "cancelled result wait must not consume";
+                    });
+                    EXPECT_TRUE(outcome.timed_out);
+                    EXPECT_TRUE(handle.valid());
+                    EXPECT_FALSE(group.scope().cancelled());
+                }
+                EXPECT_EQ((co_await coro::current_time()) - start, 30ms);
+                auto result = co_await group.next<int>();
+                EXPECT_EQ(result->value(), 42);
+                EXPECT_FALSE(handle.valid());
+                EXPECT_FALSE((co_await group.next<int>()).has_value());
+            },
+            coro::NurseryPolicy::SUPERVISOR);
     };
     coro::run(loop, root());
 }
 
-TEST(TaskGroup, next_AlreadyCancelledCaller_DoesNotClaimReadyResult) {
+TEST(Nursery, next_AlreadyCancelledCaller_DoesNotClaimReadyResult) {
     auto root = []() -> coro::Task<void> {
-        co_await coro::supervisor_group([](coro::TaskGroup& group) -> coro::Task<void> {
-            auto handle = group.spawn(constant(42));
-            co_await group.join();
-            auto outcome = co_await coro::with_cancel_scope([&group](coro::CancelScope& scope) -> coro::Task<void> {
-                scope.cancel();
-                [[maybe_unused]] auto result = co_await group.next<int>();
-            });
-            EXPECT_TRUE(outcome.cancelled);
-            EXPECT_TRUE(handle.valid());
-            EXPECT_EQ(co_await handle, 42);
-        });
+        co_await coro::with_nursery(
+            [](coro::Nursery& group) -> coro::Task<void> {
+                auto handle = group.spawn(constant(42));
+                co_await coro::checkpoint();
+                co_await coro::checkpoint();
+                auto outcome = co_await coro::with_cancel_scope([&group](coro::CancelScope& scope) -> coro::Task<void> {
+                    scope.cancel();
+                    [[maybe_unused]] auto result = co_await group.next<int>();
+                });
+                EXPECT_TRUE(outcome.cancelled);
+                EXPECT_TRUE(handle.valid());
+                EXPECT_EQ(co_await handle, 42);
+            },
+            coro::NurseryPolicy::SUPERVISOR);
     };
     coro::run(root());
 }
 
-TEST(TaskGroup, next_CompletionAndTimeoutSameDeadline_CancellationWinsWithoutClaim) {
+TEST(Nursery, next_CompletionAndTimeoutSameDeadline_CancellationWinsWithoutClaim) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     auto root = []() -> coro::Task<void> {
-        co_await coro::supervisor_group([](coro::TaskGroup& group) -> coro::Task<void> {
-            auto handle = group.spawn(sleep_then_value(10ms, 42));
-            auto outcome = co_await coro::with_timeout(10ms, [&group]() -> coro::Task<void> {
-                [[maybe_unused]] auto result = co_await group.next<int>();
-                ADD_FAILURE();
-            });
-            EXPECT_TRUE(outcome.timed_out);
-            EXPECT_EQ(co_await handle, 42);
-        });
+        co_await coro::with_nursery(
+            [](coro::Nursery& group) -> coro::Task<void> {
+                auto handle = group.spawn(sleep_then_value(10ms, 42));
+                auto outcome = co_await coro::with_timeout(10ms, [&group]() -> coro::Task<void> {
+                    [[maybe_unused]] auto result = co_await group.next<int>();
+                    ADD_FAILURE();
+                });
+                EXPECT_TRUE(outcome.timed_out);
+                EXPECT_EQ(co_await handle, 42);
+            },
+            coro::NurseryPolicy::SUPERVISOR);
     };
     coro::run(loop, root());
 }
 
-TEST(TaskGroup, Consumption_ReleasesFrameAndBoundsHistoryWhileGroupLives) {
+TEST(Nursery, Consumption_ReleasesFrameAndBoundsHistoryWhileGroupLives) {
     auto root = []() -> coro::Task<void> {
-        co_await coro::task_group([](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([](coro::Nursery& group) -> coro::Task<void> {
             for (int i = 0; i < 1000; ++i) {
                 auto token = std::make_shared<int>(1);
                 auto handle = group.spawn(hold_parameter(token));
                 if (i % 2 == 0) {
                     co_await handle;
                 } else {
-                    EXPECT_TRUE((co_await group.next<void>())->has_value());
+                    const auto result = co_await group.next<void>();
+                    EXPECT_TRUE(result.has_value() && result->has_value());
                 }
                 EXPECT_EQ(token.use_count(), 1);
                 EXPECT_FALSE(handle.valid());
             }
             group.spawn(constant(42));
-            EXPECT_EQ((co_await group.next<int>())->value(), 42);
+            const auto result = co_await group.next<int>();
+            EXPECT_TRUE(result.has_value());
+            if (result) {
+                EXPECT_EQ(result->value(), 42);
+            }
         });
     };
     coro::run(root());
 }
 
-TEST(TaskGroup, Consumption_ThrowingMoveStillReleasesFrame) {
+TEST(Nursery, Consumption_ThrowingMoveStillReleasesFrame) {
     auto root = []() -> coro::Task<void> {
-        co_await coro::supervisor_group([](coro::TaskGroup& group) -> coro::Task<void> {
-            auto token = std::make_shared<int>(1);
-            bool moved = false;
-            auto handle = group.spawn(throwing_move_result(token, moved));
-            EXPECT_THROW(co_await handle, std::runtime_error);
-            EXPECT_EQ(token.use_count(), 1);
-            moved = false;
-            group.spawn(throwing_move_result(token, moved));
-            EXPECT_THROW(co_await group.next<ThrowingMove>(), std::runtime_error);
-            EXPECT_EQ(token.use_count(), 1);
-        });
+        co_await coro::with_nursery(
+            [](coro::Nursery& group) -> coro::Task<void> {
+                auto token = std::make_shared<int>(1);
+                bool moved = false;
+                auto handle = group.spawn(throwing_move_result(token, moved));
+                EXPECT_THROW(co_await handle, std::runtime_error);
+                EXPECT_EQ(token.use_count(), 1);
+                moved = false;
+                group.spawn(throwing_move_result(token, moved));
+                EXPECT_THROW(co_await group.next<ThrowingMove>(), std::runtime_error);
+                EXPECT_EQ(token.use_count(), 1);
+            },
+            coro::NurseryPolicy::SUPERVISOR);
     };
     coro::run(root());
 }
 
-TEST(TaskGroup, Supervisor_UnobservedFailuresAreReportedAfterSiblingsFinish) {
+TEST(Nursery, Supervisor_UnobservedFailuresAreReportedAfterSiblingsFinish) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     int finished = 0;
     auto root = [&finished]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&finished](coro::TaskGroup& group) -> coro::Task<void> {
-            group.spawn_discard(throw_runtime_error("discard"));
-            group.spawn(throw_runtime_error("unclaimed"));
-            group.spawn(increment_after_sleep(finished, 10ms));
-            co_return;
-        });
+        co_await coro::with_nursery(
+            [&finished](coro::Nursery& group) -> coro::Task<void> {
+                group.spawn_discard(throw_runtime_error("discard"));
+                group.spawn(throw_runtime_error("unclaimed"));
+                group.spawn(increment_after_sleep(finished, 10ms));
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
     };
     try {
         coro::run(loop, root());
@@ -730,18 +756,18 @@ TEST(TaskGroup, Supervisor_UnobservedFailuresAreReportedAfterSiblingsFinish) {
     EXPECT_EQ(finished, 1);
 }
 
-TEST(TaskGroup, join_BodyLocalResourcesRemainAliveThroughCancellationDrain) {
+TEST(Nursery, RunnerResources_RemainAliveThroughCancellationDrain) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     auto root = []() -> coro::Task<void> {
-        co_await coro::task_group([](coro::TaskGroup& group) -> coro::Task<void> {
-            auto token = std::make_shared<int>(1);
-            group.spawn(hold_parameter(token));
-            group.cancel();
-            co_await group.join();
-            // Cancellation cannot skip the drain or destroy resources early.
-            EXPECT_EQ(token.use_count(), 2);
-        });
+        auto token = std::make_shared<int>(1);
+        co_await coro::with_nursery(token,
+                                    [](coro::Nursery& nursery, std::shared_ptr<int>& resource) -> coro::Task<void> {
+                                        nursery.spawn(hold_parameter(resource));
+                                        nursery.cancel();
+                                        co_return;
+                                    });
+        EXPECT_EQ(token.use_count(), 1);
     };
     coro::run(loop, root());
 }
@@ -756,30 +782,30 @@ coro::Task<void> borrow_until_cancelled(const std::weak_ptr<int>& token, bool& f
     }
 }
 
-TEST(TaskGroup, with_children_DefectDrainsBeforeOuterBodyResourcesDestruct) {
+TEST(Nursery, NestedNursery_DefectDrainsBeforeOuterOwnerDestructs) {
     bool finished = false;
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            auto resource = std::make_shared<int>(1);
-            const std::weak_ptr<int> borrow = resource;
-            EXPECT_THROW(co_await group.with_children([&]() -> coro::Task<void> {
-                group.spawn(borrow_until_cancelled(borrow, finished));
-                co_await coro::checkpoint();
-                throw std::runtime_error("body failure");
-            }),
-                         std::runtime_error);
-            EXPECT_TRUE(finished);
-            EXPECT_FALSE(borrow.expired());
-        });
+        auto resource = std::make_shared<int>(1);
+        const std::weak_ptr<int> borrow = resource;
+        EXPECT_THROW(co_await coro::with_nursery(
+                         [&](coro::Nursery& nursery) -> coro::Task<void> {
+                             nursery.spawn(borrow_until_cancelled(borrow, finished));
+                             co_await coro::checkpoint();
+                             throw std::runtime_error("body failure");
+                         },
+                         coro::NurseryPolicy::SUPERVISOR),
+                     std::runtime_error);
+        EXPECT_TRUE(finished);
+        EXPECT_FALSE(borrow.expired());
     };
     coro::run(root());
     EXPECT_TRUE(finished);
 }
 
-TEST(TaskGroup, BodyFactoryThrowsAfterSpawning_StillCancelsAndDrains) {
+TEST(Nursery, BodyFactoryThrowsAfterSpawning_StillCancelsAndDrains) {
     bool cancelled = false;
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             group.spawn(wait_until_cancelled(cancelled));
             // Deliberately not a coroutine: failure happens while constructing
             // the body, after execution ownership has already been transferred.
@@ -790,14 +816,18 @@ TEST(TaskGroup, BodyFactoryThrowsAfterSpawning_StillCancelsAndDrains) {
     EXPECT_TRUE(cancelled);
 }
 
-TEST(TaskGroup, SuccessfulDiscard_FrameIsReapedBeforeNextLoopTurn) {
+TEST(Nursery, SuccessfulDiscard_FrameIsReapedBeforeNextLoopTurn) {
     auto root = []() -> coro::Task<void> {
-        co_await coro::supervisor_group([](coro::TaskGroup& group) -> coro::Task<void> {
-            auto token = std::make_shared<int>(1);
-            group.spawn_discard(hold_parameter(token));
-            co_await group.join();
-            EXPECT_EQ(token.use_count(), 1);
-        });
+        co_await coro::with_nursery(
+            [](coro::Nursery& group) -> coro::Task<void> {
+                auto token = std::make_shared<int>(1);
+                group.spawn_discard(hold_parameter(token));
+                co_await coro::checkpoint();
+                co_await coro::checkpoint();
+                co_await coro::checkpoint();
+                EXPECT_EQ(token.use_count(), 1);
+            },
+            coro::NurseryPolicy::SUPERVISOR);
     };
     coro::run(root());
 }
@@ -813,7 +843,7 @@ TEST(Task, await_EmptyOrAlreadyAwaitedTask_ThrowsLogicError) {
     coro::run(root());
 }
 
-TEST(TaskGroup, BodyNestedManualCancellation_CancelsChildrenBeforeDrain) {
+TEST(Nursery, BodyNestedManualCancellation_CancelsChildrenBeforeDrain) {
     for (const bool supervisor : {false, true}) {
         for (const bool absolute : {false, true}) {
             coro::ManualClock clock;
@@ -823,7 +853,7 @@ TEST(TaskGroup, BodyNestedManualCancellation_CancelsChildrenBeforeDrain) {
                 // Guard the broken implementation too: a regression fails at
                 // 100ms instead of leaving the entire test binary parked.
                 [[maybe_unused]] auto guarded = co_await coro::with_timeout(100ms, [&]() -> coro::Task<void> {
-                    auto body = [&](coro::TaskGroup& group) -> coro::Task<void> {
+                    auto body = [&](coro::Nursery& group) -> coro::Task<void> {
                         group.spawn(wait_until_cancelled(child_cancelled));
                         auto cancel_body = []() -> coro::Task<void> {
                             co_await coro::sleep_for(1ms);
@@ -837,9 +867,9 @@ TEST(TaskGroup, BodyNestedManualCancellation_CancelsChildrenBeforeDrain) {
                         }
                     };
                     if (supervisor) {
-                        co_await coro::supervisor_group(body);
+                        co_await coro::with_nursery(body, coro::NurseryPolicy::SUPERVISOR);
                     } else {
-                        co_await coro::task_group(body);
+                        co_await coro::with_nursery(body);
                     }
                 });
             };
@@ -850,7 +880,7 @@ TEST(TaskGroup, BodyNestedManualCancellation_CancelsChildrenBeforeDrain) {
     }
 }
 
-coro::Task<void> observe_exhaustion(coro::TaskGroup& group, bool& exhausted) {
+coro::Task<void> observe_exhaustion(coro::Nursery& group, bool& exhausted) {
     EXPECT_FALSE((co_await group.next<int>()).has_value());
     exhausted = true;
 }
@@ -859,68 +889,72 @@ coro::Task<void> consume_handle(coro::Handle<int> handle) {
     EXPECT_EQ(co_await handle, 42);
 }
 
-TEST(TaskGroup, HandleClaim_WakesNextBeforeProducerCompletes) {
+TEST(Nursery, HandleClaim_WakesNextBeforeProducerCompletes) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     bool exhausted = false;
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            auto handle = group.spawn(sleep_then_value(100ms, 42));
-            group.spawn_discard(observe_exhaustion(group, exhausted));
-            co_await coro::sleep_for(1ms);  // next() has parked
-            group.spawn_discard(consume_handle(handle));
-            co_await coro::sleep_for(1ms);
-            EXPECT_TRUE(exhausted);
-            EXPECT_EQ(clock.now().time_since_epoch(), 2ms);
-            co_await group.join();
-        });
+        co_await coro::with_nursery(
+            [&](coro::Nursery& group) -> coro::Task<void> {
+                auto handle = group.spawn(sleep_then_value(100ms, 42));
+                group.spawn_discard(observe_exhaustion(group, exhausted));
+                co_await coro::sleep_for(1ms);  // next() has parked
+                group.spawn_discard(consume_handle(handle));
+                co_await coro::sleep_for(1ms);
+                EXPECT_TRUE(exhausted);
+                EXPECT_EQ(clock.now().time_since_epoch(), 2ms);
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
     };
     coro::run(loop, root());
     EXPECT_TRUE(exhausted);
 }
 
-TEST(TaskGroup, join_ConcurrentCopies_RejectsReservationAndCancelRestoresResult) {
+TEST(Nursery, join_ConcurrentCopies_RejectsReservationAndCancelRestoresResult) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     bool reserved = false;
     coro::CancelScope* waiter_scope = nullptr;
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            auto producer = []() -> coro::Task<int> {
-                co_await coro::sleep_for(100ms);
-                co_return 42;
-            };
-            auto handle = group.spawn(producer());
-            auto copy = handle;
-            auto first = [&]() -> coro::Task<void> {
-                const auto outcome =
-                    co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
-                        waiter_scope = &scope;
-                        reserved = true;
-                        [[maybe_unused]] auto value = co_await handle;
-                    });
-                EXPECT_TRUE(outcome.cancelled);
-            };
-            auto waiter = group.spawn(first());
-            while (!reserved) {
-                co_await coro::checkpoint();
-            }
-            EXPECT_FALSE(copy.valid());
-            EXPECT_THROW(co_await copy, std::logic_error);
-            waiter_scope->cancel();
-            co_await waiter;
-            EXPECT_TRUE(copy.valid());
-            EXPECT_EQ(co_await copy, 42);
-        });
+        co_await coro::with_nursery(
+            [&](coro::Nursery& group) -> coro::Task<void> {
+                auto producer = []() -> coro::Task<int> {
+                    co_await coro::sleep_for(100ms);
+                    co_return 42;
+                };
+                auto handle = group.spawn(producer());
+                auto copy = handle;
+                auto first = [&]() -> coro::Task<void> {
+                    const auto outcome =
+                        co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+                            waiter_scope = &scope;
+                            reserved = true;
+                            [[maybe_unused]] auto value = co_await handle;
+                        });
+                    EXPECT_TRUE(outcome.cancelled);
+                };
+                auto waiter = group.spawn(first());
+                while (!reserved) {
+                    co_await coro::checkpoint();
+                }
+                EXPECT_FALSE(copy.valid());
+                EXPECT_THROW(co_await copy, std::logic_error);
+                waiter_scope->cancel();
+                co_await waiter;
+                EXPECT_TRUE(copy.valid());
+                EXPECT_EQ(co_await copy, 42);
+            },
+            coro::NurseryPolicy::SUPERVISOR);
     };
     coro::run(loop, root());
 }
 
-TEST(TaskGroup, join_LocalTimeout_ReleasesReservationAndLeavesProducerRunning) {
+TEST(Nursery, join_LocalTimeout_ReleasesReservationAndLeavesProducerRunning) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             auto handle = group.spawn(sleep_then_value(100ms, 42));
             auto outcome = co_await coro::with_timeout(5ms, [&]() -> coro::Task<int> { co_return co_await handle; });
             EXPECT_TRUE(outcome.timed_out);
@@ -933,27 +967,32 @@ TEST(TaskGroup, join_LocalTimeout_ReleasesReservationAndLeavesProducerRunning) {
     coro::run(loop, root());
 }
 
-TEST(TaskGroup, join_CompletionAndTimeoutSameDeadline_LeavesResultUnconsumed) {
+TEST(Nursery, join_CompletionAndTimeoutSameDeadline_LeavesResultUnconsumed) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     auto root = [&]() -> coro::Task<void> {
-        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             auto handle = group.spawn(sleep_then_value(5ms, 42));
             auto outcome = co_await coro::with_timeout(5ms, [&]() -> coro::Task<int> { co_return co_await handle; });
             EXPECT_TRUE(outcome.timed_out);
             EXPECT_TRUE(handle.valid());
-            EXPECT_EQ((co_await group.next<int>())->value(), 42);
+            const auto result = co_await group.next<int>();
+            EXPECT_TRUE(result.has_value());
+            if (result) {
+                EXPECT_EQ(result->value(), 42);
+            }
             EXPECT_FALSE(handle.valid());
         });
     };
     coro::run(loop, root());
 }
 
-TEST(TaskGroup, join_AlreadyCancelledCaller_DoesNotReserveReadyResult) {
+TEST(Nursery, join_AlreadyCancelledCaller_DoesNotReserveReadyResult) {
     auto root = []() -> coro::Task<void> {
-        co_await coro::task_group([](coro::TaskGroup& group) -> coro::Task<void> {
+        co_await coro::with_nursery([](coro::Nursery& group) -> coro::Task<void> {
             auto handle = group.spawn(constant(42));
-            co_await group.join();
+            co_await coro::checkpoint();
+            co_await coro::checkpoint();
             auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
                 scope.cancel();
                 [[maybe_unused]] auto result = co_await handle;
