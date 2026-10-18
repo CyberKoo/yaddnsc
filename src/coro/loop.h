@@ -145,9 +145,10 @@ private:
     /// The worker pool, defined in loop.cpp so its third-party type stops here.
     class Pool;
 
-    /// One ready fd, snapshotted before dispatch: a callback may remove its own
-    /// registration, so poll_once never walks fds_ while dispatching.
+    /// One ready fd, snapshotted before dispatch. Registration identity lets
+    /// remove_fd revoke a pending callback before its context may be destroyed.
     struct ReadyEntry {
+        const detail::FdEntry* registration;
         void (*fn)(void*, short) noexcept;
         void* context;
         int fd;
@@ -204,7 +205,8 @@ private:
     /// The caller owns `entry` and must remove it before it dies; two entries on
     /// one fd are independent registrations.
     void add_fd(detail::FdEntry& entry);
-    /// Stop polling a registration made by add_fd(). Idempotent.
+    /// Stop polling and revoke any pending snapshotted callback. Idempotent;
+    /// after removal the owner may destroy the registration and its context.
     void remove_fd(detail::FdEntry& entry) noexcept;
 
     void open_self_pipe();

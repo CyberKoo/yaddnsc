@@ -239,7 +239,11 @@ Fd registration reserves both poll-array and callback-snapshot storage before
 linking the wait; allocation failure leaves it unlinked. Building either
 dispatch snapshot therefore needs no buffer growth. Dispatch copies each
 callback by index, so registering more descriptors in a callback may grow the
-buffers without invalidating the current traversal. Optional trace formatting
+buffers without invalidating the current traversal. Unregistering a descriptor
+also revokes its pending snapshot callback before its context may be destroyed;
+this applies to both readiness dispatch and sustained poll-failure shedding.
+Distinct registrations stay independent even with identical callbacks and contexts.
+Optional trace formatting
 remains best-effort and contains its own allocation failures.
 
 Group bodies cancel their children on every abnormal exit, including cancellation

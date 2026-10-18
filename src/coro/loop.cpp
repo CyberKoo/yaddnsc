@@ -633,7 +633,7 @@ void Loop::poll_once(int timeout_ms) {
     for (std::size_t i = 0; i < fds_.size(); ++i) {
         if (pollfds_scratch_[i].revents != 0 && fds_[i]->fn != nullptr) {
             ready_entries_scratch_.push_back(
-                ReadyEntry{fds_[i]->fn, fds_[i]->context, fds_[i]->fd, pollfds_scratch_[i].revents});
+                ReadyEntry{fds_[i], fds_[i]->fn, fds_[i]->context, fds_[i]->fd, pollfds_scratch_[i].revents});
         }
     }
     // A callback may register fds and reallocate the buffer. Keep only an
@@ -641,9 +641,12 @@ void Loop::poll_once(int timeout_ms) {
     // NOLINTNEXTLINE(modernize-loop-convert)  // reallocation hazard: not convertible to range-for
     for (std::size_t i = 0; i < ready_entries_scratch_.size(); ++i) {
         const ReadyEntry entry = ready_entries_scratch_[i];
-        CORO_TRACE("Fd {} ready: {}", entry.fd, describe_poll_events(entry.revents));
-        entry.fn(entry.context, entry.revents);
+        if (entry.fn != nullptr) {
+            CORO_TRACE("Fd {} ready: {}", entry.fd, describe_poll_events(entry.revents));
+            entry.fn(entry.context, entry.revents);
+        }
     }
+    ready_entries_scratch_.clear();
 }
 
 void Loop::on_poll_impaired(const int error) noexcept {
@@ -657,15 +660,18 @@ void Loop::on_poll_impaired(const int error) noexcept {
         ready_entries_scratch_.clear();
         for (const detail::FdEntry* entry : fds_) {
             if (entry->fn != nullptr) {
-                ready_entries_scratch_.push_back(ReadyEntry{entry->fn, entry->context, entry->fd, POLLERR});
+                ready_entries_scratch_.push_back(ReadyEntry{entry, entry->fn, entry->context, entry->fd, POLLERR});
             }
         }
         // Callbacks may grow this buffer through add_fd(), as in poll_once().
         // NOLINTNEXTLINE(modernize-loop-convert)  // reallocation hazard: not convertible to range-for
         for (std::size_t i = 0; i < ready_entries_scratch_.size(); ++i) {
             const ReadyEntry entry = ready_entries_scratch_[i];
-            entry.fn(entry.context, entry.revents);
+            if (entry.fn != nullptr) {
+                entry.fn(entry.context, entry.revents);
+            }
         }
+        ready_entries_scratch_.clear();
     }
     // The event source cannot pace the loop while it is itself failing, and
     // nanosleep is the remaining wait primitive that allocates nothing. A
@@ -812,6 +818,13 @@ void Loop::remove_fd(detail::FdEntry& entry) noexcept {
         return;
     }
     entry.linked = false;
+    // Revoke borrowed callbacks before their owner can release the context.
+    // ponytail: linear in the dispatch batch; index snapshots if large batches need it.
+    for (ReadyEntry& pending : ready_entries_scratch_) {
+        if (pending.registration == &entry) {
+            pending = {};
+        }
+    }
     const std::size_t index = entry.index;
     assert(index < fds_.size() && fds_[index] == &entry && "fd table/index desynchronized");
     detail::FdEntry* moved = fds_.back();  // swap-with-last: no compaction walk

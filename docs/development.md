@@ -337,8 +337,12 @@ CI environment; it is not invoked by any workflow.
 
 ## Coverage
 
-The nightly coverage job uses GCC instrumentation, runs the CTest suite, and
-uploads an LCOV report to Codecov. For a local report, use GCC 14, an installed
+The `coverage` job in `ci.yml` runs on code pushes and pull requests. It uses
+GCC instrumentation with sanitizers disabled, runs the CTest suite, and uploads
+an LCOV report to Codecov using the repository's `CODECOV_TOKEN` secret. A failed
+test or coverage gate does not prevent uploading a successfully generated report;
+the job still fails. Report-generation and upload errors also fail the job.
+Nightly does not repeat this job. For a local report, use GCC 14, an installed
 `fastcov`, and a fresh build directory:
 
 ```bash
@@ -350,21 +354,19 @@ CC=gcc-14 CXX=g++-14 cmake -S . -B build-coverage \
 cmake --build build-coverage --parallel
 ctest --test-dir build-coverage --output-on-failure
 fastcov -g gcov-14 -d build-coverage \
-  -i "src/" "include/" "driver/" \
-  -e "test/" "_deps/" "/usr/" "*/generated/" \
-  -B -o coverage.info --lcov
+  -i "$(pwd)/src/" "$(pwd)/include/" "$(pwd)/driver/" \
+  -e "/usr/" "*/generated/" \
+  -b -o coverage.info --lcov
 ```
 
-`-B` keeps all branch records. It matters here because GCC's coroutine split
-clones each coroutine body into `.actor`/`.destroy` functions with their own
-counter arrays, and gcov's line table collapses those clones away — coroutine
-bodies largely disappear from the *line* report (e.g. a 200-line task
-coroutine may report only its ramp entry lines), so line coverage is
-optimistically skewed on coroutine-heavy files while missing exactly the
-cancellation / timeout / redirect paths. Branch records survive the collapse
-and are the reliable signal for that code; fastcov's `-b` (useful branches
-only) filters most of them out, so use `-B`. Read the branch column of the
-lcov summary alongside the line column.
+The checkout-root include paths exclude third-party CPM headers. `-b` keeps
+useful branches but excludes compiler-generated exceptional branches, matching
+the CI gate's existing baseline; `-B` includes those additional branches and is
+not directly comparable. GCC's coroutine split clones bodies into
+`.actor`/`.destroy` functions, and gcov's line table collapses those clones away.
+Coroutine bodies can therefore largely disappear from the line report. Read
+the branch column alongside the line column rather than treating high line
+coverage as proof that cancellation, timeout and redirect paths were exercised.
 
 Even the branch numbers have a hard ceiling: gcov reports only the *ramp*
 function's branch table, and much of it is coroutine-lowering plumbing
@@ -376,7 +378,7 @@ already covered. Chase behaviour, not the number.
 ### Coverage gate
 
 `test/coverage_gate.py` enforces a two-track gate on the tracefile (the
-nightly coverage job runs it before the Codecov upload):
+CI coverage job runs it before the Codecov upload):
 
 ```bash
 python3 test/coverage_gate.py coverage.info            # add -v to list tracks
@@ -579,6 +581,8 @@ by `ci.yml` path filters.
 - `linux-amd64` — GCC Debug + full test suite (includes the plugin contract
   tests and the `architecture_guard` boundary checks);
 - `linux-amd64-musl`, `macos-arm64` — platform matrix (glibc/musl/macOS);
+- `coverage` — GCC coverage build + full test suite, the two-track coverage
+  gate, and Codecov upload (including reports from failed tests/gates);
 - `thread-sanitizer` — `ThreadSanitizer` build type + full test suite minus
   `test_stop_signals` (see "Sanitizers" for the exclusion and the platform
   rationale);
@@ -593,8 +597,7 @@ by `ci.yml` path filters.
 `nightly.yml`:
 
 - Linux arm64 Debug tests, Release builds with bundled/system spdlog (tests
-  disabled), the dedicated `Sanitizer` build/tests, and coverage (with the
-  two-track coverage gate, see "Coverage" above);
+  disabled), and the dedicated `Sanitizer` build/tests;
 - `linux-amd64-lint` — compile-only static analysis under upstream Clang
   (no tests run): IWYU violations fail the build, compiler warnings fail via
   `-Werror`, and clang-tidy diagnostics fail via `WarningsAsErrors: '*'`.

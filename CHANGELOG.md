@@ -62,6 +62,9 @@ Migration: [coroutine lifecycle migration](docs/architecture.md#coroutine-lifecy
 
 ### Fixed
 
+- Unregistering an fd revokes its pending callback in both readiness and
+  poll-failure dispatch, so removing another registration during a callback
+  cannot dispatch a stale context afterwards.
 - A `next<T>()` waiter is no longer told it is exhausted while a published
   result it could still take is merely reserved by another consumer. Handing a
   reservation back now wakes those waiters, and consuming the entry delivers the

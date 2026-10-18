@@ -74,7 +74,7 @@ public:
     /// Store the exception a frame captured and classify it: coro::Cancelled
     /// becomes CANCELLED, every other exception a defect. This is the
     /// unhandled-exception write path, so it may neither throw nor allocate.
-    void capture_exception(std::exception_ptr error) noexcept {
+    void capture_exception(const std::exception_ptr& error) noexcept {
         error_ = error;
         content_ = ResultContent::ERROR;
         try {

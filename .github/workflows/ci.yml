@@ -267,3 +267,65 @@ jobs:
             ! dpkg-query -W yaddnsc
             CC=gcc-14 CXX=g++-14 cmake -DSDK_PREFIX=/usr -DWORK_DIR=/tmp/sdk-check -DVERIFY_OLD_CXX_ABI=ON -P /usr/share/yaddnsc/examples/verify.cmake
           '
+
+  # Coverage runs on every code push/PR, independently of sanitizer builds.
+  coverage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CC: gcc-14
+      CXX: g++-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Cache CPM dependencies
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/CPM
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          restore-keys: cpm-${{ runner.os }}-
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g-dev pkg-config python3-venv lcov curl
+      - name: Configure
+        run: >-
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_SANITIZE_DEBUG=OFF
+          -DYADDNSC_BUILD_TESTS=ON
+          -DCPM_SOURCE_CACHE=$HOME/.cache/CPM
+          -DCMAKE_CXX_FLAGS="--coverage -O0 -fprofile-update=atomic"
+          -DCMAKE_EXE_LINKER_FLAGS="--coverage -fprofile-update=atomic"
+      - name: Build
+        run: ninja -C build -j$(nproc)
+      - name: Test
+        id: coverage-tests
+        run: ctest --test-dir build --output-on-failure -j$(nproc)
+      - name: Generate coverage report
+        id: coverage-report
+        if: ${{ !cancelled() && (steps.coverage-tests.outcome == 'success' || steps.coverage-tests.outcome == 'failure') }}
+        run: |
+          python3 -m venv /tmp/cov-venv
+          source /tmp/cov-venv/bin/activate
+          pip install -q fastcov
+          # Anchor includes to this checkout, not third-party CPM headers.
+          # -b excludes compiler-generated exceptional branches; keep the same
+          # branch convention as the coverage gate's existing baseline.
+          fastcov -g gcov-14 -d build \
+              -i "$(pwd)/src/" "$(pwd)/include/" "$(pwd)/driver/" \
+              -e "/usr/" "*/generated/" \
+              -b -o coverage.info --lcov
+          lcov --list coverage.info --ignore-errors inconsistent --rc lcov_branch_coverage=1
+      - name: Coverage gate
+        if: ${{ !cancelled() && steps.coverage-report.outcome == 'success' }}
+        run: python3 test/coverage_gate.py coverage.info
+      # A failed test or gate must not hide the generated report from Codecov.
+      # Disable discovery/plugins so only the product-code LCOV is uploaded.
+      - name: Upload coverage reports to Codecov
+        if: ${{ !cancelled() && steps.coverage-report.outcome == 'success' }}
+        uses: codecov/codecov-action@v7
+        with:
+          files: coverage.info
+          disable_search: true
+          plugins: noop
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
