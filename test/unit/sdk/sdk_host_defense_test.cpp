@@ -272,17 +272,22 @@ TEST(SdkHostDefence, ValidResponseIsReturned) {
 // ---------------------------------------------------------------------------
 
 TEST(SdkHostDefence, IsCancelled_OnANullTableOrMissingCallback_IsFalse) {
+    const int before = g_cancelled_calls;
     EXPECT_FALSE(Services{nullptr}.is_cancelled());
 
     Script script;
     auto services = valid_table(&script);
     services.is_cancelled = nullptr;
     EXPECT_FALSE(Services{&services}.is_cancelled());
+    EXPECT_EQ(g_cancelled_calls, before) << "a table without a cancellation callback must not reach the host";
 }
 
 TEST(SdkHostDefence, IsCancelled_ForwardsTheHostVerdict) {
     Script script;
     auto services = valid_table(&script);
     services.context = &script;  // non-null context reads as cancelled
+    const int before = g_cancelled_calls;
+
     EXPECT_TRUE(Services{&services}.is_cancelled());
+    EXPECT_EQ(g_cancelled_calls, before + 1) << "the verdict must come from the host callback, not from the driver";
 }
