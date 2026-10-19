@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <functional>
 #include <initializer_list>
+#include <memory>
 #include <new>
 #include <string>
 #include <system_error>
@@ -238,6 +239,70 @@ TEST(CoroSyscallFailure, Dispatch_CallbackRegistersDescriptors_PreservesRemainin
         }
         EXPECT_FALSE(callbacks.failed);
         EXPECT_EQ(callbacks.fired, callbacks.initial.size()) << "poll errno: " << error;
+    }
+}
+
+TEST(CoroSyscallFailure, Dispatch_UnregisteringAndDestroyingPeer_RevokesOnlyItsSnapshot) {
+    for (const int error : {0, ENOMEM}) {
+        SCOPED_TRACE(error);
+        coro::Loop loop;
+        auto [read_end, write_end] = Utils::make_pipe();
+        ASSERT_TRUE(read_end);
+        ASSERT_TRUE(write_end);
+        const char byte = 1;
+        ASSERT_EQ(::write(write_end.get(), &byte, 1), 1);
+
+        coro::Notification completed;
+
+        struct Callbacks {
+            coro::Loop& loop;
+            coro::Notification& completed;
+            coro::detail::FdEntry first{};
+            std::unique_ptr<coro::detail::FdEntry> victim = std::make_unique<coro::detail::FdEntry>();
+            coro::detail::FdEntry survivor{};
+            int first_calls = 0;
+            int peer_calls = 0;
+
+            static void remove_peer(void* context, short) noexcept {
+                auto& self = *static_cast<Callbacks*>(context);
+                ++self.first_calls;
+                coro::detail::LoopAccess::remove_fd(self.loop, self.first);
+                coro::detail::LoopAccess::remove_fd(self.loop, *self.victim);
+                self.victim.reset();
+                // Wake independently of the survivor: over-invalidating the
+                // snapshot must fail a count assertion rather than hang.
+                self.completed.notify();
+            }
+
+            static void fire_peer(void* context, short) noexcept {
+                auto& self = *static_cast<Callbacks*>(context);
+                ++self.peer_calls;
+                coro::detail::LoopAccess::remove_fd(self.loop, self.survivor);
+            }
+        } callbacks{loop, completed};
+
+        callbacks.first = {
+            .fd = read_end.get(), .events = POLLIN, .fn = &Callbacks::remove_peer, .context = &callbacks};
+        // Both peers deliberately share fd, callback and context. Revocation
+        // must identify the registration, not any of those borrowed values.
+        *callbacks.victim = {
+            .fd = read_end.get(), .events = POLLIN, .fn = &Callbacks::fire_peer, .context = &callbacks};
+        callbacks.survivor = {
+            .fd = read_end.get(), .events = POLLIN, .fn = &Callbacks::fire_peer, .context = &callbacks};
+        coro::detail::LoopAccess::add_fd(loop, callbacks.first);
+        coro::detail::LoopAccess::add_fd(loop, *callbacks.victim);
+        coro::detail::LoopAccess::add_fd(loop, callbacks.survivor);
+        persistent_poll_error = error;
+        coro::run(loop, [&completed]() -> coro::Task<void> { co_await completed.wait(); }());
+        persistent_poll_error = 0;
+        coro::detail::LoopAccess::remove_fd(loop, callbacks.first);
+        coro::detail::LoopAccess::remove_fd(loop, callbacks.survivor);
+        if (callbacks.victim != nullptr) {
+            coro::detail::LoopAccess::remove_fd(loop, *callbacks.victim);
+        }
+        EXPECT_EQ(callbacks.first_calls, 1);
+        EXPECT_EQ(callbacks.peer_calls, 1);
+        EXPECT_EQ(callbacks.victim, nullptr);
     }
 }
 

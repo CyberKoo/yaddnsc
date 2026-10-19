@@ -7,6 +7,14 @@ than repeat it. The plugin C ABI stability promise is defined in that same
 document. Release bodies on GitHub Releases are copied from the matching
 section here.
 
+## [1.0.0-rc.1] - Unreleased
+
+### Fixed
+
+- Parsing a URI during static initialization no longer risks an arithmetic
+  fault: the scheme default-port table is constant-initialized, so the lookup
+  is valid before any dynamic initializer runs regardless of link order.
+
 ## [1.0.0-alpha.7] - 2026-10-17
 
 This revision keeps the plugin C ABI at **1.0** (frozen at 1.0.0-alpha.5;

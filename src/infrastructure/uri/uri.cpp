@@ -1,6 +1,7 @@
 #include "infrastructure/uri/uri.h"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cstddef>
 #include <optional>
@@ -8,7 +9,6 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -20,22 +20,34 @@
 
 namespace {
 /// Known scheme-to-default-port mappings.
-const std::unordered_map<std::string_view, int> KNOWN_PORTS = {
-    {"http", 80},
-    {"https", 443},
-    {"tls", 853},
+///
+/// A constant-initialized array, not a namespace-scope std::unordered_map:
+/// a non-trivial namespace-scope object is initialized in link order, so any
+/// translation unit whose own static initialization calls Uri::parse() could
+/// reach this table before it was built and hash into an empty bucket array.
+/// The array is a constant expression, so it is live before any dynamic
+/// initializer runs, and three entries do not earn a hash table.
+struct KnownPort {
+    std::string_view scheme;
+    int port;
+};
+
+constexpr std::array KNOWN_PORTS = {
+    KnownPort{"http", 80},
+    KnownPort{"https", 443},
+    KnownPort{"tls", 853},
 };
 
 constexpr std::string_view DEFAULT_PATH = "/";
 
 [[nodiscard]] int lookup_default_port(std::string_view scheme) noexcept {
-    auto it = KNOWN_PORTS.find(scheme);
-    return it != KNOWN_PORTS.end() ? it->second : 0;
+    const auto it = std::ranges::find(KNOWN_PORTS, scheme, &KnownPort::scheme);
+    return it != KNOWN_PORTS.end() ? it->port : 0;
 }
 
 [[nodiscard]] bool is_default_port(std::string_view scheme, int port) noexcept {
-    auto it = KNOWN_PORTS.find(scheme);
-    return it != KNOWN_PORTS.end() && it->second == port;
+    const auto it = std::ranges::find(KNOWN_PORTS, scheme, &KnownPort::scheme);
+    return it != KNOWN_PORTS.end() && it->port == port;
 }
 
 [[nodiscard]] bool is_ascii_alpha(char c) noexcept {
