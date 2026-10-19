@@ -426,6 +426,17 @@ TEST(CliRunTest, Run_MultipleConfigErrors_AreAggregated) {
               std::string::npos);
 }
 
+// The main loop names its outcome; mapping it to a process status is the run
+// handler's job. A configuration the driver itself rejects must therefore fail
+// the run, so a supervisor does not restart into the same mistake.
+TEST(CliRunTest, Run_DriverParamRejectedByDriver_FailsTheRun) {
+    const auto iface = any_interface_name();
+    ASSERT_FALSE(iface.empty()) << "no network interfaces available";
+    TempConfigFile cfg(config_with_interface_source(iface, "{}"));
+
+    EXPECT_EQ(Composition::run(Cli::RunCommand{cfg.path()}), EXIT_FAILURE);
+}
+
 TEST(CliRunTest, Run_MalformedConfig_ReportsConfigError) {
     // A config that cannot even be parsed is an expected startup failure: the
     // run handler logs the parse diagnostic and returns EXIT_FAILURE instead

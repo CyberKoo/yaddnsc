@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <chrono>
 #include <compare>
+#include <coroutine>  // IWYU pragma: keep — coroutine lowering
+#include <expected>
 #include <map>
 #include <new>
 #include <ratio>
@@ -12,9 +14,6 @@
 #include <utility>
 #include <vector>
 
-#include <coroutine>  // IWYU pragma: keep — coroutine lowering
-
-#include <expected>
 #include <spdlog/spdlog.h>
 
 #include "domain/error/dns_error.h"
@@ -57,18 +56,10 @@ constexpr unsigned char ALPN_HTTP_1_1[] = {8, 'h', 't', 't', 'p', '/', '1', '.',
             return {domain::DnsError::CONNECTION, error.message};
     }
 }
-
-[[nodiscard]] std::string endpoint_target(const std::string& url) {
-    const auto parsed = Uri::parse(url);
-    if (!parsed || parsed->get_schema() != "https" || parsed->get_host().empty() || parsed->get_port() == 0) {
-        throw std::invalid_argument("DoH endpoint must be a valid HTTPS URL with a nonzero port");
-    }
-    return http::make_target(*parsed);
-}
 }  // namespace
 
-DohResolver::DohResolver(const std::string& url, http::Options options, Policy policy)
-    : target_(endpoint_target(url)), policy_(policy) {
+DohResolver::DohResolver(const Uri& endpoint, http::Options options, Policy policy)
+    : target_(http::make_target(endpoint)), policy_(policy) {
     options.tls.alpn_proto = ALPN_HTTP_1_1;
     // Local safety policy: only query the configured URI; reject all redirects.
     options.follow_redirects = false;
@@ -78,7 +69,7 @@ DohResolver::DohResolver(const std::string& url, http::Options options, Policy p
     }
     // Admission waits on our own mutex, before the backend attempt starts.
     options.queue_timeout = std::chrono::milliseconds::zero();
-    client_ = std::make_unique<http::PersistentClient>(url, std::move(options));
+    client_ = std::make_unique<http::PersistentClient>(endpoint.get_origin(), std::move(options));
 }
 
 DohResolver::~DohResolver() = default;

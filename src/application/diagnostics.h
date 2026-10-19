@@ -1,21 +1,17 @@
 #ifndef YADDNSC_APPLICATION_DIAGNOSTICS_H
 #define YADDNSC_APPLICATION_DIAGNOSTICS_H
 
+#include <expected>
 #include <optional>
 #include <string>
 #include <vector>
-#include <expected>
 
 #include "application/ports/driver_catalog.h"
-#include "domain/error/dns_error_info.h"
-#include "domain/network/inet_address.h"
 #include "coro/task.hpp"
 #include "coro/time.h"
+#include "domain/error/dns_error_info.h"
 #include "domain/error/error.h"
-
-namespace domain {
-struct RuntimeConfig;
-}  // namespace domain
+#include "domain/network/inet_address.h"
 
 /// Diagnostic command handlers — thin application functions over the ports.
 ///
@@ -25,7 +21,6 @@ struct RuntimeConfig;
 namespace app {
 
 class NetworkInterfacesPort;
-class GatewayPort;
 class ResolverPort;
 
 /// One row of `driver list`: the loaded name plus either its descriptor
@@ -73,63 +68,6 @@ struct DnsResolveOutcome {
 /// The resolver must outlive the task; call on the loop thread.
 [[nodiscard]] coro::Task<DnsResolveOutcome> dns_resolve_command(ResolverPort& resolver, std::string host,
                                                                 std::string type_text, coro::Duration budget);
-
-/// How a driver without the optional validation entry is treated.
-enum class ConfigValidationMode {
-    /// The entry is required — "cannot confirm" is not "valid". This is
-    /// `config test`, whose entire purpose is to answer whether the
-    /// configuration is good.
-    REQUIRE_VALIDATION,
-    /// The entry is optional: such a driver is named in `unchecked_drivers`
-    /// and skipped. This is `run`, so a plugin built against an older ABI
-    /// cannot stop a daemon that would otherwise work.
-    WARN_AND_CONTINUE,
-};
-
-/// Outcome of a configuration-validation sweep.
-struct ConfigValidationOutcome {
-    /// Drivers whose parameters were not checked, each listed once. Under
-    /// WARN_AND_CONTINUE these are warnings; under REQUIRE_VALIDATION the
-    /// sweep stops at the first one and puts it in `rejection`.
-    std::vector<std::string> unchecked_drivers;
-    /// Empty when the sweep passed; otherwise the driver/FQDN diagnostic that
-    /// failed it (an explicit rejection, an expired budget, or — under
-    /// REQUIRE_VALIDATION — a driver with no validation entry).
-    std::string rejection;
-};
-
-/// Check each subdomain's driver parameters through the gateway, stopping at
-/// the first rejection. Each record gets its own `budget`, so one slow plugin
-/// cannot consume the whole sweep; a record that runs out stops the sweep and
-/// is reported as a rejection. Records sharing an identical (driver,
-/// driver_params) pair are validated once — a duplicate reuses the first
-/// verdict instead of another plugin round-trip. Cancellation (an ancestor
-/// scope, including the shutdown the signal watchers request) aborts the sweep
-/// and propagates; a validation call already inside a plugin is synchronous
-/// and runs to completion. Defects propagate. The borrowed gateway/config must
-/// outlive this loop-thread task.
-[[nodiscard]] coro::Task<ConfigValidationOutcome> validate_driver_configs(GatewayPort& gateway,
-                                                                          const domain::RuntimeConfig& config,
-                                                                          ConfigValidationMode mode,
-                                                                          coro::Duration budget);
-
-/// Error of a `config test` run; `kind` selects the message prefix (wording is
-/// a compatibility contract).
-struct ConfigTestError {
-    enum class Kind {
-        VERIFICATION,  ///< "Configuration verification failed: ..."
-        FATAL,         ///< "Fatal error: unrecoverable exception: ..."
-        GENERIC,       ///< "Failed to validate configuration: ..."
-    };
-    Kind kind;
-    std::string message;
-};
-
-/// Outcome of a `config test` run: nullopt error means the test passed.
-struct ConfigTestOutcome {
-    bool quiet{false};  ///< -q/--quiet: no stdout on success
-    std::optional<ConfigTestError> error;
-};
 
 }  // namespace app
 

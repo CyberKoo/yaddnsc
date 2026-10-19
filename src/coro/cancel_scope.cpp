@@ -8,7 +8,6 @@
 #include <exception>
 
 #include "coro/cancelled.h"
-#include "coro/detail/access.h"
 #include "coro/detail/wait_operation.h"
 
 namespace coro {
@@ -93,32 +92,6 @@ void CancelScope::add_subscriber(detail::CancelSubscription& subscription) noexc
     subscriptions_.push_front(subscription.hook_);
 }
 
-void detail::SubscriptionAccess::subscribe(CancelScope& scope, detail::CancelSubscription& subscription, void* context,
-                                           detail::CancelAction (*on_cancel)(void*) noexcept) {
-    // Already cancelled: throw before the subscription exists, so a failed start
-    // leaves nothing armed and no event source running.
-    scope.throw_if_cancelled();
-    subscription.arm(scope, context, on_cancel);
-}
-
-void detail::CancelSubscription::arm(CancelScope& scope, void* context,
-                                     detail::CancelAction (*on_cancel)(void*) noexcept) noexcept {
-    const bool valid = !armed() && on_cancel != nullptr;
-    assert(valid && "invalid cancellation subscription arm");
-    if (!valid) {
-        std::terminate();
-    }
-    context_ = context;
-    on_cancel_ = on_cancel;
-    if (scope.cancelled()) {
-        // Already cancelled: notify once, inline, and stay unarmed. A pure
-        // observer depends on this to fire during construction.
-        on_cancel_(context);
-        return;
-    }
-    detail::ScopeAccess::add_subscriber(scope, *this);
-}
-
 void CancelScope::cancel(detail::CancelCause cause) noexcept {
     if (cancelled_) {
         return;
@@ -166,10 +139,6 @@ void CancelScope::wake_subscriptions() noexcept {
     while (detail::CancelSubscription* subscription = subscriptions_.pop_front()) {
         subscription->notify();
     }
-}
-
-void detail::ScopeAccess::timeout_action(void* context) noexcept {
-    static_cast<CancelScope*>(context)->cancel(detail::CancelCause::TIMEOUT);
 }
 
 void CancelScope::cancel() noexcept {

@@ -16,8 +16,8 @@
 // because each is an invariant of the node that owns the subscription.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_CANCEL_SCOPE_H
-#define YADDNSC_INFRASTRUCTURE_CORO_CANCEL_SCOPE_H
+#ifndef YADDNSC_CORO_CANCEL_SCOPE_H
+#define YADDNSC_CORO_CANCEL_SCOPE_H
 
 #include "coro/detail/intrusive_list.hpp"
 
@@ -115,4 +115,4 @@ private:
 
 }  // namespace coro
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_CANCEL_SCOPE_H
+#endif  // YADDNSC_CORO_CANCEL_SCOPE_H

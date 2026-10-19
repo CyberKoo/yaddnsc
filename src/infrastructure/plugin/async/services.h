@@ -14,7 +14,7 @@
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "infrastructure/http/types.h"
-#include "infrastructure/plugin/bridge.h"
+#include "infrastructure/plugin/detail/cycle.h"
 
 namespace app {
 class LoggerPort;
@@ -62,7 +62,9 @@ public:
     [[nodiscard]] const yaddnsc_async_services& services() const noexcept { return services_; }
 
     void set_phase(Phase phase) noexcept { phase_ = phase; }
+
     void set_commands(AsyncStepCommands* commands) noexcept { commands_ = commands; }
+
     void clear_commands() noexcept { commands_ = nullptr; }
 
     /// Loop-only, between steps: the op has been delivered or discarded.

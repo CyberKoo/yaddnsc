@@ -28,9 +28,10 @@ private:
     /// Shared schema and semantic validation for validate/update.
     [[nodiscard]] static GoDaddyParams parse_params(std::string_view json);
 
-    /// Validate the GoDaddy API response.
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
-                                             const yaddnsc::sdk::AsyncServices& services);
+    /// Validate the GoDaddy API response. A rejected response names the HTTP
+    /// status the provider answered with.
+    [[nodiscard]] static yaddnsc::sdk::Result check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                                             const yaddnsc::sdk::AsyncServices& services);
 };
 
 #endif  // YADDNSC_DRV_GODADDY_GODADDY_H

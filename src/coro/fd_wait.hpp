@@ -23,8 +23,8 @@
 // error instead: the await throws std::invalid_argument.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_FD_WAIT_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_FD_WAIT_HPP
+#ifndef YADDNSC_CORO_FD_WAIT_HPP
+#define YADDNSC_CORO_FD_WAIT_HPP
 
 #include "coro/detail/fd_awaitable.h"  // IWYU pragma: export
 
@@ -48,4 +48,4 @@ namespace coro {
 
 }  // namespace coro
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_FD_WAIT_HPP
+#endif  // YADDNSC_CORO_FD_WAIT_HPP

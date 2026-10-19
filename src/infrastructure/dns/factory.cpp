@@ -1,39 +1,26 @@
-//
-// dns — build a coroutine dispatcher from resolver settings (implementation).
-//
-
 #include "factory.h"
 
-#include <cstdint>
 #include <memory>
-#include <optional>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <utility>
 #include <vector>
 
-#include <expected>
 #include <spdlog/spdlog.h>
 
-#include "domain/config/dns_config.h"
 #include "domain/config/runtime_config.h"
-#include "domain/network/inet_address.h"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
+#include "infrastructure/dns/endpoint.h"
 #include "infrastructure/dns/resolver/classic.h"
 #include "infrastructure/dns/resolver/doh.h"
 #include "infrastructure/dns/resolver/dot.h"
 #include "infrastructure/dns/resolver/resolver.h"
 #include "infrastructure/http/types.h"
-#include "infrastructure/uri/uri.h"
-#include "support/fmt.hpp"
 #include "support/redact.hpp"
-#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 #include "version.h"
 
 namespace dns {
-
 namespace {
 
 [[nodiscard]] Strategy to_strategy(domain::ResolverStrategy strategy) noexcept {
@@ -48,65 +35,30 @@ namespace {
     return Strategy::CONCURRENT;
 }
 
-[[nodiscard]] std::unique_ptr<Resolver> make_backend(const domain::DnsServer& server,
+[[nodiscard]] std::unique_ptr<Resolver> make_backend(const ResolverEndpoint& endpoint,
                                                      const std::vector<domain::DnsServer>& bootstrap,
                                                      std::shared_ptr<const net::TlsContext> tls_context,
                                                      Policy policy) {
-    const auto uri = Uri::parse(server.address);
-    if (!uri.has_value()) {
-        throw std::invalid_argument(fmt::format(R"(Malformed resolver address "{}")", server.address));
-    }
-
-    const std::string schema{uri->get_schema()};
-    if (schema.empty()) {
-        if (uri->get_port() != 0 || !uri->get_path().empty() || uri->has_query() ||
-            server.address.find('#') != std::string::npos) {
-            throw std::invalid_argument("Classic DNS address must be a bare IP literal; set port on the server entry");
+    switch (endpoint.kind) {
+        case ResolverEndpoint::Kind::CLASSIC:
+            return std::make_unique<ClassicResolver>(*endpoint.literal, endpoint.port, policy);
+        case ResolverEndpoint::Kind::DOT: {
+            EndpointOptions options;
+            options.policy = policy;
+            options.bootstrap_dns = bootstrap;
+            options.tls_context = std::move(tls_context);
+            return std::make_unique<DotResolver>(std::string(endpoint.uri.get_host()), endpoint.port,
+                                                 std::move(options));
         }
-        // The bare authority host, never get_host_literal(): that accessor
-        // brackets IPv6 for URL building, so "[2606:4700:4700::1111]" would
-        // reach inet_pton with its brackets and be rejected as a non-literal.
-        const auto address = domain::InetAddress::parse(uri->get_host());
-        if (!address.has_value()) {
-            throw std::invalid_argument(
-                fmt::format(R"(Classic resolver address "{}" is not an IP literal)", server.address));
+        case ResolverEndpoint::Kind::DOH: {
+            http::Options options;
+            options.user_agent = YADDNSC::get_full_version();
+            options.resolve = make_bootstrap_resolver(bootstrap, policy);
+            options.tls_context = std::move(tls_context);
+            return std::make_unique<DohResolver>(endpoint.uri, std::move(options), policy);
         }
-        return std::make_unique<ClassicResolver>(*address, server.port, policy);
     }
-    if (schema == "tls") {
-        // A DoT endpoint is an authority and nothing else. The "tls" schema
-        // came from this very "://", so the offset is in range; scanning from
-        // 0 otherwise keeps the start defined instead of wrapping npos.
-        const auto scheme_end = server.address.find("://");
-        const auto authority_start = scheme_end == std::string::npos ? 0 : scheme_end + 3;
-        if (server.address.find_first_of("/?#", authority_start) != std::string::npos) {
-            throw std::invalid_argument("DoT endpoint must not contain a path, query or fragment");
-        }
-        // The scheme's well-known port (Uri::parse) is the only default left.
-        // A zero here means the address never carried one and the map has no
-        // "tls" entry, so name that cause instead of letting DotResolver
-        // report a bare "nonzero port" complaint.
-        const auto port = static_cast<std::uint16_t>(uri->get_port());
-        if (port == 0) {
-            throw std::invalid_argument(
-                fmt::format(R"(DoT resolver address "{}" did not resolve to a port; write it as "tls://host:port")",
-                            server.address));
-        }
-        EndpointOptions options;
-        options.policy = policy;
-        options.bootstrap_dns = bootstrap;
-        options.tls_context = std::move(tls_context);
-        return std::make_unique<DotResolver>(std::string(uri->get_host()), port, std::move(options));
-    }
-    if (schema == "https") {
-        http::Options options;
-        options.user_agent = YADDNSC::get_full_version();
-        options.resolve = make_bootstrap_resolver(bootstrap, policy);
-        options.tls_context = std::move(tls_context);
-        return std::make_unique<DohResolver>(server.address, std::move(options), policy);
-    }
-    throw std::invalid_argument(
-        fmt::format(R"(No coroutine resolver backend for schema "{}" (server: {}))", schema, server.address));
+    std::unreachable();
 }
 
 }  // namespace
@@ -117,30 +69,23 @@ std::unique_ptr<Dispatcher> make_dispatcher(const domain::ResolverSettings& sett
     if (settings.servers.empty()) {
         throw std::invalid_argument("ResolverSettings.servers must not be empty");
     }
-
-    const auto backend_type = [](std::string_view schema) -> std::string_view {
-        if (schema == "tls") {
-            return "DoT";
-        }
-        if (schema == "https") {
-            return "DoH";
-        }
-        return "classic";
-    };
-
     std::vector<std::unique_ptr<Resolver>> backends;
     backends.reserve(settings.servers.size());
     for (const auto& server : settings.servers) {
-        backends.push_back(make_backend(server, bootstrap, tls_context, policy));
-        // make_backend() already validated the address, so this cannot fail.
-        const auto uri = Uri::parse(server.address).value();
+        auto endpoint = parse_resolver_endpoint(server);
+        if (!endpoint) {
+            throw std::invalid_argument(endpoint.error().front());
+        }
+        backends.push_back(make_backend(*endpoint, bootstrap, tls_context, policy));
+        const auto& uri = endpoint->uri;
+        const auto type = endpoint->kind == ResolverEndpoint::Kind::CLASSIC ? "classic"
+                          : endpoint->kind == ResolverEndpoint::Kind::DOT   ? "DoT"
+                                                                            : "DoH";
         SPDLOG_INFO("DNS resolver #{}: \"{}\" ({})", backends.size(),
                     Utils::redacted_uri_credentials(uri.get_schema().empty() ? std::string(uri.get_host_literal())
                                                                              : uri.get_origin()),
-                    backend_type(uri.get_schema()));
+                    type);
     }
-
-    // Log configured custom resolver count and strategy — once at startup.
     if (settings.servers.size() > 1) {
         const auto strategy_name = [](domain::ResolverStrategy strategy) {
             switch (strategy) {
@@ -156,7 +101,6 @@ std::unique_ptr<Dispatcher> make_dispatcher(const domain::ResolverSettings& sett
         SPDLOG_INFO("Configured {} custom resolver(s) in {} mode", settings.servers.size(),
                     strategy_name(settings.strategy));
     }
-
     return std::make_unique<Dispatcher>(std::move(backends), to_strategy(settings.strategy), policy);
 }
 

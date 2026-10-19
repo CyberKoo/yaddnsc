@@ -7,8 +7,8 @@
 // and never penetrates the task API.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_RUN_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_RUN_HPP
+#ifndef YADDNSC_CORO_RUN_HPP
+#define YADDNSC_CORO_RUN_HPP
 
 #include <cassert>
 #include <exception>
@@ -99,4 +99,4 @@ template<typename T>
 
 }  // namespace coro
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_RUN_HPP
+#endif  // YADDNSC_CORO_RUN_HPP

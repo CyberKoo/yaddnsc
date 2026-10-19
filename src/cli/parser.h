@@ -14,11 +14,12 @@ struct ParseResult {
     int exit_code{EXIT_SUCCESS};     ///< exit code to use when command is nullopt
 };
 
-/// Parse argv into a Command. Pure parsing: callbacks only fill the
-/// command variant — no configuration loading, no plugin loading, no
-/// DNS or interface queries, no global log-level changes, and no business
-/// output. --help/--version and parse errors print through CLI11 and
-/// return a null command with the corresponding exit code.
+/// Parse argv into a Command. Callbacks only fill the command variant — no
+/// configuration loading, no plugin loading, no DNS or interface queries and
+/// no global log-level changes happen here. --help/--version and parse errors
+/// print through CLI11; every other rejection — including the no-subcommand
+/// fallback — is presented through Cli::present_error, so the wording and the
+/// exit code stay the presenter's single source.
 [[nodiscard]] ParseResult parse(int argc, char* argv[]);
 
 }  // namespace Cli

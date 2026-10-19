@@ -4,11 +4,13 @@
 
 #include "wire_request.h"
 
+#include <algorithm>
+#include <charconv>
+#include <expected>
 #include <map>
 #include <optional>
 #include <string>
-
-#include <expected>
+#include <system_error>
 
 #include "infrastructure/http/protocol/field_chars.hpp"
 #include "infrastructure/uri/uri.h"
@@ -26,6 +28,22 @@ namespace {
            StringUtil::iequals(name, "content-type") || StringUtil::iequals(name, "connection") ||
            StringUtil::iequals(name, "user-agent") || StringUtil::iequals(name, "transfer-encoding") ||
            StringUtil::iequals(name, "trailer") || StringUtil::iequals(name, "upgrade");
+}
+
+/// RFC 9112 §3.2: the target is origin-form ("/..."), or "*" for a server-wide
+/// request. Anything else would be a different request form than this client
+/// ever sends.
+[[nodiscard]] bool is_request_target(const std::string_view target) noexcept {
+    if (target == "*") {
+        return true;
+    }
+    if (target.empty() || target.front() != '/') {
+        return false;
+    }
+    return std::ranges::none_of(target, [](const char character) {
+        const auto value = static_cast<unsigned char>(character);
+        return value <= 0x20 || value == 0x7f;
+    });
 }
 
 }  // namespace
@@ -74,6 +92,56 @@ std::expected<void, Error> validate_request(const Request& request) {
     return {};
 }
 
+std::expected<void, Error> validate_wire_request(const protocol::WireRequest& wire) {
+    if (!is_request_target(wire.target)) {
+        return std::unexpected(Error{ErrorCode::INVALID_REQUEST, "invalid HTTP request target"});
+    }
+
+    std::size_t hosts = 0;
+    std::size_t connections = 0;
+    std::optional<std::size_t> content_length;
+    for (const auto& [name, value] : wire.headers) {
+        if (!protocol::is_token(name) || !protocol::is_field_value(value) ||
+            (StringUtil::iequals(name, "connection") && !protocol::valid_token_list(value))) {
+            return std::unexpected(Error{ErrorCode::INVALID_REQUEST, "invalid HTTP request header"});
+        }
+        if (StringUtil::iequals(name, "upgrade") ||
+            (StringUtil::iequals(name, "connection") && protocol::has_token(value, "upgrade"))) {
+            return std::unexpected(Error{ErrorCode::UNSUPPORTED_PROTOCOL, "HTTP protocol upgrade is not supported"});
+        }
+        if (StringUtil::iequals(name, "transfer-encoding") || StringUtil::iequals(name, "trailer")) {
+            return std::unexpected(
+                Error{ErrorCode::INVALID_REQUEST, "request transfer coding and trailers are not supported"});
+        }
+        if (StringUtil::iequals(name, "host")) {
+            ++hosts;
+        }
+        if (StringUtil::iequals(name, "connection")) {
+            ++connections;
+        }
+        if (StringUtil::iequals(name, "content-length")) {
+            if (content_length) {
+                return std::unexpected(
+                    Error{ErrorCode::INVALID_REQUEST, "conflicting HTTP framing or routing headers"});
+            }
+            std::size_t parsed{};
+            const auto [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), parsed);
+            if (value.empty() || ec != std::errc{} || ptr != value.data() + value.size()) {
+                return std::unexpected(Error{ErrorCode::INVALID_REQUEST, "invalid HTTP Content-Length"});
+            }
+            content_length = parsed;
+        }
+    }
+    if (hosts > 1 || connections > 1 || (content_length && *content_length != (wire.body ? wire.body->size() : 0))) {
+        return std::unexpected(Error{ErrorCode::INVALID_REQUEST, "conflicting HTTP framing or routing headers"});
+    }
+    return {};
+}
+
+bool closes_connection(const Options& options) noexcept {
+    return !options.keep_alive;
+}
+
 protocol::WireRequest build_wire_request(const Request& request, const std::string_view scheme,
                                          const std::string_view host, const std::uint16_t port,
                                          const Options& options) {
@@ -92,8 +160,8 @@ protocol::WireRequest build_wire_request(const Request& request, const std::stri
 
     wire.headers.emplace("Host", make_host_header(scheme, host, port));
     if (options.version == HttpVersion::V1_0) {
-        wire.headers.emplace("Connection", options.keep_alive ? "keep-alive" : "close");
-    } else if (!options.keep_alive) {
+        wire.headers.emplace("Connection", closes_connection(options) ? "close" : "keep-alive");
+    } else if (closes_connection(options)) {
         wire.headers.emplace("Connection", "close");
     }
     if (!options.user_agent.empty()) {
@@ -108,57 +176,10 @@ protocol::WireRequest build_wire_request(const Request& request, const std::stri
     return wire;
 }
 
-Request to_public_request(const protocol::WireRequest& wire) {
-    Request request{.method = wire.method};
-    request.body = wire.body;
-    for (const auto& [name, value] : wire.headers) {
-        if (!is_managed_header(name)) {
-            request.headers.emplace(name, value);
-            continue;
-        }
-        if (StringUtil::iequals(name, "content-type")) {
-            request.content_type = value;
-        }
-    }
-    return request;
-}
-
-Error connection_error(const std::string_view stage) {
-    return {ErrorCode::CONNECTION_LOST, fmt::format("{}: connection lost", stage)};
-}
-
-Error connect_error(const std::string_view host) {
-    // TCP refusal and TLS handshake failure are not distinguished (the stream
-    // reports one CONNECTION_FAILED for both).
-    return {ErrorCode::CONNECT_FAILED, fmt::format(R"(Cannot connect to "{}")", host)};
-}
-
-std::string failure_reason(const std::string_view role, const Error& error) {
-    switch (error.code) {
-        case ErrorCode::RESOLVE_FAILED:
-            return fmt::format("cannot resolve the {}", role);
-        case ErrorCode::QUEUE_TIMEOUT:
-            return fmt::format("the local session for the {} remained busy", role);
-        case ErrorCode::CONNECT_FAILED:
-            return fmt::format("cannot connect to the {}", role);
-        case ErrorCode::TLS_HANDSHAKE_FAILED:
-            return fmt::format("TLS handshake with the {} failed", role);
-        case ErrorCode::CONNECTION_LOST:
-            return fmt::format("the connection to the {} was lost", role);
-        case ErrorCode::RESPONSE_PARSE_FAILED:
-            return fmt::format("the {} returned an invalid response", role);
-        case ErrorCode::HEADERS_TOO_LARGE:
-        case ErrorCode::BODY_TOO_LARGE:
-            return fmt::format("the {} returned an oversized response", role);
-        case ErrorCode::REDIRECT_LIMIT_EXCEEDED:
-            return fmt::format("the {} redirected too many times", role);
-        case ErrorCode::INVALID_URL:
-            return "the configured URL is invalid";
-        case ErrorCode::INVALID_REQUEST:
-        case ErrorCode::UNSUPPORTED_PROTOCOL:
-            return "the request is invalid or unsupported";
-    }
-    return fmt::format("the request to the {} failed", role);
+std::string make_absolute_url(const std::string_view scheme, const std::string_view host, const std::uint16_t port,
+                              const std::string_view target) {
+    const bool ipv6 = host.find(':') != std::string_view::npos;
+    return fmt::format("{}://{}{}{}:{}{}", scheme, ipv6 ? "[" : "", host, ipv6 ? "]" : "", port, target);
 }
 
 }  // namespace http

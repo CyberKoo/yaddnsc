@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace http {
 
@@ -37,6 +38,21 @@ struct Error {
     /// Rate-limit hint carried through to the plugin ABI (0 = no hint).
     uint32_t retry_after_seconds{0};
 };
+
+/// Construct an I/O failure naming the operation stage.
+[[nodiscard]] Error connection_error(std::string_view stage);
+
+/// Construct a connect failure naming the host (TCP and TLS share this stage).
+[[nodiscard]] Error connect_error(std::string_view host);
+
+/// Short lowercase diagnostic reason naming a server by role rather than host.
+[[nodiscard]] std::string failure_reason(std::string_view role, const Error& error);
+
+/// A request URL or target with its query string removed.
+///
+/// A query string carries provider credentials (API keys, access tokens), so
+/// diagnostics and log lines name the server by its path alone.
+[[nodiscard]] std::string redacted_url(std::string_view url);
 
 }  // namespace http
 

@@ -1,30 +1,32 @@
 #include "presenter.h"
 
-#include <magic_enum/magic_enum.hpp>
-#include <yaddnsc/util/format.hpp>
 #include <array>
 #include <cstdlib>
+#include <expected>
 #include <iostream>
 #include <optional>
+#include <print>
 #include <ranges>
 #include <string_view>
-#include <expected>
-#include <print>
+
+#include <magic_enum/magic_enum.hpp>
+#include <yaddnsc/util/format.hpp>
 
 #include "application/diagnostics.h"
+#include "application/ports/driver_catalog.h"
 #include "domain/config/dns_config.h"
 #include "domain/dns/record_kind.h"  // IWYU pragma: keep — magic_enum::enum_names needs the definition
 #include "domain/error/dns_error_info.h"
+#include "domain/error/error.h"
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
+
 #include "build_id.hpp"
 #include "min_update_interval.h"
 #include "resolver_config.h"
 #include "version.h"
-#include "application/ports/driver_catalog.h"
-#include "domain/error/error.h"
 
 namespace {
 std::string driver_description_error(std::string_view name, const domain::DriverError& error) {
@@ -180,7 +182,7 @@ int Cli::present_config_show(const std::string_view json) {
     return EXIT_SUCCESS;
 }
 
-int Cli::present_config_test(const app::ConfigTestOutcome& outcome) {
+int Cli::present_config_test(const ConfigTestOutcome& outcome) {
     if (!outcome.error.has_value()) {
         if (!outcome.quiet) {
             std::println("Configuration file test passed");
@@ -190,7 +192,7 @@ int Cli::present_config_test(const app::ConfigTestOutcome& outcome) {
 
     const auto& error = *outcome.error;
     switch (error.kind) {
-        case app::ConfigTestError::Kind::VERIFICATION:
+        case ConfigTestError::Kind::VERIFICATION:
             // The message may carry several collected errors, one per line;
             // repeat the prefix so every line reads as a complete statement.
             for (std::string_view rest = error.message; !rest.empty();) {
@@ -200,10 +202,10 @@ int Cli::present_config_test(const app::ConfigTestOutcome& outcome) {
                 rest = newline == std::string_view::npos ? std::string_view{} : rest.substr(newline + 1);
             }
             break;
-        case app::ConfigTestError::Kind::FATAL:
+        case ConfigTestError::Kind::FATAL:
             std::println(std::cerr, "Fatal error: unrecoverable exception: {}", error.message);
             break;
-        case app::ConfigTestError::Kind::GENERIC:
+        case ConfigTestError::Kind::GENERIC:
             std::println(std::cerr, "Failed to validate configuration: {}", error.message);
             break;
     }

@@ -9,7 +9,7 @@
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
-#include "support/util/fd.hpp"
+#include "coro/detail/pipe.h"
 
 namespace {
 
@@ -51,7 +51,7 @@ TEST(Loop, LiveLoopsKeepInboxAndWakeStateIndependent) {
 TEST(FdWait, ClosedNonnegativeDescriptor_IsRejectedInBothDirections) {
     for (const bool writable : {false, true}) {
         coro::Loop loop;
-        auto [read_end, write_end] = Utils::make_pipe();
+        auto [read_end, write_end] = coro::detail::make_pipe();
         ASSERT_TRUE(read_end);
         ASSERT_TRUE(write_end);
         const int fd = read_end.get();
@@ -67,7 +67,7 @@ TEST(FdWait, ClosedNonnegativeDescriptor_IsRejectedInBothDirections) {
 
 TEST(FdWait, Hangup_RemainsReadinessRatherThanAnInvalidDescriptor) {
     coro::Loop loop;
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
     ASSERT_TRUE(read_end);
     ASSERT_TRUE(write_end);
     write_end.reset();

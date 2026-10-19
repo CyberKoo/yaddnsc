@@ -2,15 +2,13 @@
 #define YADDNSC_CLI_PRESENTER_H
 
 #include <exception>
+#include <expected>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include <expected>
-
 namespace app {
-struct ConfigTestOutcome;
 struct DnsResolveOutcome;
 struct DriverListItem;
 struct InterfaceListItem;
@@ -24,10 +22,23 @@ struct DnsServer;
 }  // namespace domain
 
 /// CLI presenter — maps command result objects to stdout/stderr text and
-/// exit codes. All user-visible wording lives here (single place), including
-/// the `config show` sensitive-field redaction rule. Nothing in this file
-/// performs business I/O.
+/// exit codes. Config adapters provide already-redacted JSON; presentation
+/// owns output wording and quiet behavior, not secret classification.
+/// Nothing in this file performs business I/O.
 namespace Cli {
+
+/// Presentation category selecting a compatibility-stable config-test prefix.
+struct ConfigTestError {
+    enum class Kind { VERIFICATION, FATAL, GENERIC };
+    Kind kind;
+    std::string message;
+};
+
+/// CLI-only outcome; quiet suppresses success output, not failure diagnostics.
+struct ConfigTestOutcome {
+    bool quiet{false};
+    std::optional<ConfigTestError> error;
+};
 
 /// `driver list` — summary of every loaded driver.
 [[nodiscard]] int present_driver_list(const std::vector<app::DriverListItem>& items);
@@ -56,7 +67,7 @@ namespace Cli {
 [[nodiscard]] int present_config_show(std::string_view json);
 
 /// `config test` — validation outcome.
-[[nodiscard]] int present_config_test(const app::ConfigTestOutcome& outcome);
+[[nodiscard]] int present_config_test(const ConfigTestOutcome& outcome);
 
 /// `info` — build configuration block.
 [[nodiscard]] int present_info();

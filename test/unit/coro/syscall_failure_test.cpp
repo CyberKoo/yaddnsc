@@ -19,8 +19,8 @@
 #include "coro/coro.h"
 #include "coro/detail/access.h"
 #include "coro/detail/fd_entry.h"
+#include "coro/detail/pipe.h"
 #include "mocks/allocation_fault.h"
-#include "support/util/fd.hpp"
 
 namespace {
 int next_write_error = 0;
@@ -127,7 +127,7 @@ TEST(CoroSyscallFailure, InterruptedPoll_ReprocessesLoopAndEventuallyResumesWait
 
 TEST(CoroSyscallFailure, TransientPollFailure_IsAbsorbedAndWaitStillCompletes) {
     coro::Loop loop;
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
     ASSERT_TRUE(read_end);
     ASSERT_TRUE(write_end);
     const char byte = 1;
@@ -145,7 +145,7 @@ TEST(CoroSyscallFailure, TransientPollFailure_IsAbsorbedAndWaitStillCompletes) {
 
 TEST(CoroSyscallFailure, SustainedPollFailure_FailsWaitWithErrnoAndLoopSurvives) {
     coro::Loop loop;
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
     ASSERT_TRUE(read_end);
     ASSERT_TRUE(write_end);  // nothing written: only the shed failure can resolve the wait
     std::error_code observed;
@@ -162,7 +162,7 @@ TEST(CoroSyscallFailure, SustainedPollFailure_FailsWaitWithErrnoAndLoopSurvives)
 
 TEST(CoroSyscallFailure, SustainedPollFailure_AllocationUnavailable_FailsWaitWithoutAllocating) {
     coro::Loop loop;
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
     ASSERT_TRUE(read_end);
     ASSERT_TRUE(write_end);
     std::error_code observed;
@@ -183,13 +183,14 @@ TEST(CoroSyscallFailure, SustainedPollFailure_AllocationUnavailable_FailsWaitWit
 TEST(CoroSyscallFailure, Dispatch_CallbackRegistersDescriptors_PreservesRemainingSnapshot) {
     for (const int error : {0, ENOMEM}) {
         coro::Loop loop;
-        auto [read_end, write_end] = Utils::make_pipe();
+        auto [read_end, write_end] = coro::detail::make_pipe();
         ASSERT_TRUE(read_end);
         ASSERT_TRUE(write_end);
         const char byte = 1;
         ASSERT_EQ(::write(write_end.get(), &byte, 1), 1);
 
         coro::Notification completed;
+
         struct Callbacks {
             coro::Loop& loop;
             coro::Notification& completed;
@@ -256,7 +257,7 @@ TEST(CoroSyscallFailure, Dispatch_UnregisteringAndDestroyingPeer_RevokesOnlyItsS
     for (const int error : {0, ENOMEM}) {
         SCOPED_TRACE(error);
         coro::Loop loop;
-        auto [read_end, write_end] = Utils::make_pipe();
+        auto [read_end, write_end] = coro::detail::make_pipe();
         ASSERT_TRUE(read_end);
         ASSERT_TRUE(write_end);
         const char byte = 1;

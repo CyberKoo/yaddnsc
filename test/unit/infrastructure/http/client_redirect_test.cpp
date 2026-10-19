@@ -3,7 +3,8 @@
 // (src/infrastructure/http/client.cpp and transport.cpp).
 //
 // Covers: the redirect loop of Client (a hop opens a new connection and
-// rebuilds the request), the URL validation guards, and the per-candidate
+// rebuilds the request), the lost-connection recovery a transient hop inherits
+// from the session pipeline, the URL validation guards, and the per-candidate
 // connect policy of connect_stream — the unbounded attempt when no connect
 // budget is configured, a failure inside the budget, and the walk over several
 // candidate addresses.
@@ -21,6 +22,7 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <expected>
 #include <map>
 #include <memory>
 #include <optional>
@@ -30,7 +32,6 @@
 #include <utility>
 #include <vector>
 
-#include <expected>
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
@@ -379,6 +380,57 @@ TEST(HttpClientRedirect, disabledFollowing_LeavesTheRedirectResponse) {
     ASSERT_TRUE(response.has_value());
     EXPECT_EQ(response->status_, 302);
     EXPECT_EQ(response->text(), "body");
+    EXPECT_EQ(factory->tcp_calls, 1);
+}
+
+// ---------------------------------------------------------------------------
+// the transient hop runs the session pipeline
+// ---------------------------------------------------------------------------
+
+TEST(HttpClientHop, lostFirstHop_IsReplayedOnARebuiltConnection) {
+    // A transient hop runs on a one-shot session, so a connection lost before
+    // the peer answered is recovered from for an idempotent request exactly as
+    // a persistent hop would be.
+    auto factory =
+        factory_for({Behaviour::response(""), Behaviour::response("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")});
+    const Options options = options_for(factory);
+
+    const auto response = exchange(options, "http://203.0.113.10:8080/start");
+
+    ASSERT_TRUE(response.has_value());
+    EXPECT_EQ(response->status_, 200);
+    EXPECT_EQ(response->text(), "ok");
+    EXPECT_EQ(factory->tcp_calls, 2);
+}
+
+TEST(HttpClientHop, lostSecondHop_IsReplayedToo) {
+    // The redirect budget is unchanged; the follow-up hop keeps its own
+    // connection and its own recovery.
+    auto factory =
+        factory_for({Behaviour::response("HTTP/1.1 302 Found\r\nLocation: /moved\r\nContent-Length: 0\r\n\r\n"),
+                     Behaviour::response(""), Behaviour::response("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")});
+    const Options options = options_for(factory);
+
+    const auto response = exchange(options, "http://203.0.113.10:8080/start");
+
+    ASSERT_TRUE(response.has_value());
+    EXPECT_EQ(response->status_, 200);
+    EXPECT_EQ(factory->tcp_calls, 3);
+    EXPECT_TRUE(factory->sent_on(2).starts_with("GET /moved HTTP/1.1\r\n"));
+}
+
+TEST(HttpClientHop, nonIdempotentHop_IsNotReplayed) {
+    // The replay rule is unchanged for a body-carrying request: a POST that may
+    // have reached the server is not repeated.
+    auto factory = factory_for({Behaviour::response("")});
+    const Options options = options_for(factory);
+    Request request;
+    request.method = http::Method::POST;
+
+    const auto response = exchange(options, "http://203.0.113.10:8080/start", request);
+
+    ASSERT_FALSE(response.has_value());
+    EXPECT_EQ(response.error().code, ErrorCode::CONNECTION_LOST);
     EXPECT_EQ(factory->tcp_calls, 1);
 }
 

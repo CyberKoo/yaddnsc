@@ -32,9 +32,10 @@ private:
     /// Build the JSON request body for a Porkbun DNS record update.
     static std::string generate_body(const PorkbunParams& cfg, const yaddnsc::sdk::UpdateRequest& request);
 
-    /// Validate the Porkbun API response.
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
-                                             const yaddnsc::sdk::AsyncServices& services);
+    /// Validate the Porkbun API response. A rejected response reports the
+    /// provider's own error detail.
+    [[nodiscard]] static yaddnsc::sdk::Result check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                                             const yaddnsc::sdk::AsyncServices& services);
 };
 
 #endif  // YADDNSC_DRV_PORKBUN_PORKBUN_H

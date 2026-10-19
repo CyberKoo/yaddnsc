@@ -4,30 +4,27 @@
 
 #include "stream.h"
 
-#include <arpa/inet.h>
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <openssl/ssl.h>
-#include <spdlog/spdlog.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <openssl/x509.h>
-#include <array>
 #include <csignal>
 #include <expected>
 #include <limits>
+#include <optional>
+#include <span>
 #include <string>
 #include <system_error>
 #include <utility>
-#include <optional>
-#include <span>
 
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
+#include <spdlog/spdlog.h>
+#include <sys/socket.h>
+
+#include "coro/cancelled.h"
 #include "coro/checkpoint.hpp"
 #include "coro/fd_wait.hpp"
 #include "infrastructure/logging/level_enabled.h"
-#include "infrastructure/network/tls/openssl_error.hpp"
 #include "infrastructure/network/tls/context.h"
-#include "domain/network/address_family.h"
-#include "coro/cancelled.h"
+#include "infrastructure/network/tls/openssl_error.hpp"
 
 namespace net {
 namespace {
@@ -38,18 +35,64 @@ namespace {
     return size > LIMIT ? std::numeric_limits<int>::max() : static_cast<int>(size);
 }
 
-/// The textual form of an address, without any IPv6 scope id.
-[[nodiscard]] std::string ip_literal(const domain::InetAddress& address) {
-    std::array<char, INET6_ADDRSTRLEN> buffer{};
-    const int family = address.get_family() == domain::AddressFamily::IPV6 ? AF_INET6 : AF_INET;
-    if (::inet_ntop(family, address.get_address().data(), buffer.data(), buffer.size()) == nullptr) {
+/// How this connection identifies its peer.
+///
+/// RFC 6066 §3 forbids an IP literal in SNI, so a literal is a verification
+/// identity only, while a configured name is both. When no name is configured
+/// the dialed address is the identity, and in this stage that address is always
+/// an IP literal.
+struct VerificationIdentity {
+    std::string name;  ///< the text OpenSSL receives: a hostname or an address literal
+    bool is_literal{false};
+};
+
+/// Pick the peer's verification identity once: a pinned name is parsed a single
+/// time, and an unpinned connection falls back to its own target address.
+[[nodiscard]] VerificationIdentity verification_identity(const TlsOptions& options, const domain::InetAddress& target) {
+    if (options.sni_hostname.has_value() && !options.sni_hostname->empty()) {
+        if (const auto literal = domain::InetAddress::parse(*options.sni_hostname)) {
+            return {.name = literal->to_string(), .is_literal = true};
+        }
+        return {.name = *options.sni_hostname, .is_literal = false};
+    }
+    return {.name = target.to_string(), .is_literal = true};
+}
+
+/// Send the SNI extension and pin the certificate identity. RFC 6066 §3: an IP
+/// literal never reaches SSL_set_tlsext_host_name().
+[[nodiscard]] std::expected<void, IoError> apply_verification_identity(SSL* ssl, X509_VERIFY_PARAM* params,
+                                                                       const VerificationIdentity& identity) {
+    if (!identity.is_literal) {
+        if (SSL_set_tlsext_host_name(ssl, identity.name.c_str()) != 1) {
+            SPDLOG_ERROR(R"(Failed to set SNI "{}": {})", identity.name, detail::ssl_errors());
+            return std::unexpected(IoError::TLS_HANDSHAKE_FAILED);
+        }
+        // OpenSSL 4 deprecates SSL_set1_host. A zero length means the name is
+        // NUL-terminated.
+        if (X509_VERIFY_PARAM_set1_host(params, identity.name.c_str(), 0) != 1) {
+            SPDLOG_ERROR(R"(Failed to set hostname verification for "{}": {})", identity.name, detail::ssl_errors());
+            return std::unexpected(IoError::TLS_HANDSHAKE_FAILED);
+        }
         return {};
     }
-    std::string text{buffer.data()};
-    if (const auto percent = text.find('%'); percent != std::string::npos) {
-        text.erase(percent);  // scope id is not part of the address
+    if (X509_VERIFY_PARAM_set1_ip_asc(params, identity.name.c_str()) != 1) {
+        SPDLOG_ERROR(R"(Failed to set IP verification for "{}": {})", identity.name, detail::ssl_errors());
+        return std::unexpected(IoError::TLS_HANDSHAKE_FAILED);
     }
-    return text;
+    return {};
+}
+
+/// Offer the configured ALPN protocols. An empty list leaves the wire alone.
+[[nodiscard]] std::expected<void, IoError> apply_alpn(SSL* ssl, const std::span<const unsigned char> protocols) {
+    if (protocols.empty()) {
+        return {};
+    }
+    if (protocols.size() > std::numeric_limits<unsigned int>::max() ||
+        SSL_set_alpn_protos(ssl, protocols.data(), static_cast<unsigned int>(protocols.size())) != 0) {
+        SPDLOG_ERROR("SSL_set_alpn_protos failed: {}", detail::ssl_errors());
+        return std::unexpected(IoError::TLS_HANDSHAKE_FAILED);
+    }
+    return {};
 }
 
 /// The direction the last failed SSL call asked for: WANT_WRITE stays POLLOUT,
@@ -162,62 +205,31 @@ coro::Task<std::expected<void, IoError>> TlsStream::ensure_connected() {
 
 std::string TlsStream::peer_label() const {
     // The TLS identity when one is pinned, otherwise the connection target.
-    const std::string host = tls_options_.sni_hostname.value_or(ip_literal(tcp_.address()));
+    const std::string host = tls_options_.sni_hostname.value_or(tcp_.address().to_string());
     return host + ':' + std::to_string(tcp_.port());
 }
 
 std::expected<void, IoError> TlsStream::prepare_session() {
     if (context_ == nullptr) {
         SPDLOG_ERROR("TLS stream has no trust context (build one off-loop with TlsContext::create)");
-        return std::unexpected(IoError::CONNECTION_FAILED);
+        return std::unexpected(IoError::TLS_HANDSHAKE_FAILED);
     }
 
     SslPtr ssl{SSL_new(context_->native_handle())};
     if (!ssl) {
         SPDLOG_ERROR("SSL_new failed: {}", detail::ssl_errors());
-        return std::unexpected(IoError::CONNECTION_FAILED);
+        return std::unexpected(IoError::TLS_HANDSHAKE_FAILED);
     }
     SSL_set_fd(ssl.get(), tcp_.native_handle());
     SSL_set_connect_state(ssl.get());
 
-    X509_VERIFY_PARAM* verify_param = SSL_get0_param(ssl.get());
-    const bool has_name = tls_options_.sni_hostname.has_value() && !tls_options_.sni_hostname->empty();
-
-    if (has_name) {
-        const std::string& name = *tls_options_.sni_hostname;
-        const bool is_ip = domain::InetAddress::parse(name).has_value();
-        if (!is_ip && SSL_set_tlsext_host_name(ssl.get(), name.c_str()) != 1) {
-            SPDLOG_ERROR(R"(Failed to set SNI "{}": {})", name, detail::ssl_errors());
-            return std::unexpected(IoError::CONNECTION_FAILED);
-        }
-        if (is_ip) {
-            const std::string literal = ip_literal(*domain::InetAddress::parse(name));
-            if (literal.empty() || X509_VERIFY_PARAM_set1_ip_asc(verify_param, literal.c_str()) != 1) {
-                SPDLOG_ERROR(R"(Failed to set IP verification for "{}": {})", name, detail::ssl_errors());
-                return std::unexpected(IoError::CONNECTION_FAILED);
-            }
-        } else if (X509_VERIFY_PARAM_set1_host(verify_param, name.c_str(), 0) != 1) {
-            // OpenSSL 4 deprecates SSL_set1_host. A zero length means the name is
-            // NUL-terminated.
-            SPDLOG_ERROR(R"(Failed to set hostname verification for "{}": {})", name, detail::ssl_errors());
-            return std::unexpected(IoError::CONNECTION_FAILED);
-        }
-    } else {
-        // No explicit name: the target is the verification identity, and it is
-        // an IP literal in this stage.
-        const std::string literal = ip_literal(tcp_.address());
-        if (literal.empty() || X509_VERIFY_PARAM_set1_ip_asc(verify_param, literal.c_str()) != 1) {
-            SPDLOG_ERROR(R"(Failed to set IP verification for "{}": {})", literal, detail::ssl_errors());
-            return std::unexpected(IoError::CONNECTION_FAILED);
-        }
+    if (auto identified = apply_verification_identity(ssl.get(), SSL_get0_param(ssl.get()),
+                                                      verification_identity(tls_options_, tcp_.address()));
+        !identified) {
+        return identified;
     }
-
-    if (!alpn_proto_.empty()) {
-        if (alpn_proto_.size() > std::numeric_limits<unsigned int>::max() ||
-            SSL_set_alpn_protos(ssl.get(), alpn_proto_.data(), static_cast<unsigned int>(alpn_proto_.size())) != 0) {
-            SPDLOG_ERROR("SSL_set_alpn_protos failed: {}", detail::ssl_errors());
-            return std::unexpected(IoError::CONNECTION_FAILED);
-        }
+    if (auto offered = apply_alpn(ssl.get(), alpn_proto_); !offered) {
+        return offered;
     }
 
     ssl_ = std::move(ssl);
@@ -236,7 +248,7 @@ coro::Task<std::expected<void, IoError>> TlsStream::handshake() {
             // A verification or handshake failure is worth an ERROR with the
             // peer's identity.
             SPDLOG_ERROR(R"(TLS handshake failed for "{}": {})", peer_label(), detail::ssl_errors());
-            co_return std::unexpected(IoError::CONNECTION_FAILED);
+            co_return std::unexpected(IoError::TLS_HANDSHAKE_FAILED);
         }
         if (const std::error_code wait = co_await direction_wait(tcp_.native_handle(), error)) {
             SPDLOG_DEBUG("TLS handshake wait failed: {}", wait.message());

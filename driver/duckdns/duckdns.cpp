@@ -1,6 +1,8 @@
 #include "duckdns.h"
 
+#include <expected>
 #include <optional>
+#include <string>
 #include <vector>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::vector member complete; clangd sees no spelled use
 
 #include <yaddnsc/sdk/async_driver.hpp>
@@ -25,22 +27,21 @@ using yaddnsc::sdk::redact::truncate_for_log;
 namespace {
 constexpr std::string_view API_URL = "https://www.duckdns.org/update";
 constexpr std::string_view DRIVER_NAME = "duckdns";
+/// Subject of the shared rejection messages.
+constexpr std::string_view REJECTION_SUBJECT = "DuckDNS request";
 }  // namespace
 
-YADDNSC_DEFINE_ASYNC_DRIVER(DuckDnsDriver, "duckdns", "Updates DNS records via the DuckDNS API", "Kotarou", "1.0.0",
+YADDNSC_DEFINE_ASYNC_DRIVER(DuckDnsDriver, "duckdns", "Updates DNS records via the DuckDNS API", "Kotarou", "1.1.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 DuckDnsParams DuckDnsDriver::parse_params(std::string_view json) {
     auto cfg = parse_config<DuckDnsParams>(json);
-    if (cfg.token.empty()) {
-        throw yaddnsc::sdk::ConfigParseError("Required parameter 'token' must not be empty");
-    }
+    require_non_empty("token", cfg.token);
     return cfg;
 }
 
 Result DuckDnsDriver::validate(std::string_view driver_param_json) const {
-    [[maybe_unused]] const auto cfg = parse_params(driver_param_json);
-    return {};
+    return validate_via(driver_param_json, parse_params);
 }
 
 Task<Result> DuckDnsDriver::update(AsyncUpdateContext& context) {
@@ -54,8 +55,8 @@ Task<Result> DuckDnsDriver::update(AsyncUpdateContext& context) {
     return run_update(context, DRIVER_NAME, request, check_response);
 }
 
-bool DuckDnsDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
-    YADDNSC_ASYNC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
+Result DuckDnsDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
+    yaddnsc::sdk::log_response_body(services, response);
 
     // DuckDNS returns:
     //   "OK"           — success (non-verbose)
@@ -65,18 +66,18 @@ bool DuckDnsDriver::check_response(const AsyncHttpResponse& response, const Asyn
     // a success body wins over the status code.
     if (response.body.starts_with("OK")) {
         YADDNSC_ASYNC_SDK_LOG_INFO(services, "DNS record updated successfully");
-        return true;
+        return {};
     }
 
     // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
-    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
-        YADDNSC_ASYNC_SDK_LOG_WARN(services, "DuckDNS request failed with HTTP status {}: {}", response.status_code,
-                             truncate_for_log(response.body));
-        return false;
+    if (auto rejection = yaddnsc::sdk::transient_rejection(services, response, REJECTION_SUBJECT)) {
+        return std::unexpected(*rejection);
     }
 
-    YADDNSC_ASYNC_SDK_LOG_ERROR(services, "DuckDNS API error: {}", truncate_for_log(response.body));
-    return false;
+    // The body carries the provider's own message.
+    const auto text = fmt::format("DuckDNS API error: {}", truncate_for_log(response.body));
+    YADDNSC_ASYNC_SDK_LOG_ERROR(services, "{}", text);
+    return std::unexpected(yaddnsc::sdk::upstream_rejection(response, text));
 }
 
 std::string DuckDnsDriver::generate_url(const DuckDnsParams& cfg, const UpdateRequest& params) {

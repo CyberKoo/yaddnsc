@@ -14,13 +14,13 @@
 //   - HTTP 403 is AUTHENTICATION_FAILED.
 // =============================================================================
 
+#include <format>
 #include <initializer_list>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include <format>
 #include <glaze/glaze.hpp>
 #include <glaze/json/generic_fwd.hpp>
 #include <gtest/gtest.h>
@@ -82,7 +82,7 @@ TEST(Route53DriverTest, Descriptor_ReturnsExpectedMetadata) {
     EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
               "Updates DNS records via the AWS Route 53 API");
     EXPECT_EQ(std::string_view(descriptor->author.data, descriptor->author.size), "Kotarou");
-    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "1.0.0");
+    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "1.1.0");
     EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_A, 0u);
     EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_AAAA, 0u);
 }
@@ -242,6 +242,10 @@ TEST(Route53DriverTest, Update_Non200WithErrorXml_ReturnsUpstreamRejected) {
         400, make_error_xml("InvalidChangeBatch", "RRset with name www.example.com. and type A is not supported"));
     const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
+    // The provider's own error detail reaches the update result.
+    EXPECT_EQ(result.error_message,
+              "Route 53 API error code InvalidChangeBatch: RRset with name www.example.com. and type A is not "
+              "supported");
 }
 
 TEST(Route53DriverTest, Update_Forbidden_ReturnsAuthenticationFailed) {

@@ -6,8 +6,8 @@
 // messages; this file drives the *shape* of the input instead: an empty
 // enumeration, a multi-row enumeration, a port that throws, an unchecked
 // driver named twice, and every record kind the parser accepts. Each of those
-// takes a different arm in the two plain (non-coroutine) loops of
-// src/application/diagnostics.cpp.
+// takes a different arm in the plain (non-coroutine) loops of
+// src/application/diagnostics.cpp and src/application/config_validation.cpp.
 //
 
 #include <algorithm>
@@ -27,6 +27,7 @@
 #include <expected>
 #include <gtest/gtest.h>
 
+#include "application/config_validation.h"
 #include "application/diagnostics.h"
 #include "application/ports/driver_catalog.h"
 #include "application/ports/gateway.h"

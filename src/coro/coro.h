@@ -29,8 +29,8 @@
 // boundary is documented in docs/architecture.md.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_CORO_H
-#define YADDNSC_INFRASTRUCTURE_CORO_CORO_H
+#ifndef YADDNSC_CORO_CORO_H
+#define YADDNSC_CORO_CORO_H
 
 // IWYU pragma: begin_exports
 #include "coro/async_mutex.hpp"
@@ -56,4 +56,4 @@
 #include "coro/with_nursery.hpp"
 // IWYU pragma: end_exports
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_CORO_H
+#endif  // YADDNSC_CORO_CORO_H

@@ -27,6 +27,7 @@ add_library(yaddnsc_coro STATIC
     src/coro/cancel_scope.cpp
     src/coro/loop.cpp
     src/coro/stop_signals.cpp
+    src/coro/detail/pipe.cpp
 )
 yaddnsc_production_module(yaddnsc_coro)
 target_link_libraries(yaddnsc_coro PRIVATE BS_thread_pool yaddnsc_fmt)
@@ -42,8 +43,14 @@ add_library(yaddnsc_uri STATIC
 yaddnsc_production_module(yaddnsc_uri)
 target_link_libraries(yaddnsc_uri PUBLIC yaddnsc_domain)
 
+# Pure DNS endpoint grammar shared by config checks and resolver construction.
+add_library(yaddnsc_dns_endpoint STATIC src/infrastructure/dns/endpoint.cpp)
+yaddnsc_production_module(yaddnsc_dns_endpoint)
+target_link_libraries(yaddnsc_dns_endpoint PUBLIC yaddnsc_uri yaddnsc_domain PRIVATE yaddnsc_fmt)
+
 add_library(yaddnsc_net STATIC
     src/infrastructure/network/transport/socket_ops.cpp
+    src/infrastructure/network/transport/multicast.cpp
     src/infrastructure/network/address/socket_addr.cpp
     src/infrastructure/network/transport/tcp_stream.cpp
     src/infrastructure/network/tls/stream.cpp
@@ -72,11 +79,14 @@ target_link_libraries(yaddnsc_dns_bootstrap
 
 # Coroutine HTTP client and protocol implementation.
 add_library(yaddnsc_http STATIC
+    src/infrastructure/http/error.cpp
     src/infrastructure/http/protocol/wire.cpp
     src/infrastructure/http/protocol/exchange.cpp
     src/infrastructure/http/wire_request.cpp
     src/infrastructure/http/redirect.cpp
+    src/infrastructure/http/redirect_exchange.cpp
     src/infrastructure/http/transport.cpp
+    src/infrastructure/http/session_policy.cpp
     src/infrastructure/http/session.cpp
     src/infrastructure/http/client.cpp
     src/infrastructure/http/persistent_client.cpp
@@ -98,7 +108,7 @@ add_library(yaddnsc_coro_dns STATIC
 yaddnsc_production_module(yaddnsc_coro_dns)
 target_link_libraries(yaddnsc_coro_dns
     PUBLIC yaddnsc_http yaddnsc_dns_bootstrap yaddnsc_uri yaddnsc_domain
-    PRIVATE yaddnsc_dns_classic spdlog::spdlog magic_enum yaddnsc_fmt
+    PRIVATE yaddnsc_dns_classic yaddnsc_dns_endpoint spdlog::spdlog magic_enum yaddnsc_fmt
 )
 
 # Domain layer — pure rules and value types (no I/O, threading, or clock reads).
@@ -135,6 +145,7 @@ target_link_libraries(yaddnsc_dns_classic
 # CLI11, OpenSSL, Glaze, spdlog and dlopen: logging goes through the
 # ports/log.h facade.
 add_library(yaddnsc_application STATIC
+    src/application/config_validation.cpp
     src/application/diagnostics.cpp
     src/application/environment_validator.cpp
 )
@@ -147,14 +158,17 @@ target_link_libraries(yaddnsc_application
 
 # Configuration infrastructure — JSON parsing, normalization, validation.
 add_library(yaddnsc_config_infrastructure STATIC
+    src/infrastructure/config/bootstrap_dns.cpp
     src/infrastructure/config/config.cpp
     src/infrastructure/config/ip_literal.cpp
     src/infrastructure/config/normalizer.cpp
+    src/infrastructure/config/redaction.cpp
     src/infrastructure/config/diagnostics/parse_diagnostic.cpp
     src/infrastructure/config/diagnostics/error_adapter.cpp
     src/infrastructure/config/diagnostics/locator.cpp
     src/infrastructure/config/diagnostics/schema.cpp
     src/infrastructure/config/diagnostics/decision.cpp
+    src/infrastructure/config/diagnostics/suggestion.cpp
     src/infrastructure/config/diagnostics/renderer.cpp
     src/infrastructure/config/static_validator.cpp
 )
@@ -163,7 +177,7 @@ yaddnsc_production_module(yaddnsc_config_infrastructure)
 # uses the lightweight URI codec for resolver-address checks.
 target_link_libraries(yaddnsc_config_infrastructure
     PUBLIC yaddnsc_domain yaddnsc_uri glaze::glaze yaddnsc_fmt
-    PRIVATE spdlog::spdlog
+    PRIVATE yaddnsc_dns_endpoint spdlog::spdlog
 )
 
 # IP-source infrastructure — live interface enumeration, the mDNS response
@@ -183,7 +197,7 @@ target_link_libraries(yaddnsc_ip_source_infrastructure
 add_library(yaddnsc_plugin_infrastructure STATIC
     src/infrastructure/plugin/shared_library.cpp
     src/infrastructure/plugin/plugin_loader.cpp
-    src/infrastructure/plugin/driver_instance.cpp
+    src/infrastructure/plugin/sync/driver_instance.cpp
     src/infrastructure/plugin/driver_catalog.cpp
 )
 yaddnsc_production_module(yaddnsc_plugin_infrastructure)
@@ -195,10 +209,17 @@ target_link_libraries(yaddnsc_plugin_infrastructure
 # Coroutine plugin bridge — the worker ↔ loop HTTP bridge, Host Services over
 # it, and the coroutine driver gateway (src/infrastructure/plugin/).
 add_library(yaddnsc_coro_plugin STATIC
-    src/infrastructure/plugin/bridge.cpp
-    src/infrastructure/plugin/host_services.cpp
-    src/infrastructure/plugin/async_services.cpp
     src/infrastructure/plugin/driver_gateway.cpp
+    src/infrastructure/plugin/detail/abi_result.cpp
+    src/infrastructure/plugin/detail/cycle.cpp
+    src/infrastructure/plugin/sync/bridge.cpp
+    src/infrastructure/plugin/sync/host_services.cpp
+    src/infrastructure/plugin/sync/cycle.cpp
+    src/infrastructure/plugin/async/services.cpp
+    src/infrastructure/plugin/async/step.cpp
+    src/infrastructure/plugin/async/http.cpp
+    src/infrastructure/plugin/async/cycle.cpp
+    src/infrastructure/plugin/async/validation.cpp
 )
 yaddnsc_production_module(yaddnsc_coro_plugin)
 target_link_libraries(yaddnsc_coro_plugin

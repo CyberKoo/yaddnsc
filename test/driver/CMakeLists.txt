@@ -52,7 +52,13 @@ if(YADDNSC_HAS_SDK_XML_COMPONENT)
     # Namecheap — XML response parsing only, no signing
     target_link_libraries(test_driver_namecheap PRIVATE yaddnsc_plugin_sdk_xml)
 
-    # Route53 — XML request body + XML response parsing + AWS SigV4 signing
+    # Route53 — XML request body + XML response parsing + AWS SigV4 signing.
+    # The driver is split into the orchestration unit plus its SigV4 and XML
+    # payload modules, so the test compiles all three.
+    target_sources(test_driver_route53 PRIVATE
+        ${PROJECT_SOURCE_DIR}/driver/route53/sigv4.cpp
+        ${PROJECT_SOURCE_DIR}/driver/route53/xml_payload.cpp
+    )
     target_link_libraries(test_driver_route53 PRIVATE yaddnsc_plugin_sdk_xml yaddnsc_plugin_sdk_crypto
         OpenSSL::Crypto)
 else()

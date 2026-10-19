@@ -1,8 +1,10 @@
 #include "assembly.h"
 
 #include <chrono>
+#include <cstdlib>
 #include <memory>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -11,6 +13,7 @@
 #include <expected>
 #include <spdlog/spdlog.h>
 
+#include "coro/loop.h"
 #include "domain/config/dns_config.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "domain/error/error.h"
 #include "infrastructure/config/config.h"
@@ -18,11 +21,39 @@
 #include "infrastructure/config/static_validator.h"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/dns/bootstrap/resolv_conf.h"
+#include "infrastructure/dns/dispatcher.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "infrastructure/dns/factory.h"
 #include "infrastructure/network/tls/context.h"
 #include "infrastructure/network/transport/options.h"
 #include "infrastructure/plugin/driver_loader.h"
 
 #include "version.h"
+
+namespace {
+/// Loop trace diagnostics ride the same compile-time gate as the rest of the
+/// trace logging (YADDNSC_ENABLE_TRACE): when traces are compiled out the sink
+/// stays null and every loop trace site costs one null check. When compiled
+/// in, the runtime level filter (--log-level) applies inside spdlog as usual.
+/// Reached only through make_traced_loop, which is the single place a command
+/// obtains a loop.
+void install_loop_trace_sink(coro::Loop& loop) {
+#if SPDLOG_ACTIVE_LEVEL <= SPDLOG_LEVEL_TRACE
+    loop.set_trace_sink(
+        [](void*, std::string_view message, const std::source_location& where) noexcept {
+            try {
+                spdlog::default_logger_raw()->log(
+                    spdlog::source_loc{where.file_name(), static_cast<int>(where.line()), where.function_name()},
+                    spdlog::level::trace, "{}", message);
+            } catch (...) {
+                // A diagnostic callback must not propagate into the loop.
+            }
+        },
+        nullptr);
+#else
+    static_cast<void>(loop);
+#endif
+}
+}  // namespace
 
 namespace Composition::internal {
 /// Map a --log-level token to the spdlog level. The CLI restricts the value
@@ -41,28 +72,6 @@ namespace Composition::internal {
         return spdlog::level::warn;
     }
     return spdlog::level::err;
-}
-
-/// Loop trace diagnostics ride the same compile-time gate as the rest of the
-/// trace logging (YADDNSC_ENABLE_TRACE): when traces are compiled out the sink
-/// stays null and every loop trace site costs one null check. When compiled
-/// in, the runtime level filter (--log-level) applies inside spdlog as usual.
-void install_loop_trace_sink(coro::Loop& loop) {
-#if SPDLOG_ACTIVE_LEVEL <= SPDLOG_LEVEL_TRACE
-    loop.set_trace_sink(
-        [](void*, std::string_view message, const std::source_location& where) noexcept {
-            try {
-                spdlog::default_logger_raw()->log(
-                    spdlog::source_loc{where.file_name(), static_cast<int>(where.line()), where.function_name()},
-                    spdlog::level::trace, "{}", message);
-            } catch (...) {
-                // A diagnostic callback must not propagate into the loop.
-            }
-        },
-        nullptr);
-#else
-    static_cast<void>(loop);
-#endif
 }
 
 /// Fill in the effective bootstrap DNS server list: the configured
@@ -114,6 +123,33 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
 /// validation loop.
 [[nodiscard]] plugin::DriverGateway::Options make_gateway_options(const http::Options& http_options) {
     return {.http = http_options, .bridge_wait_budget = std::chrono::seconds(5)};
+}
+
+[[nodiscard]] std::unique_ptr<dns::Dispatcher> make_dispatcher(const domain::ResolverSettings& resolver,
+                                                               const std::shared_ptr<const net::TlsContext>& tls_context) {
+    try {
+        return dns::make_dispatcher(resolver, resolver.bootstrap_servers, tls_context, DNS_POLICY);
+    } catch (const std::invalid_argument& error) {
+        throw ConfigException(error.what());
+    }
+}
+
+[[nodiscard]] std::unique_ptr<coro::Loop> make_traced_loop() {
+    auto loop = std::make_unique<coro::Loop>();
+    install_loop_trace_sink(*loop);
+    return loop;
+}
+
+[[nodiscard]] std::unique_ptr<plugin::DriverGateway> make_driver_gateway(const DriverCatalog& catalog,
+                                                                         const app::LoggerPort& logger,
+                                                                         coro::Loop& loop, coro::Nursery& bridge_group,
+                                                                         const http::Options& http_options) {
+    return std::make_unique<plugin::DriverGateway>(catalog, logger, loop, bridge_group,
+                                                   make_gateway_options(http_options));
+}
+
+[[nodiscard]] int run_exit_code(app::MainLoopOutcome outcome) noexcept {
+    return outcome == app::MainLoopOutcome::GracefulShutdown ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 // -----------------------------------------------------------------------

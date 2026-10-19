@@ -7,8 +7,8 @@
 // without any time plumbing in the public API.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_CLOCK_H
-#define YADDNSC_INFRASTRUCTURE_CORO_CLOCK_H
+#ifndef YADDNSC_CORO_CLOCK_H
+#define YADDNSC_CORO_CLOCK_H
 
 #include "coro/time.h"
 
@@ -73,4 +73,4 @@ private:
 
 }  // namespace coro
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_CLOCK_H
+#endif  // YADDNSC_CORO_CLOCK_H

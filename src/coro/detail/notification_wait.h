@@ -4,8 +4,8 @@
 // awaiting a member function requires that member's awaitable to be complete at
 // the call site, so notification.hpp includes *this* header and this header
 // must not include that one. See detail/mutex_wait.h for the same rule.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_NOTIFICATION_WAIT_H
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_NOTIFICATION_WAIT_H
+#ifndef YADDNSC_CORO_DETAIL_NOTIFICATION_WAIT_H
+#define YADDNSC_CORO_DETAIL_NOTIFICATION_WAIT_H
 
 #include <coroutine>
 #include <stdexcept>
@@ -102,4 +102,4 @@ private:
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_NOTIFICATION_WAIT_H
+#endif  // YADDNSC_CORO_DETAIL_NOTIFICATION_WAIT_H

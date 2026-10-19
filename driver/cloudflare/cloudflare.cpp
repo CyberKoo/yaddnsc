@@ -1,13 +1,14 @@
 #include "cloudflare.h"
 
+#include <expected>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include <glaze/glaze.hpp>
 #include <yaddnsc/sdk/async_driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/format.hpp>
-#include <yaddnsc/sdk/redact.hpp>
 
 #include "config.hpp"
 #include "response.hpp"
@@ -22,36 +23,28 @@ using yaddnsc::sdk::Method;
 using yaddnsc::sdk::Result;
 using yaddnsc::sdk::Task;
 using yaddnsc::sdk::UpdateRequest;
-using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 constexpr std::string_view API_URL = "https://api.cloudflare.com/client/v4/zones/{ZONE_ID}/dns_records/{RECORD_ID}";
 constexpr std::string_view DRIVER_NAME = "cloudflare";
+/// Subject of the shared rejection messages.
+constexpr std::string_view REJECTION_SUBJECT = "Cloudflare API request";
 }  // namespace
 
-YADDNSC_DEFINE_ASYNC_DRIVER(CloudflareDriver, "cloudflare", "Updates DNS records via the Cloudflare API", "Kotarou", "2.0.0",
+YADDNSC_DEFINE_ASYNC_DRIVER(CloudflareDriver, "cloudflare", "Updates DNS records via the Cloudflare API", "Kotarou", "2.1.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 CloudflareParams CloudflareDriver::parse_params(std::string_view json) {
     auto cfg = parse_config<CloudflareParams>(json);
-    if (cfg.zone_id.empty()) {
-        throw yaddnsc::sdk::ConfigParseError("Required parameter 'zone_id' must not be empty");
-    }
-    if (cfg.record_id.empty()) {
-        throw yaddnsc::sdk::ConfigParseError("Required parameter 'record_id' must not be empty");
-    }
-    if (cfg.token.empty()) {
-        throw yaddnsc::sdk::ConfigParseError("Required parameter 'token' must not be empty");
-    }
-    if (cfg.ttl && *cfg.ttl < 0) {
-        throw yaddnsc::sdk::ConfigParseError("Parameter 'ttl' must not be negative");
-    }
+    require_non_empty("zone_id", cfg.zone_id);
+    require_non_empty("record_id", cfg.record_id);
+    require_non_empty("token", cfg.token);
+    optional_non_negative("ttl", cfg.ttl);
     return cfg;
 }
 
 Result CloudflareDriver::validate(std::string_view driver_param_json) const {
-    [[maybe_unused]] const auto cfg = parse_params(driver_param_json);
-    return {};
+    return validate_via(driver_param_json, parse_params);
 }
 
 Task<Result> CloudflareDriver::update(AsyncUpdateContext& context) {
@@ -68,40 +61,47 @@ Task<Result> CloudflareDriver::update(AsyncUpdateContext& context) {
     return run_update(context, DRIVER_NAME, request, check_response);
 }
 
-bool CloudflareDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
-    YADDNSC_ASYNC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
+Result CloudflareDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
+    yaddnsc::sdk::log_response_body(services, response);
 
     auto resp = parse_response<CloudflareResponse>(response.body);
     if (resp && resp->success) {
         if (resp->result.has_value()) {
             auto& record = resp->result.value();
             YADDNSC_ASYNC_SDK_LOG_DEBUG(services, "DNS record updated successfully: {} {} -> {} (TTL: {}, proxied: {})",
-                                  record.type, record.name, record.content, record.ttl, record.proxied ? "yes" : "no");
+                                        record.type, record.name, record.content, record.ttl,
+                                        record.proxied ? "yes" : "no");
         }
-        return true;
+        return {};
     }
 
     // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
-    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
-        YADDNSC_ASYNC_SDK_LOG_WARN(services, "Cloudflare API request failed with HTTP status {}: {}", response.status_code,
-                             truncate_for_log(response.body));
-        return false;
+    if (auto rejection = yaddnsc::sdk::transient_rejection(services, response, REJECTION_SUBJECT)) {
+        return std::unexpected(*rejection);
     }
 
     if (!resp) {
         YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Failed to parse Cloudflare API response");
-        return false;
-    }
-    for (const auto& error : resp->errors) {
-        if (error.source.has_value()) {
-            YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Cloudflare API error {} at {}: {}", error.code, error.source->pointer,
-                                  error.message);
-        } else {
-            YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Cloudflare API error {}: {}", error.code, error.message);
-        }
+        return std::unexpected(yaddnsc::sdk::upstream_rejection(response, "Failed to parse Cloudflare API response"));
     }
 
-    return false;
+    std::string detail;
+    for (const auto& error : resp->errors) {
+        const auto text =
+            error.source.has_value()
+                ? fmt::format("Cloudflare API error {} at {}: {}", error.code, error.source->pointer, error.message)
+                : fmt::format("Cloudflare API error {}: {}", error.code, error.message);
+        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "{}", text);
+        if (!detail.empty()) {
+            detail += "; ";
+        }
+        detail += text;
+    }
+
+    if (detail.empty()) {
+        detail = yaddnsc::sdk::rejection_message(REJECTION_SUBJECT, response);
+    }
+    return std::unexpected(yaddnsc::sdk::upstream_rejection(response, detail));
 }
 
 std::string CloudflareDriver::generate_body(const CloudflareParams& cfg, const UpdateRequest& request) {

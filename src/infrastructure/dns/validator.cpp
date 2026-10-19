@@ -1,11 +1,12 @@
 #include "validator.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <expected>
 #include <span>
 #include <string>
 #include <utility>
-
-#include <expected>
+#include <vector>
 
 #include "domain/error/dns_error.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
@@ -89,5 +90,64 @@ std::expected<void, domain::DnsErrorInfo> validate_response(const std::span<cons
                                  "DNS response transaction ID, opcode or question section does not match the query"});
     }
     return {};
+}
+
+void select_answers(ParsedMessage& message, const std::span<const std::uint8_t> wire, const std::string& host,
+                    const std::optional<RecordType> type_filter) {
+    if (host.empty())
+        return;
+    std::vector<std::string> chain{present_name(host)};
+    for (;;) {
+        std::optional<std::string> target;
+        for (const auto& rr : message.answers) {
+            if (rr.qclass != static_cast<std::uint16_t>(RecordClass::IN) ||
+                rr.type != static_cast<std::uint16_t>(RecordType::CNAME) || !name_matches(rr.name, chain.back())) {
+                continue;
+            }
+            size_t end = rr.rdata_offset;
+            auto next = decompress_name(wire, end);
+            const auto length = Utils::Bytes::read_u16_be(wire.subspan(rr.rdata_offset - 2));
+            if (end != rr.rdata_offset + length || (target && !name_matches(*target, next))) {
+                throw DnsLookupException("Invalid or conflicting CNAME RDATA", domain::DnsError::PARSE);
+            }
+            target = std::move(next);
+        }
+        if (!target)
+            break;
+        // Bound both repeated answer scans and cycle checks on hostile packets.
+        // Sixteen alias hops cover ordinary DDNS/CDN names without unbounded work.
+        if (chain.size() > 16) {
+            throw DnsLookupException("DNS CNAME chain exceeds 16 hops", domain::DnsError::PARSE);
+        }
+        if (std::ranges::any_of(chain, [&target](const auto& name) { return name_matches(name, *target); })) {
+            throw DnsLookupException("DNS CNAME chain contains a cycle", domain::DnsError::PARSE);
+        }
+        chain.push_back(std::move(*target));
+    }
+    if (type_filter && std::ranges::none_of(message.answers, [&chain, type_filter](const auto& rr) {
+            return rr.qclass == static_cast<std::uint16_t>(RecordClass::IN) &&
+                   rr.type == static_cast<std::uint16_t>(*type_filter) && name_matches(rr.name, chain.back());
+        })) {
+        const auto has_authority = [&message](RecordType type) {
+            return std::ranges::any_of(message.authorities, [type](const auto& rr) {
+                return rr.qclass == static_cast<std::uint16_t>(RecordClass::IN) &&
+                       rr.type == static_cast<std::uint16_t>(type);
+            });
+        };
+        // CNAME-only replies without SOA negative evidence and referrals are
+        // unusable endpoint answers, not NODATA: there is no recursive chasing.
+        if ((chain.size() > 1 || has_authority(RecordType::NS)) && !has_authority(RecordType::SOA)) {
+            throw DnsLookupException("DNS response is CNAME-only or a referral, not a complete answer",
+                                     domain::DnsError::PARSE);
+        }
+    }
+    std::erase_if(message.answers, [&chain](const auto& rr) {
+        if (rr.qclass != static_cast<std::uint16_t>(RecordClass::IN))
+            return true;
+        if (rr.type == static_cast<std::uint16_t>(RecordType::CNAME)) {
+            return !std::ranges::any_of(chain, [&rr](const auto& name) { return name_matches(rr.name, name); });
+        }
+        return !name_matches(rr.name, chain.back());
+    });
 }
 }  // namespace dns::Validator

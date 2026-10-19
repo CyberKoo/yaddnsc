@@ -33,9 +33,10 @@ private:
     /// Build the JSON request body for a Linode DNS record update.
     static std::string generate_body(const yaddnsc::sdk::UpdateRequest& request, std::optional<int> ttl_sec);
 
-    /// Validate the Linode API response.
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
-                                             const yaddnsc::sdk::AsyncServices& services);
+    /// Validate the Linode API response. A rejected response reports the
+    /// provider's own error detail.
+    [[nodiscard]] static yaddnsc::sdk::Result check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                                             const yaddnsc::sdk::AsyncServices& services);
 };
 
 #endif  // YADDNSC_DRV_LINODE_LINODE_H

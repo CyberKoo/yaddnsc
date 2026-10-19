@@ -34,7 +34,7 @@ TEST(SimpleDriverTest, Descriptor_ReturnsExpectedMetadata) {
     EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
               "Generic HTTP driver with URL template substitution");
     EXPECT_EQ(std::string_view(descriptor->author.data, descriptor->author.size), "Kotarou");
-    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "2.0.0");
+    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "2.1.0");
     EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_A, 0u);
     EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_AAAA, 0u);
 }
@@ -200,6 +200,8 @@ TEST(SimpleDriverTest, Update_4xx_ReturnsUpstreamRejected) {
     const auto result = run_abi_update(fake, R"({"url": "https://example.com/update?ip={ip_addr}"})", "1.2.3.4", "A",
                                        "example.com", "@", "example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
+    // The generic driver has no provider detail, so the status names the rejection.
+    EXPECT_EQ(result.error_message, "HTTP request failed with status code 404");
 }
 
 TEST(SimpleDriverTest, Update_5xx_ReturnsUpstreamRejected) {

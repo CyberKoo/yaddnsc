@@ -3,8 +3,8 @@
 // Kept as a leaf detail header so the waiter (detail/notification_wait.h) never
 // includes the public notification.hpp: the same acyclic-include rule as
 // detail/mutex_state.h.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_NOTIFICATION_STATE_H
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_NOTIFICATION_STATE_H
+#ifndef YADDNSC_CORO_DETAIL_NOTIFICATION_STATE_H
+#define YADDNSC_CORO_DETAIL_NOTIFICATION_STATE_H
 
 namespace coro::detail {
 
@@ -21,4 +21,4 @@ struct NotificationState {
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_NOTIFICATION_STATE_H
+#endif  // YADDNSC_CORO_DETAIL_NOTIFICATION_STATE_H

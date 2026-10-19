@@ -11,8 +11,9 @@ section here.
 
 The host now implements plugin ABI 1.1; ABI 1.0 remains frozen and loadable.
 The bundled drivers use the async execution protocol and therefore require a
-1.1 host, while their names, package versions, provider parameters and
-request/response behavior are unchanged. Migration: [coroutine lifecycle
+1.1 host, while their names and provider parameters are unchanged. Failed
+updates now report the provider's own error detail, and the driver package
+versions move to 1.1.0/2.1.0 (see Changed). Migration: [coroutine lifecycle
 migration](docs/architecture.md#coroutine-lifecycle-migration) and
 [custom drivers](docs/custom-drivers.md).
 
@@ -26,8 +27,7 @@ migration](docs/architecture.md#coroutine-lifecycle-migration) and
   cannot mix sync and async execution symbols. ABI 1.0 sync plugins keep their
   original load and execution path.
 - The bundled drivers emit only the async group, so an older ABI 1.0 host
-  rejects them at load. Their package versions and provider behavior are
-  unchanged.
+  rejects them at load. Their names and provider parameters are unchanged.
 - Structured concurrency uses `with_nursery`, `Nursery` and `NurseryPolicy`,
   exposed by `coro/with_nursery.hpp` and `coro/nursery.hpp`; the old
   `group.hpp` and `task_group.hpp` headers are removed, not compatibility aliases.
@@ -63,6 +63,12 @@ migration](docs/architecture.md#coroutine-lifecycle-migration) and
   admission closure and a single cancellation/drain/cleanup path.
 - Explicit execution ownership, independent result storage and shared
   wait/cancellation arbitration, with Debug and Release contract tests.
+- Shared SDK helpers for driver authors: the response skeleton in
+  `sdk/run_update.hpp` (`log_response_body`, `transient_rejection`,
+  `status_rejection`, `upstream_rejection`, `rejection_message`) and the
+  parameter checks in `sdk/driver_common.hpp` (`require_non_empty`,
+  `optional_non_negative`, `validate_via`). Existing drivers keep working.
+  See [custom drivers](docs/custom-drivers.md).
 
 ### Removed
 
@@ -76,14 +82,26 @@ migration](docs/architecture.md#coroutine-lifecycle-migration) and
   loads and runs exactly as in ABI 1.0, and only a future major version could
   retire it. New drivers should target the async group. See
   [custom drivers](docs/custom-drivers.md#entry-points).
-- The bundled drivers use the async SDK and require ABI 1.1; their names and
-  package versions are unchanged.
+- The bundled drivers use the async SDK and require ABI 1.1; their names are
+  unchanged.
+- The bundled drivers report the provider's own error detail in a failed
+  update instead of a generic rejection message, and an empty optional
+  parameter is reported with the same wording as an empty required one.
+  Their package versions move from 1.0.0/2.0.0 to 1.1.0/2.1.0.
 - Ready dispatch uses a borrowed frame token to avoid an extra execution-record
   lookup without transferring frame ownership or changing retirement order.
 - Avoid retrying every parked completion consumer when no matching result is
   available, while preserving cancellation order and exhaustion notifications.
 - Reduce per-execution bookkeeping by sharing fixed completion roles, and keep
   the empty cross-thread inbox path inline without changing dispatch order.
+- A redirect hop that leaves the persistent origin now runs the same pipeline
+  as a persistent hop, so a connection lost before an idempotent hop is answered
+  is recovered from instead of failing the request. The redirect budget still
+  spans every hop.
+- A TLS session that never comes up — unusable trust material, a rejected
+  certificate, a peer that will not negotiate — is reported as a handshake
+  failure instead of an unreachable host, so DoH/DoT diagnostics name the
+  actual cause.
 
 ### Fixed
 
@@ -128,6 +146,8 @@ migration](docs/architecture.md#coroutine-lifecycle-migration) and
   These guarantees are preserved and covered by deterministic regressions.
 - Existing single-consumer semantics remain unchanged: a throwing result move
   still consumes the result, while cancellation releases only its reservation.
+- IP-source and driver request failures name the server by its path instead of
+  printing the whole request URL, whose query can carry provider credentials.
 
 ## [1.0.0-alpha.7] - 2026-10-17
 

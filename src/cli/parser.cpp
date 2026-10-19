@@ -1,16 +1,16 @@
 #include "parser.h"
 
 #include <functional>
-#include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include <CLI/CLI.hpp>
-#include <print>  // IWYU pragma: keep — std::println is used below
 
 #include "cli/command.h"
+#include "cli/presenter.h"
 
 #include "version.h"
 
@@ -139,9 +139,11 @@ Cli::ParseResult Cli::parse(int argc, char* argv[]) {
     if (!command.has_value()) {
         // No leaf subcommand ran. Group-only invocations ("yaddnsc dns")
         // fail earlier via require_subcommand(); reaching here means no
-        // subcommand was given at all.
-        std::println(std::cerr, "Error: no subcommand specified. Use --help to see available commands.");
-        return {.command = std::nullopt, .exit_code = EXIT_FAILURE};
+        // subcommand was given at all. The wording and the exit code belong
+        // to the presenter, like every other "Error: ..." line.
+        return {.command = std::nullopt,
+                .exit_code = Cli::present_error(
+                    std::runtime_error("no subcommand specified. Use --help to see available commands."))};
     }
 
     return {.command = std::move(command), .exit_code = EXIT_SUCCESS};

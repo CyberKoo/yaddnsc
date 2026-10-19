@@ -14,17 +14,6 @@ namespace Utils::Cert {
 ///
 /// @return  Path to a CA bundle file, or std::nullopt.
 [[nodiscard]] std::optional<std::string> discover_ca_bundle();
-
-/// Search well-known system locations for a CA certificate bundle file.
-///
-/// Returns the path to the first found bundle, or std::nullopt if none were
-/// found. The result is cached after the first invocation.
-///
-/// @note  Consider using discover_ca_bundle() instead, which additionally
-///        checks SSL_CERT_FILE and the OpenSSL default path.
-///
-/// @return  Path to a CA bundle file, or std::nullopt.
-[[nodiscard]] std::optional<std::string> get_system_ca_path();
 }  // namespace Utils::Cert
 
 #endif  // YADDNSC_INFRASTRUCTURE_NETWORK_TLS_CERT_UTIL_H

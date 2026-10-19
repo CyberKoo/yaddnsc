@@ -10,17 +10,14 @@
 #define YADDNSC_INFRASTRUCTURE_HTTP_SESSION_H
 
 #include <cstdint>
-#include <memory>
-#include <optional>
-#include <string>
-
 #include <expected>
+#include <memory>
+#include <string>
 
 #include "coro/async_mutex.hpp"
 #include "coro/task.hpp"
-#include "coro/time.h"
 #include "infrastructure/http/error.h"
-#include "infrastructure/http/protocol/exchange.h"
+#include "infrastructure/http/session_policy.h"
 #include "infrastructure/http/types.h"
 
 namespace net {
@@ -29,6 +26,7 @@ class Stream;
 
 namespace http {
 namespace protocol {
+struct RawResponse;
 struct WireRequest;
 }  // namespace protocol
 
@@ -70,6 +68,10 @@ public:
     ///
     /// `target` is path + query ("/v1/update?foo=bar"); it is used verbatim, so
     /// a session is only ever pointed at its own origin.
+    ///
+    /// The request is an invariant here: the entry points that own it
+    /// (`Client`, `PersistentClient`) validate it once, and the wire request
+    /// built from it is checked before a byte is sent.
     [[nodiscard]] coro::Task<std::expected<Response, Error>> exchange(std::string target, const Request& request);
 
     /// Drop the connection; the session reconnects on the next exchange. An
@@ -85,8 +87,13 @@ public:
     [[nodiscard]] std::uint16_t port() const noexcept { return port_; }
 
 private:
-    [[nodiscard]] coro::Task<std::expected<protocol::RawResponse, Error>> do_exchange(
-        const protocol::WireRequest& wire);
+    /// Take the session lock, under the queue budget when one is configured.
+    [[nodiscard]] coro::Task<std::expected<coro::AsyncMutex::Guard, Error>> admit();
+
+    /// One exchange on the current connection, replayed once when the lost
+    /// connection may be recovered from.
+    [[nodiscard]] coro::Task<std::expected<protocol::RawResponse, Error>> exchange_attempt(
+        const protocol::WireRequest& wire, bool replay_safe, bool reused);
 
     [[nodiscard]] coro::Task<std::expected<void, Error>> ensure_stream();
 
@@ -102,8 +109,8 @@ private:
     bool close_requested_ = false;
     /// Bytes read past the previous response boundary.
     std::string pending_;
-    std::optional<unsigned> keep_alive_remaining_;
-    std::optional<coro::TimePoint> keep_alive_deadline_;
+    /// Keep-alive budget and the lost-connection replay rule.
+    SessionPolicy policy_;
 };
 
 }  // namespace http

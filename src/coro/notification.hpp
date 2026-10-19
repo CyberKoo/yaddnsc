@@ -34,8 +34,8 @@
 // atomics, never by touching a Notification.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_NOTIFICATION_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_NOTIFICATION_HPP
+#ifndef YADDNSC_CORO_NOTIFICATION_HPP
+#define YADDNSC_CORO_NOTIFICATION_HPP
 
 #include <cassert>
 #include <exception>
@@ -90,4 +90,4 @@ private:
 
 }  // namespace coro
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_NOTIFICATION_HPP
+#endif  // YADDNSC_CORO_NOTIFICATION_HPP

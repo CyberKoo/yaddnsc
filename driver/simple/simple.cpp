@@ -1,9 +1,9 @@
 #include "simple.h"
 
+#include <expected>
 #include <optional>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::optional member complete; clangd sees no spelled use
 #include <string>
 #include <string_view>
-#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::vector member complete; clangd sees no spelled use
@@ -29,9 +29,11 @@ using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 constexpr std::string_view DRIVER_NAME = "simple";
+/// Subject of the shared rejection messages.
+constexpr std::string_view REJECTION_SUBJECT = "HTTP request";
 }  // namespace
 
-YADDNSC_DEFINE_ASYNC_DRIVER(SimpleDriver, "simple", "Generic HTTP driver with URL template substitution", "Kotarou", "2.0.0",
+YADDNSC_DEFINE_ASYNC_DRIVER(SimpleDriver, "simple", "Generic HTTP driver with URL template substitution", "Kotarou", "2.1.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 Task<Result> SimpleDriver::update(AsyncUpdateContext& context) {
@@ -45,8 +47,7 @@ Task<Result> SimpleDriver::update(AsyncUpdateContext& context) {
 Result SimpleDriver::validate(std::string_view driver_param_json) const {
     // Same check as the update path: a missing or non-string "url" throws
     // ConfigParseError, which the ABI entry maps to YADDNSC_STATUS_INVALID_CONFIG.
-    std::ignore = parse_driver_param(driver_param_json);
-    return {};
+    return validate_via(driver_param_json, parse_driver_param);
 }
 
 glz::generic SimpleDriver::parse_driver_param(std::string_view driver_param_json) {
@@ -80,21 +81,27 @@ HttpRequest SimpleDriver::generate_request(const UpdateRequest& params) {
     return request;
 }
 
-bool SimpleDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
+Result SimpleDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
+    // The generic driver has no provider of its own, so it reports the
+    // status code next to the response body.
     YADDNSC_ASYNC_SDK_LOG_DEBUG(services, "Status: {}, Response: {}", response.status_code,
-                          truncate_for_log(string_util::trim(response.body)));
+                                truncate_for_log(string_util::trim(response.body)));
 
     // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
-    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
-        YADDNSC_ASYNC_SDK_LOG_WARN(services, "HTTP request failed with status code {}: {}", response.status_code,
-                             truncate_for_log(string_util::trim(response.body)));
-        return false;
+    if (auto rejection = yaddnsc::sdk::transient_rejection(services, response, REJECTION_SUBJECT)) {
+        return std::unexpected(*rejection);
     }
 
     if (response.status_code >= 300) {
-        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "HTTP request failed with status code {}", response.status_code);
-        return false;
+        const auto text = fmt::format("HTTP request failed with status code {}", response.status_code);
+        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "{}", text);
+        return std::unexpected(yaddnsc::sdk::upstream_rejection(response, text));
     }
 
-    return !response.body.empty();
+    if (response.body.empty()) {
+        return std::unexpected(
+            yaddnsc::sdk::upstream_rejection(response, "HTTP request returned an empty response body"));
+    }
+
+    return {};
 }

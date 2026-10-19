@@ -1,6 +1,6 @@
 // Coroutine runtime — the timer awaitable behind sleep_for / sleep_until.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_SLEEP_AWAITABLE_H
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_SLEEP_AWAITABLE_H
+#ifndef YADDNSC_CORO_DETAIL_SLEEP_AWAITABLE_H
+#define YADDNSC_CORO_DETAIL_SLEEP_AWAITABLE_H
 
 #include <cassert>
 #include <coroutine>
@@ -148,4 +148,4 @@ private:
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_SLEEP_AWAITABLE_H
+#endif  // YADDNSC_CORO_DETAIL_SLEEP_AWAITABLE_H

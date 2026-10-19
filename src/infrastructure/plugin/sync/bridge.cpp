@@ -28,7 +28,7 @@
 #include "coro/scope.hpp"
 #include "infrastructure/http/client.h"
 #include "infrastructure/http/error.h"
-#include "infrastructure/http/wire_request.h"
+#include "infrastructure/plugin/detail/cycle.h"
 #include "yaddnsc/sdk/driver_abi.h"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
@@ -125,7 +125,8 @@ coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::s
                         auto response = co_await client.exchange(fulfil.call->url, fulfil.call->request);
                         if (!response) {
                             auto& error = response.error();
-                            SPDLOG_DEBUG(R"(Driver HTTP request to "{}" failed: {})", fulfil.call->url, error.message);
+                            SPDLOG_DEBUG(R"(Driver HTTP request to "{}" failed: {})",
+                                         http::redacted_url(fulfil.call->url), error.message);
                             co_return std::unexpected(BridgeError{YADDNSC_STATUS_NETWORK_ERROR,
                                                                   http::failure_reason("API server", error),
                                                                   error.retry_after_seconds});
@@ -178,28 +179,6 @@ Bridge::Bridge(coro::Loop& loop, coro::Nursery& spawn_group, http::Options optio
       state_(std::make_shared<const detail::BridgeState>(detail::BridgeState{std::move(options), wait_budget})) {}
 
 Bridge::~Bridge() = default;
-
-void CallState::request_cancel() noexcept {
-    cancelled.store(true, std::memory_order_release);
-    owner_changed.notify();
-    cancel_changed.notify();
-}
-
-void Bridge::start_cycle(const std::shared_ptr<CallState>& state, coro::Task<void> cycle) {
-    auto* group = group_lifetime_.get();
-    if (group == nullptr) {
-        throw std::logic_error("plugin cycle requires a live root group");
-    }
-    try {
-        group->spawn_discard(std::move(cycle));
-    } catch (...) {
-        // The owner never started: publish through the allocation-free
-        // notification so a subscriber that reaches the wait cannot hang.
-        state->error = std::current_exception();
-        state->result_ready.notify();
-        throw;
-    }
-}
 
 // A worker retains its own lease independently of the caller and posted children.
 // NOLINTNEXTLINE(performance-unnecessary-value-param)

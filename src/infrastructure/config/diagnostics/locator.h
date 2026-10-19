@@ -13,6 +13,10 @@ struct ScanPolicy {
     bool inspect_complete_string{false};
 };
 
+/// The scan policy @p failure selects. Derived here because the policy exists
+/// only to steer locate(); a failure carries no Glaze information of its own.
+[[nodiscard]] ScanPolicy scan_policy(const ParseFailure& failure) noexcept;
+
 /// Scan the failure prefix and local token lookahead; retain only keys and token facts.
 /// Offsets are bytes; returned line/column are 1-based and count bytes after LF.
 /// A separator or closing bracket/brace found where a value is required is

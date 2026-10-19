@@ -14,8 +14,8 @@
 // shared state (atomics, promises) and never touches these objects directly.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_HOST_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_HOST_HPP
+#ifndef YADDNSC_CORO_HOST_HPP
+#define YADDNSC_CORO_HOST_HPP
 
 #include <cassert>
 #include <memory>
@@ -108,4 +108,4 @@ private:
 
 }  // namespace coro
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_HOST_HPP
+#endif  // YADDNSC_CORO_HOST_HPP

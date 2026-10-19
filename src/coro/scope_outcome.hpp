@@ -6,8 +6,8 @@
 // header that detail/scope_runner.hpp can include without a cycle.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_SCOPE_OUTCOME_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_SCOPE_OUTCOME_HPP
+#ifndef YADDNSC_CORO_SCOPE_OUTCOME_HPP
+#define YADDNSC_CORO_SCOPE_OUTCOME_HPP
 
 #include <optional>
 
@@ -61,4 +61,4 @@ struct ScopeOutcome<void> {
 
 }  // namespace coro
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_SCOPE_OUTCOME_HPP
+#endif  // YADDNSC_CORO_SCOPE_OUTCOME_HPP

@@ -1,15 +1,14 @@
 #include "namecheap.h"
 
+#include <expected>
 #include <optional>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::optional member complete; clangd sees no spelled use
 #include <string>
 #include <string_view>
 #include <vector>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::vector member complete; clangd sees no spelled use
 
-#include <expected>
 #include <yaddnsc/sdk/async_driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/format.hpp>
-#include <yaddnsc/sdk/redact.hpp>
 #include <yaddnsc/sdk/xml_raii.hpp>
 
 #include "config.hpp"
@@ -24,15 +23,16 @@ using yaddnsc::sdk::Method;
 using yaddnsc::sdk::Result;
 using yaddnsc::sdk::Task;
 using yaddnsc::sdk::UpdateRequest;
-using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 constexpr std::string_view API_URL = "https://dynamicdns.park-your-domain.com/update";
 constexpr std::string_view DRIVER_NAME = "namecheap";
+/// Subject of the shared rejection messages.
+constexpr std::string_view REJECTION_SUBJECT = "Namecheap API request";
 }  // namespace
 
 YADDNSC_DEFINE_ASYNC_DRIVER(NamecheapDriver, "namecheap", "Updates DNS records via the Namecheap Dynamic DNS API", "Kotarou",
-                      "1.0.0", YADDNSC_DRIVER_CAPABILITY_A)
+                      "1.1.0", YADDNSC_DRIVER_CAPABILITY_A)
 
 // =============================================================================
 //  NamecheapDriver::update
@@ -40,15 +40,12 @@ YADDNSC_DEFINE_ASYNC_DRIVER(NamecheapDriver, "namecheap", "Updates DNS records v
 
 NamecheapParams NamecheapDriver::parse_params(std::string_view json) {
     auto cfg = parse_config<NamecheapParams>(json);
-    if (cfg.password.empty()) {
-        throw yaddnsc::sdk::ConfigParseError("Required parameter 'password' must not be empty");
-    }
+    require_non_empty("password", cfg.password);
     return cfg;
 }
 
 Result NamecheapDriver::validate(std::string_view driver_param_json) const {
-    [[maybe_unused]] const auto cfg = parse_params(driver_param_json);
-    return {};
+    return validate_via(driver_param_json, parse_params);
 }
 
 Task<Result> NamecheapDriver::update(AsyncUpdateContext& context) {
@@ -93,8 +90,8 @@ HttpRequest NamecheapDriver::generate_request(const NamecheapParams& cfg, const 
 //  NamecheapDriver::check_response
 // =============================================================================
 
-bool NamecheapDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
-    YADDNSC_ASYNC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
+Result NamecheapDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
+    yaddnsc::sdk::log_response_body(services, response);
 
     const auto doc = xml_raii::XmlDocument::parse(response.body);
 
@@ -104,24 +101,24 @@ bool NamecheapDriver::check_response(const AsyncHttpResponse& response, const As
         // Success — log the updated IP address from <IP>.
         const auto ip = doc->first_text("//IP/text()");
         YADDNSC_ASYNC_SDK_LOG_DEBUG(services, "DNS record updated successfully to {}", ip.value_or("unknown"));
-        return true;
+        return {};
     }
 
     // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
-    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
-        YADDNSC_ASYNC_SDK_LOG_WARN(services, "Namecheap API request failed with HTTP status {}: {}", response.status_code,
-                             truncate_for_log(response.body));
-        return false;
+    if (auto rejection = yaddnsc::sdk::transient_rejection(services, response, REJECTION_SUBJECT)) {
+        return std::unexpected(*rejection);
     }
 
     if (!doc) {
         YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Failed to parse Namecheap API response XML");
-        return false;
+        return std::unexpected(
+            yaddnsc::sdk::upstream_rejection(response, "Failed to parse Namecheap API response XML"));
     }
 
     if (!count) {
         YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Namecheap API response missing <ErrCount> element");
-        return false;
+        return std::unexpected(
+            yaddnsc::sdk::upstream_rejection(response, "Namecheap API response missing <ErrCount> element"));
     }
 
     // Error — extract error messages from <errors> children.
@@ -129,8 +126,17 @@ bool NamecheapDriver::check_response(const AsyncHttpResponse& response, const As
     if (messages.empty()) {
         YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Namecheap API returned ErrCount {} without an error message", *count);
     }
+    std::string detail;
     for (const auto& message : messages) {
-        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Namecheap API error: {}", message);
+        const auto text = fmt::format("Namecheap API error: {}", message);
+        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "{}", text);
+        if (!detail.empty()) {
+            detail += "; ";
+        }
+        detail += text;
     }
-    return false;
+    if (detail.empty()) {
+        detail = fmt::format("Namecheap API returned ErrCount {} without an error message", *count);
+    }
+    return std::unexpected(yaddnsc::sdk::upstream_rejection(response, detail));
 }

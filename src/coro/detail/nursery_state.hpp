@@ -1,15 +1,18 @@
-// Coroutine runtime — scope-owned children, result claims and completion waits.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_NURSERY_STATE_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_NURSERY_STATE_HPP
+// Coroutine runtime — scope-owned child entries and the nursery's bookkeeping.
+//
+// Two concerns that used to live here now have their own detail headers, both
+// above this one because they are NurseryState members or need it complete:
+// the by-type completion registry behind next<T>() in detail/nursery_claims.hpp
+// and the Handle reservation awaitable in detail/nursery_join.hpp.
+#ifndef YADDNSC_CORO_DETAIL_NURSERY_STATE_HPP
+#define YADDNSC_CORO_DETAIL_NURSERY_STATE_HPP
 
 #include <cassert>
 #include <coroutine>
 #include <cstddef>
 #include <exception>
 #include <memory>
-#include <optional>
 #include <stdexcept>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -18,15 +21,10 @@
 #include "coro/detail/execution_record.h"
 #include "coro/detail/promise_base.h"
 #include "coro/detail/result_state.hpp"
-#include "coro/detail/task_promise.hpp"
 #include "coro/detail/wait_operation.h"
 #include "coro/fwd.h"
-#include "coro/loop.h"
 
 namespace coro::detail {
-
-template<typename Resources, typename Fn>
-Task<void> run_nursery(std::optional<Resources> resources, std::optional<Fn> fn, NurseryPolicy policy);
 
 template<typename T>
 struct TypeTag {
@@ -270,22 +268,8 @@ struct NurseryState {
     /// Claim the oldest completed child of type `tag`, in retirement order, and
     /// reserve its result for this consumer without changing its queue position.
     /// A cancelled child has no value for next<T>(): it is unlinked but left
-    /// available for a Handle.
-    ChildEntryBase* claim_completed(const void* tag) noexcept {
-        ChildEntryBase* entry = completed_head;
-        while (entry != nullptr) {
-            ChildEntryBase* const next = entry->completed_next;
-            if (entry->type_tag == tag && entry->available()) {
-                if (entry->result()->content() == ResultContent::CANCELLED) {
-                    unlink_completed(*entry);
-                } else if (entry->result()->reserve()) {
-                    return entry;
-                }
-            }
-            entry = next;
-        }
-        return nullptr;
-    }
+    /// available for a Handle. Defined in detail/nursery_claims.hpp.
+    ChildEntryBase* claim_completed(const void* tag) noexcept;
 
     /// True while some matching result may still become claimable by a parked
     /// waiter, so that waiter stays parked instead of being told it is exhausted.
@@ -302,63 +286,23 @@ struct NurseryState {
     /// must not keep a waiter parked on someone else's reservation. A retired
     /// result reserved by a Handle is tracked here, because that reservation can
     /// come back into the queue the same way.
-    [[nodiscard]] bool has_pending(const void* tag) const noexcept {
-        for (const auto& entry : children) {
-            if (entry->owner == nullptr || entry->type_tag != tag) {
-                continue;
-            }
-            if (entry->record.phase() == ExecutionPhase::RETIRED) {
-                if (entry->result()->consumption() == ResultConsumption::RESERVED) {
-                    return true;
-                }
-                continue;  // consumed, expired, or a cancelled result next<T>() skips
-            }
-            if (entry->available()) {
-                return true;
-            }
-        }
-        return false;
-    }
+    /// Defined in detail/nursery_claims.hpp.
+    [[nodiscard]] bool has_pending(const void* tag) const noexcept;
 
     /// Return a reservation without changing the original publication order.
     /// Claimed entries stay linked until consumption, so no reinsertion is needed.
     /// Handing the reservation back makes the result claimable again, so the
     /// waiters that were told to keep waiting for it are woken here.
-    void release_claim(ChildEntryBase& entry) noexcept {
-        if (entry.owner == nullptr) {
-            return;
-        }
-        if (entry.result()->consumption() == ResultConsumption::RESERVED) {
-            entry.result()->release_reservation();
-            wake_next(entry.type_tag);
-        }
-    }
+    /// Defined in detail/nursery_claims.hpp.
+    void release_claim(ChildEntryBase& entry) noexcept;
 
-    void add_next_waiter(NextWaiter& waiter) noexcept {
-        waiter.next = next_head;
-        if (next_head != nullptr) {
-            next_head->prev = &waiter;
-        }
-        next_head = &waiter;
-        waiter.linked = true;
-    }
+    /// Link a parked next<T>() waiter into the wait list, newest first.
+    /// Defined in detail/nursery_claims.hpp.
+    void add_next_waiter(NextWaiter& waiter) noexcept;
 
-    void remove_next_waiter(NextWaiter& waiter) noexcept {
-        if (!waiter.linked) {
-            return;
-        }
-        if (waiter.prev != nullptr) {
-            waiter.prev->next = waiter.next;
-        } else {
-            next_head = waiter.next;
-        }
-        if (waiter.next != nullptr) {
-            waiter.next->prev = waiter.prev;
-        }
-        waiter.next = nullptr;
-        waiter.prev = nullptr;
-        waiter.linked = false;
-    }
+    /// Unlink a waiter; idempotent, because a woken waiter leaves the list once
+    /// and its own cancellation leaves it again. Defined in detail/nursery_claims.hpp.
+    void remove_next_waiter(NextWaiter& waiter) noexcept;
 
     /// Drop a consumed entry from the nursery. The frame is already gone — the
     /// reap transaction destroyed it — so this only releases bookkeeping and the
@@ -518,112 +462,5 @@ struct AllDoneAwaitable {
     }
 };
 
-/// A single-consumer result reservation, cancellable independently of its producer.
-template<typename T>
-struct JoinAwaiter {
-    explicit JoinAwaiter(std::shared_ptr<ChildEntry<T>> claimed) noexcept : entry(std::move(claimed)) {}
-
-    JoinAwaiter(const JoinAwaiter&) = delete;
-    JoinAwaiter& operator=(const JoinAwaiter&) = delete;
-
-    // Started frames are reaped by the loop, never destroyed while parked. Do
-    // not release the reservation here: a waiter that is still armed or still
-    // holding the result would refer to this object.
-    ~JoinAwaiter() noexcept {
-        assert(!reserved && !wait_.subscribed() && "destroying an active Handle result wait");
-        if (reserved || wait_.subscribed()) {
-            std::terminate();
-        }
-    }
-
-    std::shared_ptr<ChildEntry<T>> entry;
-    CancelScope* scope_ = nullptr;
-    CancelSubscription subscription_{};
-    WaitOperation wait_{subscription_};
-    bool reserved = false;
-
-    constexpr bool await_ready() const noexcept { return false; }
-
-    /// Reserves the result for this wait and parks unless the reap transaction
-    /// already published it. Cancelling the wait releases the reservation; it
-    /// never consumes the result and never cancels the producer.
-    template<typename Promise>
-    bool await_suspend(std::coroutine_handle<Promise> handle) {
-        PromiseBase& waiter = handle.promise();
-        scope_ = waiter.exec->scope();
-        if (scope_ != nullptr) {
-            scope_->throw_if_cancelled();
-        }
-        if (entry == nullptr || entry->owner == nullptr || !entry->available()) {
-            throw std::logic_error("Handle requires an unclaimed child result");
-        }
-        entry->owner->validate_consumer(*waiter.exec);
-        if (!entry->result()->reserve()) {
-            throw std::logic_error("Handle result is already reserved");
-        }
-        reserved = true;
-        // A reservation change may release a next<T>() waiter that is looking for
-        // this very child.
-        entry->owner->wake_next(entry->type_tag);
-        if (entry->result()->ready()) {
-            return false;
-        }
-        wait_.begin(*waiter.exec);
-        entry->join_waiter = &wait_;
-        if (scope_ != nullptr) {
-            wait_.subscribe_cancel(*scope_, this, &JoinAwaiter<T>::on_cancel);
-        }
-        wait_.commit_suspend();
-        return true;
-    }
-
-    /// Hand the reservation back so another consumer may still claim the result.
-    void release() noexcept {
-        if (!reserved) {
-            return;
-        }
-        if (entry->join_waiter == &wait_) {
-            entry->join_waiter = nullptr;
-        }
-        entry->result()->release_reservation();
-        reserved = false;
-        if (entry->owner != nullptr) {
-            entry->owner->wake_next(entry->type_tag);
-        }
-    }
-
-    T await_resume() {
-        wait_.begin_resume();
-        wait_.finish();
-        if (scope_ != nullptr && scope_->cancelled()) {
-            release();
-            scope_->throw_if_cancelled();
-        }
-        ResultState<T>& outcome = entry->outcome();
-        // Consumption is committed before the payload moves: a throwing move
-        // still ends the consumption, so a half-moved value is never retried.
-        outcome.commit_consumed();
-        entry->join_waiter = nullptr;
-        reserved = false;
-        const ConsumedEntry consume{*entry};
-        if (outcome.content() != ResultContent::VALUE) {
-            std::rethrow_exception(outcome.error());
-        }
-        if constexpr (std::is_void_v<T>) {
-            return;
-        } else {
-            return outcome.take_value();
-        }
-    }
-
-private:
-    /// A cancelled wait gives the reservation back and resumes; the producer is
-    /// untouched, and the result stays consumable.
-    static CancelAction on_cancel(void* context) noexcept {
-        static_cast<JoinAwaiter<T>*>(context)->release();
-        return CancelAction::RESUME;
-    }
-};
-
 }  // namespace coro::detail
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_NURSERY_STATE_HPP
+#endif  // YADDNSC_CORO_DETAIL_NURSERY_STATE_HPP

@@ -33,6 +33,7 @@
 #include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/http/types.h"
 #include "infrastructure/network/transport/stream.h"
+#include "infrastructure/uri/uri.h"
 #include "support/util/random.hpp"
 
 namespace {
@@ -92,7 +93,7 @@ TEST(DnsResolvers, SourceFailure_IsOperationalAndPrecedesIo) {
     dot_options.factory = factory;
     std::vector<std::unique_ptr<dns::Resolver>> resolvers;
     resolvers.push_back(std::make_unique<dns::ClassicResolver>(address, 9));
-    resolvers.push_back(std::make_unique<dns::DohResolver>("https://127.0.0.1/dns-query", std::move(http_options)));
+    resolvers.push_back(std::make_unique<dns::DohResolver>(*Uri::parse("https://127.0.0.1/dns-query"), std::move(http_options)));
     resolvers.push_back(std::make_unique<dns::DotResolver>("127.0.0.1", 853, std::move(dot_options)));
     for (const auto& resolver : resolvers) {
         SCOPED_TRACE(resolver->name());
@@ -121,7 +122,7 @@ TEST(Dispatcher, SourceFailure_BackendsReturnConnectionAndRetry) {
                 dns::EndpointOptions dot_options;
                 dot_options.factory = factory;
                 resolvers.push_back(
-                    std::make_unique<dns::DohResolver>("https://127.0.0.1/dns-query", std::move(http_options)));
+                    std::make_unique<dns::DohResolver>(*Uri::parse("https://127.0.0.1/dns-query"), std::move(http_options)));
                 resolvers.push_back(std::make_unique<dns::DotResolver>("127.0.0.1", 853, std::move(dot_options)));
             }
             dns::Policy policy;

@@ -15,8 +15,8 @@
 // Thread safety: none. A slot is written and read on the loop thread.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_RESULT_STATE_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_RESULT_STATE_HPP
+#ifndef YADDNSC_CORO_DETAIL_RESULT_STATE_HPP
+#define YADDNSC_CORO_DETAIL_RESULT_STATE_HPP
 
 #include <cassert>
 #include <cstdint>
@@ -196,4 +196,4 @@ public:
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_RESULT_STATE_HPP
+#endif  // YADDNSC_CORO_DETAIL_RESULT_STATE_HPP

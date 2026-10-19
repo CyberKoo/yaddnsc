@@ -10,8 +10,8 @@
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
-#include "infrastructure/plugin/async_services.h"
-#include "infrastructure/plugin/bridge.h"
+#include "infrastructure/plugin/async/services.h"
+#include "infrastructure/plugin/detail/cycle.h"
 #include "mocks/null_logger.h"
 
 namespace {
@@ -55,8 +55,8 @@ TEST(AsyncServices, HttpStartRejectsAShortRequestAndClearsOpId) {
     yaddnsc_error error = make_error();
     uint64_t op_id = 0xdeadbeef;  // NOLINT: sentinel; must be overwritten
 
-    const yaddnsc_status status = fixture.context.services().http_start(
-        fixture.context.services().context, &request, &op_id, &error);
+    const yaddnsc_status status =
+        fixture.context.services().http_start(fixture.context.services().context, &request, &op_id, &error);
 
     EXPECT_EQ(status, YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(op_id, 0u);
@@ -69,8 +69,8 @@ TEST(AsyncServices, HttpStartEntryClearsOpIdWhenTheRequestIsNull) {
     yaddnsc_error error = make_error();
     uint64_t op_id = 0xdeadbeef;  // NOLINT: sentinel; must be overwritten
 
-    const yaddnsc_status status = fixture.context.services().http_start(
-        fixture.context.services().context, nullptr, &op_id, &error);
+    const yaddnsc_status status =
+        fixture.context.services().http_start(fixture.context.services().context, nullptr, &op_id, &error);
 
     EXPECT_EQ(status, YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(op_id, 0u);
@@ -82,8 +82,8 @@ TEST(AsyncServices, HttpStartStillAcceptsACompleteRequest) {
     yaddnsc_error error = make_error();
     uint64_t op_id = 0;
 
-    const yaddnsc_status status = fixture.context.services().http_start(
-        fixture.context.services().context, &request, &op_id, &error);
+    const yaddnsc_status status =
+        fixture.context.services().http_start(fixture.context.services().context, &request, &op_id, &error);
 
     EXPECT_EQ(status, YADDNSC_STATUS_OK);
     EXPECT_NE(op_id, 0u);

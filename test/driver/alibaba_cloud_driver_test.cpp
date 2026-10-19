@@ -50,7 +50,7 @@ TEST(AlibabaCloudDriverTest, Descriptor_ReturnsExpectedMetadata) {
     EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
               "Updates DNS records via the Alibaba Cloud DNS API");
     EXPECT_EQ(std::string_view(descriptor->author.data, descriptor->author.size), "Kotarou");
-    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "1.0.0");
+    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "1.1.0");
     EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_A, 0u);
     EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_AAAA, 0u);
 }
@@ -180,6 +180,8 @@ TEST(AlibabaCloudDriverTest, Update_Non200WithErrorBody_ReturnsUpstreamRejected)
              R"("HostId":"alidns.aliyuncs.com","Recommend":"https://troubleshoot.api.aliyun.com/qiyu/xxx"})");
     const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
+    // The provider's own error detail reaches the update result.
+    EXPECT_EQ(result.error_message, "Alibaba Cloud API error InvalidRecordId: The specified RecordId does not exist");
 }
 
 TEST(AlibabaCloudDriverTest, Update_Non200UnparseableBody_ReturnsUpstreamRejected) {

@@ -3,12 +3,16 @@
 // services/context families must not convert, and each exchange shape must be
 // unusable through the other mode.
 
-#include <concepts>
 #include <type_traits>
 #include <utility>
 
+#include <concepts>
+
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/async_driver.hpp>
+#ifdef YADDNSC_SDK_DRIVER_HPP
+#error "Async SDK must not include synchronous driver entry machinery"
+#endif
 #include <yaddnsc/sdk/driver.hpp>
 
 namespace sdk = yaddnsc::sdk;
@@ -21,9 +25,8 @@ concept SyncExchange = requires(const T& services, sdk::HttpRequest request) {
 };
 
 template<typename T>
-concept AsyncExchange = requires(const T& services, sdk::HttpRequest request) {
-    services.exchange(std::move(request)).await_ready();
-};
+concept AsyncExchange =
+    requires(const T& services, sdk::HttpRequest request) { services.exchange(std::move(request)).await_ready(); };
 
 static_assert(SyncExchange<sdk::Services>);
 static_assert(!SyncExchange<sdk::AsyncServices>);
@@ -41,4 +44,11 @@ static_assert(!std::is_constructible_v<sdk::UpdateContext, const sdk::UpdateRequ
 
 TEST(SdkAsyncSeparation, TheTwoInterfacesDoNotConvertOrShareAnExchangeShape) {
     SUCCEED();
+}
+
+TEST(SdkAsyncSeparation, NullLoggingTargetsNeverEvaluateArguments) {
+    int evaluations = 0;
+    YADDNSC_SDK_LOG_DEBUG(nullptr, "{}", ++evaluations);
+    YADDNSC_ASYNC_SDK_LOG_DEBUG(nullptr, "{}", ++evaluations);
+    EXPECT_EQ(evaluations, 0);
 }

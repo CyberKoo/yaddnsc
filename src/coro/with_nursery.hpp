@@ -1,6 +1,6 @@
 // Coroutine runtime — structured resource ownership and child supervision.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_WITH_NURSERY_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_WITH_NURSERY_HPP
+#ifndef YADDNSC_CORO_WITH_NURSERY_HPP
+#define YADDNSC_CORO_WITH_NURSERY_HPP
 
 #include <cstddef>
 #include <functional>
@@ -50,4 +50,4 @@ template<typename Fn>
 
 }  // namespace coro
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_WITH_NURSERY_HPP
+#endif  // YADDNSC_CORO_WITH_NURSERY_HPP

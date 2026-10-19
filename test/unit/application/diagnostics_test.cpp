@@ -1,3 +1,4 @@
+#include "application/config_validation.h"
 #include "application/diagnostics.h"
 
 #include <chrono>

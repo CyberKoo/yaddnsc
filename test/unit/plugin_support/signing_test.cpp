@@ -5,6 +5,7 @@
 //   - sha256 / sha1 produce known digests.
 //   - sha256_hex returns correct hex string.
 //   - hmac_sha256 / hmac_sha1 with known test vectors.
+//   - as_bytes borrows text as raw bytes (empty, round-trip, digest parity).
 //   - hex_encode with various inputs (including empty).
 //   - base64_encode with various input lengths (0, 1, 2, 3+ bytes)
 //     to cover all remaining-byte branches.
@@ -152,6 +153,28 @@ TEST(SigningTest, HmacSha1_KnownTestVector) {
     auto hmac = Signing::hmac_sha1(key, data);
     auto hex = Signing::hex_encode(hmac);
     EXPECT_EQ(hex, HMAC_SHA1_EXPECTED);
+}
+
+// =============================================================================
+//  as_bytes
+// =============================================================================
+
+TEST(SigningTest, AsBytes_EmptyView) {
+    const auto bytes = Signing::as_bytes(std::string_view{});
+    EXPECT_TRUE(bytes.empty());
+}
+
+TEST(SigningTest, AsBytes_ViewsTextAsRawBytes) {
+    const std::string text = "AWS4secret";
+    const auto bytes = Signing::as_bytes(text);
+    ASSERT_EQ(bytes.size(), text.size());
+    for (std::size_t i = 0; i < text.size(); ++i)
+        EXPECT_EQ(bytes[i], static_cast<std::uint8_t>(text[i]));
+}
+
+TEST(SigningTest, AsBytes_HashesTheSameBytes) {
+    const std::string payload = "ChangeResourceRecordSets";
+    EXPECT_EQ(Signing::sha256_hex(payload), Signing::hex_encode(Signing::sha256(Signing::as_bytes(payload))));
 }
 
 // =============================================================================

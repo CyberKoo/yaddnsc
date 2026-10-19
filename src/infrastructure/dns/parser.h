@@ -16,6 +16,17 @@
 namespace dns {
 /// DNS name equality: ASCII case-insensitive, ignoring the terminal root dot.
 [[nodiscard]] bool name_matches(std::string_view first, std::string_view second) noexcept;
+
+/// Decode a wire-format name at `offset`, following compression pointers
+/// (RFC 1035 §4.1.4), and advance `offset` past it. The result is presented in
+/// dotted-decimal form, so label boundaries survive.
+/// @throws DnsLookupException on malformed input.
+[[nodiscard]] std::string decompress_name(std::span<const std::uint8_t> wire, std::size_t& offset);
+
+/// Present a name in the same dotted-decimal form decompress_name() produces:
+/// a literal dot, backslash or control octet is escaped. Dots stay separators.
+[[nodiscard]] std::string present_name(std::string_view name);
+
 // =============================================================================
 // RecordParser — self-contained DNS wire-format parser (no libresolv)
 // =============================================================================
@@ -98,10 +109,6 @@ private:
     // ── Internal parsing (fully self-contained, no libresolv) ──
     [[nodiscard]] static ParsedMessage parse_message(std::span<const std::uint8_t> data, bool copy_rdata = true);
 
-    // ── Name decompression (RFC 1035 §4.1.4) ──
-    // Returns the decompressed name and advances `offset` past the wire-format name.
-    [[nodiscard]] static std::string decompress_name(std::span<const std::uint8_t> wire, size_t& offset);
-
     // ── Resource-record parsing ──
     // Parses a single RR from the wire, advancing `offset` past it.
     [[nodiscard]] static ResourceRecord parse_rr(std::span<const std::uint8_t> data, size_t& offset, bool copy_rdata);
@@ -127,10 +134,6 @@ private:
     // ── EDNS0 parsing ──
     [[nodiscard]] static std::optional<EdnsInfo> parse_edns(const ResourceRecord& rr,
                                                             std::span<const std::uint8_t> wire);
-
-    /// Validate the CNAME chain and remove foreign owners/classes.
-    static void filter_answers(ParsedMessage& message, std::span<const std::uint8_t> wire, const std::string& host,
-                               std::optional<RecordType> type_filter);
 
     ParsedMessage message_;
 };

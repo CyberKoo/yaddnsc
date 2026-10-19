@@ -76,10 +76,8 @@ struct AppConfig {
 /// Load the application configuration from a JSON file.
 /// @param config_path  Path to the JSON configuration file.
 /// @return             Parsed AppConfig struct.
+/// @throws ConfigException if the file is missing or cannot be parsed.
 AppConfig load_config(const std::string& config_path);
-
-/// Serialize a diagnostic view of a config with sensitive driver fields redacted.
-[[nodiscard]] std::string redacted_json(AppConfig config);
 }  // namespace Config
 
 #endif  // YADDNSC_INFRASTRUCTURE_CONFIG_CONFIG_H

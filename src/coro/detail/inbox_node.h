@@ -1,6 +1,6 @@
 // Coroutine runtime — cross-thread inbox node.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_INBOX_NODE_H
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_INBOX_NODE_H
+#ifndef YADDNSC_CORO_DETAIL_INBOX_NODE_H
+#define YADDNSC_CORO_DETAIL_INBOX_NODE_H
 
 namespace coro::detail {
 
@@ -28,4 +28,4 @@ struct InboxNode {
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_INBOX_NODE_H
+#endif  // YADDNSC_CORO_DETAIL_INBOX_NODE_H

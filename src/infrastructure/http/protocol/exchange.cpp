@@ -4,12 +4,10 @@
 
 #include "exchange.h"
 
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <picohttpparser.h>
-#include <spdlog/spdlog.h>
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -21,14 +19,17 @@
 #include <utility>
 #include <vector>  // IWYU pragma: keep — range-for over the std::vector returned by StringUtil::split; clangd sees no spelled use
 
+#include <picohttpparser.h>
+#include <spdlog/spdlog.h>
+
+#include "infrastructure/http/error.h"
 #include "infrastructure/http/protocol/field_chars.hpp"
 #include "infrastructure/http/protocol/read_window.h"
 #include "infrastructure/http/protocol/wire.h"
-#include "infrastructure/http/wire_request.h"
-#include "support/fmt.hpp"
 #include "infrastructure/network/transport/stream.h"
-#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "support/fmt.hpp"
 #include "support/string_util.hpp"  // IWYU pragma: keep — the StringUtil namespace alias lives here
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "yaddnsc/util/string_util.hpp"
 
 namespace http::protocol {
@@ -59,49 +60,10 @@ struct HeaderOutcome {
     Error error{ErrorCode::RESPONSE_PARSE_FAILED, {}};
 };
 
-/// The request target without its query string.
-///
-/// A query string can carry provider credentials, so neither diagnostics nor
-/// log lines may include it.
-[[nodiscard]] std::string_view request_path(const std::string_view target) noexcept {
-    return target.substr(0, target.find('?'));
-}
-
-/// "METHOD /path" for error messages — never the query string.
+/// "METHOD /path" for error messages — never the query string, which can carry
+/// provider credentials.
 [[nodiscard]] std::string stage_context(const WireRequest& request) {
-    return fmt::format("{} {}", method_name(request.method), request_path(request.target));
-}
-
-[[nodiscard]] bool valid_token_list(const std::string_view value) noexcept {
-    std::size_t pos = 0;
-    do {
-        const auto comma = value.find(',', pos);
-        const auto token = StringUtil::trim(value.substr(pos, comma == std::string_view::npos ? comma : comma - pos));
-        if (!is_token(token)) {
-            return false;
-        }
-        if (comma == std::string_view::npos) {
-            return true;
-        }
-        pos = comma + 1;
-    } while (pos < value.size());
-    return false;
-}
-
-[[nodiscard]] bool has_token(const std::string_view value, const std::string_view wanted) noexcept {
-    std::size_t pos = 0;
-    while (pos < value.size()) {
-        const auto comma = value.find(',', pos);
-        if (StringUtil::iequals(
-                StringUtil::trim(value.substr(pos, comma == std::string_view::npos ? comma : comma - pos)), wanted)) {
-            return true;
-        }
-        if (comma == std::string_view::npos) {
-            break;
-        }
-        pos = comma + 1;
-    }
-    return false;
+    return fmt::format("{} {}", method_name(request.method), redacted_url(request.target));
 }
 
 [[nodiscard]] bool has_bare_lf(const std::string_view value) noexcept {
@@ -247,64 +209,6 @@ struct ChunkedBody {
     }
     rest.assign(bytes.substr(empty ? 2 : end + 4));
     return trailers;
-}
-
-[[nodiscard]] bool is_request_target(const std::string_view target) noexcept {
-    if (target == "*") {
-        return true;
-    }
-    if (target.empty() || target.front() != '/') {
-        return false;
-    }
-    return std::ranges::none_of(target, [](const char character) {
-        const auto value = static_cast<unsigned char>(character);
-        return value <= 0x20 || value == 0x7f;
-    });
-}
-
-[[nodiscard]] std::optional<Error> validate_wire_request(const WireRequest& request) {
-    if (!is_request_target(request.target)) {
-        return Error{ErrorCode::INVALID_REQUEST, "invalid HTTP request target"};
-    }
-
-    std::size_t hosts = 0;
-    std::size_t connections = 0;
-    std::optional<std::size_t> content_length;
-    for (const auto& [name, value] : request.headers) {
-        if (!is_token(name) || !is_field_value(value) ||
-            (StringUtil::iequals(name, "connection") && !valid_token_list(value))) {
-            return Error{ErrorCode::INVALID_REQUEST, "invalid HTTP request header"};
-        }
-        if (StringUtil::iequals(name, "upgrade") ||
-            (StringUtil::iequals(name, "connection") && has_token(value, "upgrade"))) {
-            return Error{ErrorCode::UNSUPPORTED_PROTOCOL, "HTTP protocol upgrade is not supported"};
-        }
-        if (StringUtil::iequals(name, "transfer-encoding") || StringUtil::iequals(name, "trailer")) {
-            return Error{ErrorCode::INVALID_REQUEST, "request transfer coding and trailers are not supported"};
-        }
-        if (StringUtil::iequals(name, "host")) {
-            ++hosts;
-        }
-        if (StringUtil::iequals(name, "connection")) {
-            ++connections;
-        }
-        if (StringUtil::iequals(name, "content-length")) {
-            if (content_length) {
-                return Error{ErrorCode::INVALID_REQUEST, "conflicting HTTP framing or routing headers"};
-            }
-            std::size_t parsed{};
-            const auto [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), parsed);
-            if (value.empty() || ec != std::errc{} || ptr != value.data() + value.size()) {
-                return Error{ErrorCode::INVALID_REQUEST, "invalid HTTP Content-Length"};
-            }
-            content_length = parsed;
-        }
-    }
-    if (hosts > 1 || connections > 1 ||
-        (content_length && *content_length != (request.body ? request.body->size() : 0))) {
-        return Error{ErrorCode::INVALID_REQUEST, "conflicting HTTP framing or routing headers"};
-    }
-    return std::nullopt;
 }
 
 /// Parse the accumulated bytes as response headers in a single pass.
@@ -569,9 +473,6 @@ coro::Task<std::expected<RawResponse, Error>> exchange(net::Stream& stream, cons
     const std::string context = stage_context(request);
 
     // ── Send ──
-    if (const auto invalid = validate_wire_request(request)) {
-        co_return std::unexpected(*invalid);
-    }
     const auto wire = serialize(request);
     const auto* wire_bytes = reinterpret_cast<const std::uint8_t*>(wire.data());
     if (auto sent = co_await stream.send_all(std::span(wire_bytes, wire.size())); !sent) {
@@ -689,22 +590,20 @@ coro::Task<std::expected<RawResponse, Error>> exchange(net::Stream& stream, cons
     // Leftover bytes belong to the next response on a keep-alive connection.
     pending = window.take_rest();
 
-    SPDLOG_TRACE("{} \"{}\" -> {} ({} bytes)", method_name(request.method), request_path(request.target),
+    SPDLOG_TRACE("{} \"{}\" -> {} ({} bytes)", method_name(request.method), redacted_url(request.target),
                  headers.status, body->size());
-
-    const bool request_closes = std::ranges::any_of(request.headers, [](const auto& header) {
-        return StringUtil::iequals(header.first, "connection") && has_token(header.second, "close");
-    });
-    const bool reusable = !request_closes && !headers.connection_close &&
-                          (no_body || headers.has_content_length || headers.is_chunked) &&
-                          (headers.minor_version == 1 || headers.connection_keep_alive);
 
     co_return RawResponse{
         .status = headers.status,
-        .version = headers.minor_version == 0 ? HttpVersion::V1_0 : HttpVersion::V1_1,
-        .reusable = reusable,
-        .keep_alive_max = headers.keep_alive_max,
-        .keep_alive_timeout = headers.keep_alive_timeout,
+        .framing =
+            {
+                .version = headers.minor_version == 0 ? HttpVersion::V1_0 : HttpVersion::V1_1,
+                .self_delimiting = no_body || headers.has_content_length || headers.is_chunked,
+                .connection_close = headers.connection_close,
+                .keep_alive = headers.connection_keep_alive,
+                .max = headers.keep_alive_max,
+                .timeout = headers.keep_alive_timeout,
+            },
         .headers = std::move(headers.headers),
         .trailers = std::move(trailers),
         .body = std::move(*body),

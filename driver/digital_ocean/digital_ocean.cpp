@@ -1,5 +1,6 @@
 #include "digital_ocean.h"
 
+#include <expected>
 #include <optional>
 #include <string>
 #include <vector>
@@ -8,7 +9,6 @@
 #include <yaddnsc/sdk/async_driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/format.hpp>
-#include <yaddnsc/sdk/redact.hpp>
 
 #include "config.hpp"
 #include "response.hpp"
@@ -22,30 +22,26 @@ using yaddnsc::sdk::HttpRequest;
 using yaddnsc::sdk::Method;
 using yaddnsc::sdk::Result;
 using yaddnsc::sdk::Task;
-using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 constexpr std::string_view API_URL = "https://api.digitalocean.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
 constexpr std::string_view DRIVER_NAME = "digital_ocean";
+/// Subject of the shared rejection messages.
+constexpr std::string_view REJECTION_SUBJECT = "DigitalOcean API request";
 }  // namespace
 
 YADDNSC_DEFINE_ASYNC_DRIVER(DigitalOceanDriver, "digital_ocean", "Updates DNS records via the DigitalOcean API", "Kotarou",
-                      "2.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+                      "2.1.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 DigitalOceanParams DigitalOceanDriver::parse_params(std::string_view json) {
     auto cfg = parse_config<DigitalOceanParams>(json);
-    if (cfg.record_id.empty()) {
-        throw yaddnsc::sdk::ConfigParseError("Required parameter 'record_id' must not be empty");
-    }
-    if (cfg.token.empty()) {
-        throw yaddnsc::sdk::ConfigParseError("Required parameter 'token' must not be empty");
-    }
+    require_non_empty("record_id", cfg.record_id);
+    require_non_empty("token", cfg.token);
     return cfg;
 }
 
 Result DigitalOceanDriver::validate(std::string_view driver_param_json) const {
-    [[maybe_unused]] const auto cfg = parse_params(driver_param_json);
-    return {};
+    return validate_via(driver_param_json, parse_params);
 }
 
 Task<Result> DigitalOceanDriver::update(AsyncUpdateContext& context) {
@@ -62,8 +58,8 @@ Task<Result> DigitalOceanDriver::update(AsyncUpdateContext& context) {
     return run_update(context, DRIVER_NAME, request, check_response);
 }
 
-bool DigitalOceanDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
-    YADDNSC_ASYNC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
+Result DigitalOceanDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
+    yaddnsc::sdk::log_response_body(services, response);
 
     // Success response: { "domain_record": { ... } }. Tolerant parsing means
     // any JSON object parses, so the presence of domain_record is what
@@ -71,24 +67,23 @@ bool DigitalOceanDriver::check_response(const AsyncHttpResponse& response, const
     if (auto result = parse_response<DigitalOceanDomainResponse>(response.body); result && result->domain_record) {
         auto& record = *result->domain_record;
         YADDNSC_ASYNC_SDK_LOG_DEBUG(services, "DNS record updated successfully: {} {} -> {} (TTL: {})", record.type,
-                              record.name, record.data, record.ttl);
-        return true;
+                                    record.name, record.data, record.ttl);
+        return {};
     }
 
     // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
-    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
-        YADDNSC_ASYNC_SDK_LOG_WARN(services, "DigitalOcean API request failed with HTTP status {}: {}", response.status_code,
-                             truncate_for_log(response.body));
-        return false;
+    if (auto rejection = yaddnsc::sdk::transient_rejection(services, response, REJECTION_SUBJECT)) {
+        return std::unexpected(*rejection);
     }
 
     // Error response: { "id": "...", "message": "..." }
     if (auto result = parse_response<DigitalOceanErrorResponse>(response.body);
         result && (!result->id.empty() || !result->message.empty())) {
-        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "DigitalOcean API error {}: {}", result->id, result->message);
-        return false;
+        const auto text = fmt::format("DigitalOcean API error {}: {}", result->id, result->message);
+        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "{}", text);
+        return std::unexpected(yaddnsc::sdk::upstream_rejection(response, text));
     }
 
     YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Failed to parse DigitalOcean API response");
-    return false;
+    return std::unexpected(yaddnsc::sdk::upstream_rejection(response, "Failed to parse DigitalOcean API response"));
 }

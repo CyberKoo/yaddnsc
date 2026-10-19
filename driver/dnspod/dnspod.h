@@ -30,9 +30,10 @@ private:
     [[nodiscard]] static yaddnsc::sdk::HttpRequest generate_request(const DnsPodParams& cfg,
                                                                     const yaddnsc::sdk::UpdateRequest& params);
 
-    /// Validate the DNSPod API response.
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
-                                             const yaddnsc::sdk::AsyncServices& services);
+    /// Validate the DNSPod API response. A rejected response reports the
+    /// provider's own error detail.
+    [[nodiscard]] static yaddnsc::sdk::Result check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                                             const yaddnsc::sdk::AsyncServices& services);
 
     /// Convert a DNSPod error code to a human-readable description.
     [[nodiscard]] static std::string_view describe_error_code(std::string_view code);

@@ -19,8 +19,8 @@
 // scope_outcome.hpp and the body they share in detail/scope_runner.hpp.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_SCOPE_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_SCOPE_HPP
+#ifndef YADDNSC_CORO_SCOPE_HPP
+#define YADDNSC_CORO_SCOPE_HPP
 
 #include <utility>
 
@@ -91,4 +91,4 @@ template<typename Fn>
 
 }  // namespace coro
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_SCOPE_HPP
+#endif  // YADDNSC_CORO_SCOPE_HPP

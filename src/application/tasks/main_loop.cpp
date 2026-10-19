@@ -5,7 +5,6 @@
 #include "main_loop.h"
 
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <optional>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
@@ -13,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-#include "application/diagnostics.h"
+#include "application/config_validation.h"
 #include "application/log_macros.h"
 #include "application/ports/gateway.h"
 #include "application/services.h"
@@ -117,7 +116,7 @@ coro::Task<bool> run_work(const std::shared_ptr<const domain::RuntimeConfig>& co
 
 }  // namespace
 
-coro::Task<int> main_loop(std::shared_ptr<const domain::RuntimeConfig> config, RuntimeServices services) {
+coro::Task<MainLoopOutcome> main_loop(std::shared_ptr<const domain::RuntimeConfig> config, RuntimeServices services) {
     const std::size_t task_count = count_records(*config);
 
     coro::CancelScope* work_scope = nullptr;
@@ -145,7 +144,7 @@ coro::Task<int> main_loop(std::shared_ptr<const domain::RuntimeConfig> config, R
         // run_work returns false only when validation rejected the
         // configuration; the rejection itself is already logged. The startup
         // has to fail so a supervisor does not restart into the same mistake.
-        co_return EXIT_FAILURE;
+        co_return MainLoopOutcome::ConfigurationRejected;
     }
     if (task_count > 0 && !services.stop_requested()) {
         // Defensive: subdomain tasks retry failed cycles after defects, so a
@@ -154,9 +153,9 @@ coro::Task<int> main_loop(std::shared_ptr<const domain::RuntimeConfig> config, R
         // with a failure status so a supervisor (Restart=on-failure) starts
         // the daemon again instead of leaving a husk.
         YLOG_CRITICAL(services.logger, "All subdomain tasks have died; exiting with a failure status");
-        co_return EXIT_FAILURE;
+        co_return MainLoopOutcome::UpdateTasksEnded;
     }
-    co_return EXIT_SUCCESS;
+    co_return MainLoopOutcome::GracefulShutdown;
 }
 
 }  // namespace app

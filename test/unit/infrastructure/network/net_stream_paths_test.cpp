@@ -7,7 +7,7 @@
 // reaches the wire.
 //
 // Scope: loopback sockets only. The peer here is a raw socket that never
-// completes a handshake, so every connect ends in CONNECTION_FAILED once the
+// completes a handshake, so every connect ends in TLS_HANDSHAKE_FAILED once the
 // ClientHello has been observed. A real TLS peer and certificate verification
 // stay in the component suite.
 //
@@ -488,7 +488,11 @@ TEST(TlsCapture, splitRecords_PreserveSniAndAlpnAndOwnTheExtensionBytes) {
         std::vector<std::uint8_t> extensions{0, 16, 0, 5, 0, 3, 2, 'h', '2'};
         if (with_sni) {
             const std::array<std::uint8_t, 10> sni{0, 0, 0, 6, 0, 4, 0, 0, 1, 'a'};
-            extensions.insert(extensions.end(), sni.begin(), sni.end());
+            // push_back loops: GCC 15's -Warray-bounds misfires on the
+            // vector range-insert inlining path under -O2.
+            for (const std::uint8_t byte : sni) {
+                extensions.push_back(byte);
+            }
         }
         // Handshake header, legacy_version and random, then empty session ID,
         // one cipher suite, null compression and the declared extensions.
@@ -496,8 +500,14 @@ TEST(TlsCapture, splitRecords_PreserveSniAndAlpnAndOwnTheExtensionBytes) {
         hello[0] = 1;
         hello[4] = 3;
         hello[5] = 3;
-        hello.insert(hello.end(), {0, 0, 2, 0x13, 1, 1, 0, 0, static_cast<std::uint8_t>(extensions.size())});
-        hello.insert(hello.end(), extensions.begin(), extensions.end());
+        for (const std::uint8_t byte :
+             {std::uint8_t{0}, std::uint8_t{0}, std::uint8_t{2}, std::uint8_t{0x13}, std::uint8_t{1}, std::uint8_t{1},
+              std::uint8_t{0}, std::uint8_t{0}, static_cast<std::uint8_t>(extensions.size())}) {
+            hello.push_back(byte);
+        }
+        for (const std::uint8_t byte : extensions) {
+            hello.push_back(byte);
+        }
         hello[3] = static_cast<std::uint8_t>(hello.size() - 4);
 
         // Exercise every boundary, including inside the handshake header,
@@ -574,7 +584,7 @@ TEST(TlsStreamPaths, ensure_connected_WithoutTrustContext_FailsClosedBeforeWriti
     run_task(task());
 
     EXPECT_TRUE(error.has_value());
-    EXPECT_EQ(*error, IoError::CONNECTION_FAILED);
+    EXPECT_EQ(*error, IoError::TLS_HANDSHAKE_FAILED);
     // A stream with no trust material must not negotiate: nothing is written.
     EXPECT_TRUE(peer.captured().empty());
     EXPECT_FALSE(stream.connected());
@@ -701,7 +711,7 @@ TEST(TlsStreamPaths, ensure_connected_WithMalformedAlpnList_FailsClosedBeforeWri
     run_task(task());
 
     EXPECT_TRUE(error.has_value());
-    EXPECT_EQ(*error, IoError::CONNECTION_FAILED);
+    EXPECT_EQ(*error, IoError::TLS_HANDSHAKE_FAILED);
     // An ALPN list OpenSSL rejects must not reach the wire either.
     EXPECT_TRUE(peer.captured().empty());
     EXPECT_FALSE(stream.connected());

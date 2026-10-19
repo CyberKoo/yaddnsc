@@ -48,7 +48,7 @@ TEST(VultrDriverTest, Descriptor_ReturnsExpectedMetadata) {
     EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
               "Updates DNS records via the Vultr API");
     EXPECT_EQ(std::string_view(descriptor->author.data, descriptor->author.size), "Kotarou");
-    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "1.0.0");
+    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "1.1.0");
     EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_A, 0u);
     EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_AAAA, 0u);
 }
@@ -129,6 +129,8 @@ TEST(VultrDriverTest, Update_Non204_WithErrorBody_ReturnsUpstreamRejected) {
     fake.queue_response(400, R"({"error":"Invalid record ID","status":400})");
     const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
+    // The provider's own error detail reaches the update result.
+    EXPECT_EQ(result.error_message, "Vultr API error with status 400: Invalid record ID");
 }
 
 TEST(VultrDriverTest, Update_Non204_AuthError_ReturnsAuthenticationFailed) {

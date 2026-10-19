@@ -1,6 +1,6 @@
 // Coroutine runtime — internal fd registration node.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_FD_ENTRY_H
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_FD_ENTRY_H
+#ifndef YADDNSC_CORO_DETAIL_FD_ENTRY_H
+#define YADDNSC_CORO_DETAIL_FD_ENTRY_H
 
 #include <cstddef>
 
@@ -27,4 +27,4 @@ struct FdEntry {
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_FD_ENTRY_H
+#endif  // YADDNSC_CORO_DETAIL_FD_ENTRY_H

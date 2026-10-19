@@ -397,7 +397,7 @@ endforeach ()
 #     <thread>, <future> or BS::thread_pool include is allowed only in the
 #     runtime (src/coro/) and in the single place that must hand
 #     a result back across the synchronous plugin ABI boundary
-#     (src/infrastructure/plugin/bridge.*). Everywhere else in the
+#     (src/infrastructure/plugin/sync/bridge.*). Everywhere else in the
 #     application / infrastructure / composition layers, route the work through
 #     coro::offload or a coro::Task. The plugin boundary (driver/) is a separate
 #     binary boundary and is deliberately not checked; src/support/ is a generic
@@ -421,7 +421,7 @@ file(GLOB_RECURSE concurrency_check_files RELATIVE ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src/composition/*.cpp)
 # The runtime itself (src/coro/) is deliberately not globbed: that is where
 # these facilities belong.
-list(FILTER concurrency_check_files EXCLUDE REGEX "^src/infrastructure/plugin/bridge\\.(h|cpp)$")
+list(FILTER concurrency_check_files EXCLUDE REGEX "^src/infrastructure/plugin/sync/bridge\\.(h|cpp)$")
 foreach (f ${concurrency_check_files})
     file(STRINGS ${PROJECT_SOURCE_DIR}/${f} lines REGEX "${INC_RE}[<\"]((thread|future)>|BS_thread_pool)")
     foreach (line ${lines})

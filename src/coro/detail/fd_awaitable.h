@@ -1,6 +1,6 @@
 // Coroutine runtime — the poll() awaitable behind wait_readable / wait_writable.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_FD_AWAITABLE_H
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_FD_AWAITABLE_H
+#ifndef YADDNSC_CORO_DETAIL_FD_AWAITABLE_H
+#define YADDNSC_CORO_DETAIL_FD_AWAITABLE_H
 
 #include <cassert>
 #include <coroutine>
@@ -150,4 +150,4 @@ private:
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_FD_AWAITABLE_H
+#endif  // YADDNSC_CORO_DETAIL_FD_AWAITABLE_H

@@ -1,5 +1,6 @@
 #include "vultr.h"
 
+#include <expected>
 #include <optional>
 #include <string>
 #include <vector>
@@ -8,7 +9,6 @@
 #include <yaddnsc/sdk/async_driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/format.hpp>
-#include <yaddnsc/sdk/redact.hpp>
 
 #include "config.hpp"
 #include "response.hpp"
@@ -22,33 +22,27 @@ using yaddnsc::sdk::HttpRequest;
 using yaddnsc::sdk::Method;
 using yaddnsc::sdk::Result;
 using yaddnsc::sdk::Task;
-using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 constexpr std::string_view API_URL = "https://api.vultr.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
 constexpr std::string_view DRIVER_NAME = "vultr";
+/// Subject of the shared rejection messages.
+constexpr std::string_view REJECTION_SUBJECT = "Vultr API request";
 }  // namespace
 
-YADDNSC_DEFINE_ASYNC_DRIVER(VultrDriver, "vultr", "Updates DNS records via the Vultr API", "Kotarou", "1.0.0",
+YADDNSC_DEFINE_ASYNC_DRIVER(VultrDriver, "vultr", "Updates DNS records via the Vultr API", "Kotarou", "1.1.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 VultrParams VultrDriver::parse_params(std::string_view json) {
     auto cfg = parse_config<VultrParams>(json);
-    if (cfg.api_key.empty()) {
-        throw yaddnsc::sdk::ConfigParseError("Required parameter 'api_key' must not be empty");
-    }
-    if (cfg.record_id.empty()) {
-        throw yaddnsc::sdk::ConfigParseError("Required parameter 'record_id' must not be empty");
-    }
-    if (cfg.ttl && *cfg.ttl < 0) {
-        throw yaddnsc::sdk::ConfigParseError("Parameter 'ttl' must not be negative");
-    }
+    require_non_empty("api_key", cfg.api_key);
+    require_non_empty("record_id", cfg.record_id);
+    optional_non_negative("ttl", cfg.ttl);
     return cfg;
 }
 
 Result VultrDriver::validate(std::string_view driver_param_json) const {
-    [[maybe_unused]] const auto cfg = parse_params(driver_param_json);
-    return {};
+    return validate_via(driver_param_json, parse_params);
 }
 
 Task<Result> VultrDriver::update(AsyncUpdateContext& context) {
@@ -67,33 +61,26 @@ Task<Result> VultrDriver::update(AsyncUpdateContext& context) {
     return run_update(context, DRIVER_NAME, request, check_response);
 }
 
-bool VultrDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
-    YADDNSC_ASYNC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
+Result VultrDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
+    yaddnsc::sdk::log_response_body(services, response);
 
     // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
-    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
-        YADDNSC_ASYNC_SDK_LOG_WARN(services, "Vultr API request failed with HTTP status {}: {}", response.status_code,
-                             truncate_for_log(response.body));
-        return false;
+    if (auto rejection = yaddnsc::sdk::transient_rejection(services, response, REJECTION_SUBJECT)) {
+        return std::unexpected(*rejection);
     }
 
     // Vultr returns 204 No Content with an empty body on success.
     if (response.status_code == 204) {
         YADDNSC_ASYNC_SDK_LOG_DEBUG(services, "DNS record updated successfully");
-        return true;
+        return {};
     }
 
     // Error responses include a JSON body with an error message.
-    if (!response.body.empty()) {
-        if (auto result = parse_response<VultrErrorResponse>(response.body); result && !result->error.empty()) {
-            YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Vultr API error with status {}: {}", result->status, result->error);
-        } else {
-            YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Vultr API request failed with HTTP status {}: {}", response.status_code,
-                                  truncate_for_log(response.body));
-        }
-    } else {
-        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Vultr API request failed with HTTP status {}", response.status_code);
+    if (auto result = parse_response<VultrErrorResponse>(response.body); result && !result->error.empty()) {
+        const auto text = fmt::format("Vultr API error with status {}: {}", result->status, result->error);
+        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "{}", text);
+        return std::unexpected(yaddnsc::sdk::upstream_rejection(response, text));
     }
 
-    return false;
+    return std::unexpected(yaddnsc::sdk::status_rejection(services, response, REJECTION_SUBJECT));
 }

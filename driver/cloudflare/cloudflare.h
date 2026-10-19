@@ -30,9 +30,10 @@ private:
     /// Build the JSON request body for a Cloudflare DNS record update.
     static std::string generate_body(const CloudflareParams& cfg, const yaddnsc::sdk::UpdateRequest& request);
 
-    /// Validate the Cloudflare API response.
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
-                                             const yaddnsc::sdk::AsyncServices& services);
+    /// Validate the Cloudflare API response. A rejected response reports the
+    /// provider's own error detail.
+    [[nodiscard]] static yaddnsc::sdk::Result check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                                             const yaddnsc::sdk::AsyncServices& services);
 };
 
 #endif  // YADDNSC_DRV_CLOUDFLARE_CLOUDFLARE_H

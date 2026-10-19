@@ -2,15 +2,17 @@
 // Unit tests for the HTTP request builder (src/infrastructure/http/wire_request.cpp).
 //
 // Covers: the request-target assembly, the user-header validation rules, the
+// wire-request guard (target grammar, framing/routing consistency), the
 // client-owned header set (Host / Connection / User-Agent / Content-Length /
 // Content-Type), the wire-to-public round trip used to replay a redirect hop,
-// and the transport-failure reason phrases.
+// query-stripped diagnostic URLs, and the transport-failure reason phrases.
 //
 // Pure value logic: no stream, no coroutine, no I/O.
 //
 
 #include "infrastructure/http/wire_request.h"
 
+#include <expected>
 #include <initializer_list>
 #include <map>
 #include <optional>
@@ -18,7 +20,6 @@
 #include <string_view>
 #include <utility>
 
-#include <expected>
 #include <gtest/gtest.h>
 
 #include "infrastructure/http/protocol/wire.h"
@@ -28,6 +29,9 @@ namespace {
 
 using http::Error;
 using http::ErrorCode;
+
+/// A wire request as (name, value), so a table of header cases stays readable.
+using Header = std::pair<std::string, std::string>;
 
 /// The first value of `name`, or "" when the header is absent. The wire request
 /// is a multimap, so the client-owned fields are checked by name.
@@ -157,6 +161,131 @@ TEST(HttpWireRequestValidate, aWellFormedRequestPasses) {
 }
 
 // ---------------------------------------------------------------------------
+// wire request guard: the request target
+// ---------------------------------------------------------------------------
+
+[[nodiscard]] http::protocol::WireRequest wire_to(std::string target = "/dns-query") {
+    http::protocol::WireRequest wire;
+    wire.method = http::Method::GET;
+    wire.target = std::move(target);
+    wire.headers.emplace("Host", "example.test");
+    return wire;
+}
+
+[[nodiscard]] http::protocol::WireRequest wire_with(const Header& header) {
+    auto wire = wire_to();
+    wire.headers.emplace(header.first, header.second);
+    return wire;
+}
+
+TEST(HttpWireRequestGuard, asteriskFormIsAccepted) {
+    EXPECT_TRUE(http::validate_wire_request(wire_to("*")).has_value());
+}
+
+TEST(HttpWireRequestGuard, originFormIsRequired) {
+    for (const auto& target : {"", "dns-query", "/dns query"}) {
+        SCOPED_TRACE(target);
+        const auto result = http::validate_wire_request(wire_to(target));
+        ASSERT_FALSE(result.has_value());
+        EXPECT_EQ(result.error().code, ErrorCode::INVALID_REQUEST);
+        EXPECT_EQ(result.error().message, "invalid HTTP request target");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// wire request guard: header fields
+// ---------------------------------------------------------------------------
+
+/// Expect the wire guard to reject `wire` with `code` and `message`.
+void expect_wire_rejected(const http::protocol::WireRequest& wire, const ErrorCode code,
+                          const std::string_view message) {
+    const auto result = http::validate_wire_request(wire);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, code);
+    EXPECT_EQ(result.error().message, message);
+}
+
+TEST(HttpWireRequestGuard, namesMustBeTokensAndValuesPrintable) {
+    for (const auto& header : {Header{"Invalid Header", "value"}, Header{"X-Trace", "value\r\nInjected: yes"}}) {
+        SCOPED_TRACE(header.first);
+        expect_wire_rejected(wire_with(header), ErrorCode::INVALID_REQUEST, "invalid HTTP request header");
+    }
+}
+
+TEST(HttpWireRequestGuard, connectionMustBeATokenList) {
+    expect_wire_rejected(wire_with({"Connection", "clo se"}), ErrorCode::INVALID_REQUEST,
+                         "invalid HTTP request header");
+}
+
+TEST(HttpWireRequestGuard, upgradeIsRejectedInEitherForm) {
+    // A direct Upgrade field and the Connection-token spelling must both fail:
+    // this client speaks HTTP/1.x framing only.
+    for (const auto& header : {Header{"Upgrade", "websocket"}, Header{"Connection", "upgrade"}}) {
+        SCOPED_TRACE(header.first);
+        expect_wire_rejected(wire_with(header), ErrorCode::UNSUPPORTED_PROTOCOL,
+                             "HTTP protocol upgrade is not supported");
+    }
+}
+
+TEST(HttpWireRequestGuard, transferCodingAndTrailersAreRejected) {
+    // Either field would let the caller re-frame a body the client already
+    // framed, which is a request-smuggling vector.
+    for (const auto& header : {Header{"Transfer-Encoding", "chunked"}, Header{"Trailer", "X-Checksum"}}) {
+        SCOPED_TRACE(header.first);
+        expect_wire_rejected(wire_with(header), ErrorCode::INVALID_REQUEST,
+                             "request transfer coding and trailers are not supported");
+    }
+}
+
+TEST(HttpWireRequestGuard, contentLengthMustBeNumeric) {
+    for (const auto& value : {"abc", "", "1 2"}) {
+        SCOPED_TRACE(value);
+        expect_wire_rejected(wire_with({"Content-Length", value}), ErrorCode::INVALID_REQUEST,
+                             "invalid HTTP Content-Length");
+    }
+}
+
+TEST(HttpWireRequestGuard, duplicateRoutingOrFramingHeadersConflict) {
+    // Two Host fields, two Connection fields and two Content-Length fields each
+    // leave the peer's routing and framing ambiguous.
+    expect_wire_rejected(wire_with({"Host", "other.test"}), ErrorCode::INVALID_REQUEST,
+                         "conflicting HTTP framing or routing headers");
+
+    auto connections = wire_to();
+    connections.headers.emplace("Connection", "close");
+    connections.headers.emplace("Connection", "keep-alive");
+    expect_wire_rejected(connections, ErrorCode::INVALID_REQUEST, "conflicting HTTP framing or routing headers");
+
+    auto lengths = wire_to();
+    lengths.headers.emplace("Content-Length", "0");
+    lengths.headers.emplace("Content-Length", "0");
+    expect_wire_rejected(lengths, ErrorCode::INVALID_REQUEST, "conflicting HTTP framing or routing headers");
+}
+
+TEST(HttpWireRequestGuard, contentLengthMustMatchTheBodyActuallySent) {
+    expect_wire_rejected(wire_with({"Content-Length", "5"}), ErrorCode::INVALID_REQUEST,
+                         "conflicting HTTP framing or routing headers");
+
+    auto agreed = wire_with({"Content-Length", "5"});
+    agreed.body = "hello";
+    EXPECT_TRUE(http::validate_wire_request(agreed).has_value());
+}
+
+TEST(HttpWireRequestGuard, aBuiltRequestPasses) {
+    // What the builder emits is always valid, so no client re-derives the rules.
+    http::Request request;
+    request.headers.emplace("X-Trace", "abc");
+    request.set_body("payload");
+    request.content_type = "application/dns-message";
+    http::Options options;
+
+    auto wire = http::build_wire_request(request, "https", "example.test", 443, options);
+    wire.target = "/dns-query?token=secret";
+
+    EXPECT_TRUE(http::validate_wire_request(wire).has_value());
+}
+
+// ---------------------------------------------------------------------------
 // wire request construction
 // ---------------------------------------------------------------------------
 
@@ -177,6 +306,14 @@ TEST(HttpWireRequestBuild, connectionDirectiveFollowsTheVersionAndKeepAlivePolic
     EXPECT_EQ(connection_directive(http::HttpVersion::V1_0, false), "close");
     EXPECT_EQ(connection_directive(http::HttpVersion::V1_1, true), "");
     EXPECT_EQ(connection_directive(http::HttpVersion::V1_1, false), "close");
+}
+
+TEST(HttpWireRequestBuild, closesConnectionAnswersTheSessionReuseQuestion) {
+    // The session asks this instead of re-reading the emitted Connection field.
+    http::Options persistent;
+    EXPECT_FALSE(http::closes_connection(persistent));
+    persistent.keep_alive = false;
+    EXPECT_TRUE(http::closes_connection(persistent));
 }
 
 TEST(HttpWireRequestBuild, clientOwnedHeadersReplaceTheCallersCopies) {
@@ -219,29 +356,9 @@ TEST(HttpWireRequestBuild, bodylessRequestsCarryNoFramingHeaders) {
     EXPECT_EQ(wire.headers.count("Content-Type"), 0U);
 }
 
-TEST(HttpWireRequestBuild, toPublicRequestDropsManagedHeadersAndCarriesTheContentType) {
-    http::protocol::WireRequest wire;
-    wire.method = http::Method::POST;
-    wire.headers.emplace("Host", "origin.test");
-    wire.headers.emplace("Content-Length", "7");
-    wire.headers.emplace("content-TYPE", "application/dns-message");
-    wire.headers.emplace("User-Agent", "yaddnsc/1");
-    wire.headers.emplace("Connection", "close");
-    wire.headers.emplace("Authorization", "Bearer token");
-    wire.body = "payload";
-
-    const auto request = http::to_public_request(wire);
-
-    EXPECT_EQ(request.method, http::Method::POST);
-    EXPECT_EQ(request.content_type, "application/dns-message");
-    ASSERT_TRUE(request.body.has_value());
-    EXPECT_EQ(*request.body, "payload");
-    // Every client-managed field is dropped whatever its casing, so a redirected
-    // hop is re-framed by the destination's own client; only application headers
-    // survive for the replay.
-    EXPECT_EQ(request.headers.size(), 1U);
-    EXPECT_EQ(request.headers.begin()->first, "Authorization");
-    EXPECT_EQ(request.headers.begin()->second, "Bearer token");
+TEST(HttpWireRequestBuild, absoluteUrlBracketsIpv6) {
+    EXPECT_EQ(http::make_absolute_url("https", "2001:db8::1", 443, "/query?x=1"),
+              "https://[2001:db8::1]:443/query?x=1");
 }
 
 // ---------------------------------------------------------------------------
@@ -272,6 +389,19 @@ TEST(HttpWireRequestFailure, reasonNamesTheRoleNotTheHost) {
               "cannot connect to the IP source server");
     EXPECT_EQ(http::failure_reason("IP source server", Error{ErrorCode::RESOLVE_FAILED, {}}),
               "cannot resolve the IP source server");
+}
+
+// ---------------------------------------------------------------------------
+// diagnostic URLs
+// ---------------------------------------------------------------------------
+
+TEST(HttpRedaction, queryStringIsRemovedFromAUrlOrTarget) {
+    // A DoH key or an access token travels in the query, so no diagnostic may
+    // quote it.
+    EXPECT_EQ(http::redacted_url("https://example.test/dns-query?dns=AA&id=secret"), "https://example.test/dns-query");
+    EXPECT_EQ(http::redacted_url("/v1/update?token=secret"), "/v1/update");
+    EXPECT_EQ(http::redacted_url("https://example.test/dns-query"), "https://example.test/dns-query");
+    EXPECT_EQ(http::redacted_url(""), "");
 }
 
 }  // namespace

@@ -42,8 +42,7 @@
 #include "infrastructure/ip_source/result.h"
 #include "infrastructure/network/transport/socket_ops.h"
 #include "infrastructure/network/transport/udp_socket.h"
-#include "support/util/fd.hpp"
-#include "support/util/random.hpp"
+#include "support/util/random_engine.hpp"
 
 using IpSourceError = domain::IpSourceError;
 
@@ -100,8 +99,7 @@ using namespace std::chrono_literals;
     }
     coro::Loop loop;
     const std::uint8_t payload = 0;
-    return coro::run(loop, net::detail::send_datagram(socket->get(), *group, 5353, std::span{&payload, 1}))
-        .has_value();
+    return coro::run(loop, net::detail::send_datagram(socket->get(), *group, 5353, std::span{&payload, 1})).has_value();
 }
 
 /// One IPv4 or IPv6 lookup for an unanswerable name must fail, not hang.
@@ -147,11 +145,8 @@ class MdnsReceiveTest : public ::testing::Test {
 protected:
     void SetUp() override {
         address_ = domain::InetAddress::parse("127.0.0.1").value();
-        auto opened = net::detail::open_udp_socket(domain::AddressFamily::IPV4);
-        ASSERT_TRUE(opened.has_value());
-        receiver_ = std::move(*opened);
-        ASSERT_TRUE(net::detail::bind_local(receiver_.get(), address_, 0).has_value());
-        const auto port = net::detail::local_port(receiver_.get());
+        ASSERT_TRUE(receiver_.bind(address_, 0).has_value());
+        const auto port = receiver_.local_port();
         ASSERT_TRUE(port.has_value());
         port_ = *port;
         if (!sender_.bind(address_, 5353)) {
@@ -193,11 +188,11 @@ protected:
     }
 
     coro::Task<ipsource::Result> receive() {
-        co_return co_await ipsource::detail::receive_mdns(receiver_.get(), hostname_, domain::RecordKind::A);
+        co_return co_await ipsource::detail::receive_mdns(receiver_, hostname_, domain::RecordKind::A);
     }
 
     domain::InetAddress address_;
-    Utils::UniqueFd receiver_;
+    net::UdpSocket receiver_{domain::AddressFamily::IPV4};
     net::UdpSocket sender_;
     net::UdpSocket stray_sender_;
     std::uint16_t port_ = 0;

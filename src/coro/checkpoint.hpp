@@ -9,8 +9,8 @@
 // Debug builds, undefined behavior in Release.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_CHECKPOINT_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_CHECKPOINT_HPP
+#ifndef YADDNSC_CORO_CHECKPOINT_HPP
+#define YADDNSC_CORO_CHECKPOINT_HPP
 
 #include "coro/detail/context_awaitables.h"  // IWYU pragma: export
 
@@ -25,4 +25,4 @@ namespace coro {
 
 }  // namespace coro
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_CHECKPOINT_HPP
+#endif  // YADDNSC_CORO_CHECKPOINT_HPP

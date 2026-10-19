@@ -5,6 +5,10 @@
 // these cases read a successful response after its awaitable is destroyed,
 // enforce the one-shot validate/update contract, and reject malformed
 // cancellation payloads before they can advance the coroutine.
+//
+// The fake host and the async instance under test are the SDK's host-side
+// seam, so this file also includes <yaddnsc/sdk/detail/async_instance.hpp>
+// explicitly rather than relying on async_driver.hpp's trailing include.
 
 #include <array>
 #include <coroutine>
@@ -19,6 +23,7 @@
 
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/async_driver.hpp>
+#include <yaddnsc/sdk/detail/async_instance.hpp>
 
 namespace sdk = yaddnsc::sdk;
 

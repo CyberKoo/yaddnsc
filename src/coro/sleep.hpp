@@ -16,8 +16,8 @@
 // names it.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_SLEEP_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_SLEEP_HPP
+#ifndef YADDNSC_CORO_SLEEP_HPP
+#define YADDNSC_CORO_SLEEP_HPP
 
 #include "coro/detail/sleep_awaitable.h"  // IWYU pragma: export
 #include "coro/time.h"
@@ -45,4 +45,4 @@ namespace coro {
 
 }  // namespace coro
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_SLEEP_HPP
+#endif  // YADDNSC_CORO_SLEEP_HPP

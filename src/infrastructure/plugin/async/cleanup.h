@@ -20,8 +20,9 @@ namespace plugin {
 [[noreturn]] inline void fatal_async_cleanup_failure(std::string_view driver, std::string_view detail) noexcept {
     try {
         SPDLOG_CRITICAL("Fatal async cleanup failure for '{}': {}", driver, detail);
-        SPDLOG_CRITICAL("The async driver instance may still be alive; refusing to release its module, services, "
-                        "or cycle borrows");
+        SPDLOG_CRITICAL(
+            "The async driver instance may still be alive; refusing to release its module, services, "
+            "or cycle borrows");
     } catch (...) {
     }
     std::abort();

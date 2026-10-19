@@ -48,7 +48,7 @@ TEST(LinodeDriverTest, Descriptor_ReturnsExpectedMetadata) {
     EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
               "Updates DNS records via the Linode API");
     EXPECT_EQ(std::string_view(descriptor->author.data, descriptor->author.size), "Kotarou");
-    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "1.0.0");
+    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "1.1.0");
     EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_A, 0u);
     EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_AAAA, 0u);
 }
@@ -138,6 +138,8 @@ TEST(LinodeDriverTest, Update_Non200_WithErrorBody_ReturnsUpstreamRejected) {
     fake.queue_response(400, R"({"errors": [{"field": "type", "reason": "Invalid record type"}]})");
     const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
+    // The provider's own error detail reaches the update result.
+    EXPECT_EQ(result.error_message, "Linode API error in field type: Invalid record type");
 }
 
 TEST(LinodeDriverTest, Update_Non200_WithMultipleErrors_ReturnsUpstreamRejected) {

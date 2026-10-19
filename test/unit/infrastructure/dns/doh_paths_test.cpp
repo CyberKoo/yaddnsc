@@ -40,11 +40,13 @@
 #include "infrastructure/http/types.h"
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
+#include "infrastructure/uri/uri.h"
 
 namespace {
 
-/// An IP-literal endpoint: the URL host bypasses the injected resolver.
-constexpr const char* DOH_URL = "https://203.0.113.10/dns-query";
+/// An IP-literal endpoint, already parsed as the production path hands it over:
+/// the URL host bypasses the injected resolver.
+const Uri DOH_ENDPOINT = *Uri::parse("https://203.0.113.10/dns-query");
 
 /// Answers the one DoH query it is sent with a minimal well-formed A record and
 /// then reports EOF. The connection is keep-alive, so the session still owns it
@@ -127,7 +129,7 @@ TEST(DohResolver, close_IdleResolver_OpensNoStreamAndIsIdempotent) {
     auto factory = std::make_shared<EchoFactory>();
     http::Options options;
     options.factory = factory;
-    dns::DohResolver resolver{DOH_URL, std::move(options)};
+    dns::DohResolver resolver{DOH_ENDPOINT, std::move(options)};
 
     resolver.close();
     resolver.close();
@@ -140,7 +142,7 @@ TEST(DohResolver, close_AfterKeptAliveAnswer_DropsTheConnectionAndTheNextQueryRe
     auto factory = std::make_shared<EchoFactory>();
     http::Options options;
     options.factory = factory;
-    dns::DohResolver resolver{DOH_URL, std::move(options)};
+    dns::DohResolver resolver{DOH_ENDPOINT, std::move(options)};
     int answered_before_close = 0;
     int answered_after_close = 0;
     int closed_before_close = 0;
@@ -180,7 +182,7 @@ TEST(DohResolver, query_EndpointHostRejectedByTheReassembledUrl_IsAConfigError) 
     auto factory = std::make_shared<EchoFactory>();
     http::Options options;
     options.factory = factory;
-    dns::DohResolver resolver{"https://x:y:8443/dns-query", std::move(options)};
+    dns::DohResolver resolver{*Uri::parse("https://x:y:8443/dns-query"), std::move(options)};
 
     const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
 

@@ -16,6 +16,7 @@
 
 #include <glaze/glaze.hpp>
 #include <yaddnsc/util/string_util.hpp>
+#include <yaddnsc/util/url_decode.hpp>
 
 namespace yaddnsc::sdk::redact {
 
@@ -101,37 +102,17 @@ inline void redact_json(glz::generic& value) {
     }
 }
 
-[[nodiscard]] inline int hex_digit(char c) noexcept {
-    if (c >= '0' && c <= '9')
-        return c - '0';
-    if (c >= 'a' && c <= 'f')
-        return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F')
-        return c - 'A' + 10;
-    return -1;
-}
-
+/// Percent-decode @p key, then accept it only when every resulting byte is a
+/// legal key character. Malformed escapes survive the decode as literal '%'
+/// or a stray digit, and both fail the character check, so a bad key still
+/// hides the whole input instead of being classified from raw bytes. '+' is
+/// not a key character either way, so the form convention cannot smuggle a
+/// space past this gate.
 [[nodiscard]] inline std::optional<std::string> decode_key(std::string_view key) {
-    std::string decoded;
-    for (std::size_t i = 0; i < key.size(); ++i) {
-        char c = key[i];
-        if (c == '%') {
-            if (i + 2 >= key.size())
-                return std::nullopt;
-            const int high = hex_digit(key[i + 1]);
-            const int low = hex_digit(key[i + 2]);
-            if (high < 0 || low < 0)
-                return std::nullopt;
-            c = static_cast<char>(high * 16 + low);
-            i += 2;
-        } else if (c == '+') {
-            c = ' ';
-        }
-        if (!is_key_char(c))
-            return std::nullopt;
-        decoded += c;
-    }
+    std::string decoded = util::url_decode(key);
     if (decoded.empty())
+        return std::nullopt;
+    if (!std::ranges::all_of(decoded, is_key_char))
         return std::nullopt;
     return decoded;
 }

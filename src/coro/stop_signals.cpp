@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include "coro/cancel_scope.h"
+#include "coro/detail/pipe.h"
 #include "coro/fd_wait.hpp"
 #include "coro/scope.hpp"
 #include "coro/sleep.hpp"
@@ -51,7 +52,7 @@ extern "C" void handle_stop_signal(int sig) {
 }  // namespace
 
 coro::StopSignals::StopSignals() {
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
     if (!read_end || !write_end) {
         throw std::system_error(errno, std::generic_category(), "stop signal pipe");
     }

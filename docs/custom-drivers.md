@@ -284,6 +284,18 @@ and behavior changes. Bundled drivers reuse their checked parser in
 validate and update, rejecting missing/wrong-type/null/empty required strings
 before HTTP. Supplied TTL values cannot be negative.
 
+`DriverHelpers` carries that shared validation so a driver does not repeat
+it: `require_non_empty(name, value)` rejects an empty required parameter and
+an optional parameter that was provided empty (one message for both:
+`Required parameter '<name>' must not be empty`),
+`optional_non_negative(name, value)` rejects a negative optional number
+(`Parameter '<name>' must not be negative`), and
+`validate_via(driver_param_json, parse_params)` runs the driver's own parser
+for the `validate()` entry, so validate and update reject the same documents.
+The parser reports an unacceptable document by throwing `ConfigParseError`;
+the ABI entry turns that into `YADDNSC_STATUS_INVALID_CONFIG` and keeps the
+message.
+
 ### Async entry points (ABI 1.1, recommended)
 
 The two groups are alternatives; a module exports one or the other:
@@ -323,7 +335,12 @@ binary bytes, header order, casing and duplicates. The SDK copies the ABI
 payload before business code resumes and moves the result out of the
 awaitable. Copies own independent storage; moves transfer ownership, so neither
 the event nor the awaitable needs to remain alive. Async response checkers must
-accept `const AsyncHttpResponse&`, not `const HttpResponse&`.
+accept `const AsyncHttpResponse&`, not `const HttpResponse&`. The host-side
+half of that awaitable — the exchange host type, the mutators that deliver a
+response or a cancellation, and the instance type — lives in
+`<yaddnsc/sdk/detail/async_instance.hpp>`, which `async_driver.hpp` includes
+last. It is the host's wiring, not driver interface: do not name it from
+driver code.
 
 The synchronous API is unchanged and stays supported alongside it:
 `ExchangeResult` contains the original three-field `HttpResponse` aggregate
@@ -334,8 +351,7 @@ layout or version changes are required by this source-level distinction. An
 exception from `yaddnsc_driver_async_destroy` is a fatal host cleanup failure:
 the host cannot prove the instance was released and will not release the
 module or services. The bundled drivers use the async SDK and therefore
-require ABI 1.1; their package versions and provider configuration are
-unchanged.
+require ABI 1.1; their provider configuration is unchanged.
 
 ## Recommended build
 
@@ -466,7 +482,8 @@ A driver:
   Hostname endpoints are resolved through the host's bootstrap DNS
   (`bootstrap_dns` or `/etc/resolv.conf`); `getaddrinfo`, `/etc/hosts` and
   NSS are never consulted, so prefer IP literals in exotic environments;
-- logs through the `YADDNSC_SDK_LOG_*` macros — the call site
+- logs through the `YADDNSC_SDK_LOG_*` macros (`YADDNSC_ASYNC_SDK_LOG_*` for
+  an async driver) — the call site
   (`file` / `line` / `function`) is forwarded through Host Services to the
   host logger (`spdlog::source_loc`); there is no `-rdynamic` / `CORE_LOG`
   symbol backfill;
@@ -542,14 +559,52 @@ The same guard bans `yaddnsc/util/*` directly: bundled drivers include the
 `yaddnsc/sdk/*` forwarding headers only, even though those headers wrap the
 shared utilities in `yaddnsc/util/*`.
 
+The sync `driver.hpp` and async `async_driver.hpp` headers share the DTOs and
+the ABI value conversion through `driver_common.hpp`; the pieces the two modes
+do not share live in their own headers. `log.hpp` defines both log macro
+families once and is re-exported by both mode headers. `run_update.hpp` holds
+the update-tail helpers — `format_request` and the shared response helpers
+below — and pulls in `upstream_failure.hpp`
+for upstream rejection classification and Retry-After hints, whose date-form
+parser lives in `http_date.hpp`. `detail/driver_instance.hpp` and
+`detail/async_instance.hpp` hold the host-side machinery the definition macros
+expand to (the async exchange host, the awaitable mutators and the instance
+types); each mode header includes its own last, so existing include paths and
+macro names keep working. Those internals are not part of the interface you
+write against — a driver awaits `exchange(...)` and never names them. The C ABI
+is unchanged. Async-only consumers do not include synchronous entry-point
+implementations.
+
+`run_update.hpp` also carries the response skeleton every bundled driver
+shares, so a driver writes only its provider-specific branches:
+
+| Helper | Purpose |
+| ------ | ------- |
+| `log_response_body(services, response)` | Trace the upstream body; truncated to the log budget and formatted only when the level is enabled |
+| `transient_rejection(services, response, subject)` | Log the WARN for a transient status (429 or 5xx) and return the rejection to report; `nullopt` when the status is not transient |
+| `status_rejection(services, response, subject)` | Log the ERROR for a response without provider detail and return the rejection |
+| `upstream_rejection(response, message)` | Build the rejection from the upstream status classification and the provider's own error message |
+| `rejection_message(subject, response)` | The message for a response that carries no provider detail |
+
+`subject` names the service in the message, for example `Cloudflare API
+request`. The classification keeps the existing semantics: 401 and 403 become
+`AUTHENTICATION_FAILED`, 429 becomes `RATE_LIMITED` and keeps its
+`Retry-After` hint, everything else stays `UPSTREAM_REJECTED`.
+
 That SDK surface is small and complete: `driver_abi.h` (the C ABI),
-`driver.hpp` (the C++ helper layer), `string_util.hpp`, `format.hpp`,
+`driver.hpp` (the C++ helper layer), `log.hpp` (log macros), `run_update.hpp`
+(update-tail helpers), `string_util.hpp`, `format.hpp`,
 `url_encode.hpp` (percent-encoding), `form_encode.hpp` (form encoding), and
 `redact.hpp` (pulled in by `driver.hpp`; the redaction behind the log
-helpers), `signing.hpp` for crypto, `version.hpp` for source version checks,
-and `xml_raii.hpp` for XML drivers. Use them instead of copying
-implementations into the driver. Use the bundled
-`driver/cloudflare/` as the reference implementation and keep
+helpers, which decodes a form/query key through the shared
+`yaddnsc/util/url_decode.hpp`), `signing.hpp` for crypto (`as_bytes` is the
+borrowed byte view its primitives take, so callers do not hand-roll
+`string_view`→`span` casts), `version.hpp` for
+source version checks, and `xml_raii.hpp` for XML drivers. Use them instead of
+copying implementations into the driver. Use the bundled
+`driver/cloudflare/` as the reference implementation — it shows the shared
+skeleton, the provider-specific branches and the `Result`-returning response
+checker — and keep
 provider-specific credentials in `driver_params`.
 Do not put credentials in source code or log messages — the SDK log helpers
 redact sensitive request fields by default. Payload bodies additionally carry
@@ -609,6 +664,14 @@ measured from now — is copied into `retry_after_seconds`. An unparsable or
 already-past date contributes no hint. Every other rejection stays
 `UPSTREAM_REJECTED` with `retry_after_seconds` 0. A `check_response` that
 accepts the response stays a success.
+
+A `check_response` that returns a `Result` keeps its own error: the status it
+carries and the message it reports reach the caller unchanged, so the
+provider's own error detail is not lost. `upstream_rejection(response,
+message)` builds that error with the classification above, and the update tail
+still logs the domain context next to it. The bundled drivers all return a
+`Result` and report the provider's message — the parsed error code and text —
+instead of a generic rejection.
 
 This host allows only `http` and `https`. It follows redirects, up to 10.
 301, 302, and 303 become GET and drop the body; 307 and 308 keep the method
@@ -672,14 +735,19 @@ Source changes for this SDK revision:
   `AsyncExchangeResult` (`std::expected<AsyncHttpResponse, HttpError>`) with
   owned strings, so a response stays valid after the awaitable and event are
   gone. Response checkers must take `const AsyncHttpResponse&`; the
-  `classify_upstream_failure` / `retry_after_seconds` helpers in `driver.hpp`
-  are templated and accept either response type. The synchronous
+  shared `classify_upstream_failure` / `retry_after_seconds` helpers,
+  re-exported by both driver headers, are templated and accept either response type. The synchronous
   `YADDNSC_DEFINE_DRIVER` and `<yaddnsc/sdk/driver.hpp>` helper layer remain
   source-compatible and keep working; they stay supported, but new drivers
   should use the async group. Note also that `HttpResponse` is now purely
   borrowed and copying it does not extend its lifetime.
 - Implement `validate()` explicitly and reuse update-time parsing plus
   semantic checks. It no longer defaults to successful validation.
+- No driver source change is needed for the SDK header split. The logging
+  macros, `format_request`, the upstream-failure helpers and the definition
+  macros keep their names and their existing include paths; the pieces that
+  moved into `detail/driver_instance.hpp` / `detail/async_instance.hpp` are the
+  host seam and need no include of their own.
 - Add the minimum host ABI minor when the driver's needs demand it:
   `YADDNSC_DEFINE_ASYNC_DRIVER` already declares 1, and
   `YADDNSC_DEFINE_ASYNC_DRIVER_MIN` / `YADDNSC_DEFINE_DRIVER` take it as their
@@ -692,6 +760,12 @@ Source changes for this SDK revision:
   the zero-argument constructor remains supported. HTTP stays unavailable then.
 - `run_update` accepts capturing response checkers returning `Result` and preserves
   their detailed errors; existing bool checkers retain HTTP-status classification.
+  The bundled drivers use the `Result` form and report the provider's own error
+  detail. `run_update.hpp` carries the shared response skeleton
+  (`log_response_body`, `transient_rejection`, `status_rejection`,
+  `upstream_rejection`, `rejection_message`), and `DriverHelpers` carries the
+  shared parameter checks (`require_non_empty`, `optional_non_negative`,
+  `validate_via`). Both are extensions: existing drivers keep working.
 - Named formatting scans the original template only. `{{`/`}}` escape braces,
   unknown/unclosed placeholders are preserved, and the last duplicate name wins.
 - Logging macros protect service lookup, argument evaluation, formatting and
@@ -704,7 +778,9 @@ Source changes for this SDK revision:
   host does not provide the query or the query fails.
 - Request logs include a redacted URL. JSON bodies are parsed recursively;
   malformed/unrecognised content is hidden. Form/query values end only at `&`;
-  encoded keys are classified after decoding. Standard sensitive headers remain
+  encoded keys are classified after percent-decoding, and a key that decodes
+  to anything but a legal key character (a malformed escape, a space, a `+`)
+  hides the whole input instead. Standard sensitive headers remain
   protected. Arbitrary provider log strings still require author review.
 
 The plugin C ABI is now 1.1. The 1.0 type layouts, entry points and

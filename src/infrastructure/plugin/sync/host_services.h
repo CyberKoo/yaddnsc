@@ -2,8 +2,8 @@
 // plugin — the per-call Host Services table over the coroutine bridge.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H
-#define YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H
+#ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_SYNC_HOST_SERVICES_H
+#define YADDNSC_INFRASTRUCTURE_PLUGIN_SYNC_HOST_SERVICES_H
 
 #include <atomic>
 #include <cstdint>
@@ -15,7 +15,8 @@
 
 #include <yaddnsc/sdk/driver_abi.h>
 
-#include "infrastructure/plugin/bridge.h"
+#include "infrastructure/plugin/detail/cycle.h"
+#include "infrastructure/plugin/sync/bridge.h"
 
 namespace app {
 class LoggerPort;
@@ -126,4 +127,4 @@ private:
 
 }  // namespace plugin
 
-#endif  // YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H
+#endif  // YADDNSC_INFRASTRUCTURE_PLUGIN_SYNC_HOST_SERVICES_H

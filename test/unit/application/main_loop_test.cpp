@@ -253,7 +253,7 @@ void run_loop(coro::Loop& loop, Fn&& body) {
 /// status it returns. coro::run is [[nodiscard]]; the failure is the outcome.
 void run_main_loop(coro::Loop& loop, const std::shared_ptr<const domain::RuntimeConfig>& config,
                    const app::RuntimeServices& services) {
-    [[maybe_unused]] const int code = coro::run(loop, app::main_loop(config, services));
+    [[maybe_unused]] const auto outcome = coro::run(loop, app::main_loop(config, services));
 }
 
 }  // namespace
@@ -686,9 +686,9 @@ TEST(MainLoop, MainLoopSupervisesSubdomainsAndStopsOnSigint) {
         .wait_for_stop = [&stop] { return stop.wait(); },
     };
 
-    const int code = coro::run(loop, app::main_loop(config, runtime_services));
+    const auto outcome = coro::run(loop, app::main_loop(config, runtime_services));
 
-    EXPECT_EQ(code, EXIT_SUCCESS);
+    EXPECT_EQ(outcome, app::MainLoopOutcome::GracefulShutdown);
     // The healthy subdomain updated at least twice; the failing one never did.
     EXPECT_GE(gateway_state->calls, 2);
     for (const auto& fqdn : gateway_state->fqdns) {
@@ -774,9 +774,9 @@ TEST(MainLoop, SubdomainDefectIsReportedAndSiblingsSurvive) {
         .wait_for_stop = [&stop] { return stop.wait(); },
     };
 
-    const int code = coro::run(loop, app::main_loop(config, runtime_services));
+    const auto outcome = coro::run(loop, app::main_loop(config, runtime_services));
 
-    EXPECT_EQ(code, EXIT_SUCCESS);
+    EXPECT_EQ(outcome, app::MainLoopOutcome::GracefulShutdown);
     EXPECT_GE(gateway_state->calls, 2);
     // A failed cycle must never vanish silently: the defect is reported,
     // naming the subdomain.
@@ -818,9 +818,9 @@ TEST(MainLoop, SigtermStopsTheRunWithSuccess) {
         .wait_for_stop = [&stop] { return stop.wait(); },
     };
 
-    const int code = coro::run(loop, app::main_loop(config, runtime_services));
+    const auto outcome = coro::run(loop, app::main_loop(config, runtime_services));
 
-    EXPECT_EQ(code, EXIT_SUCCESS);
+    EXPECT_EQ(outcome, app::MainLoopOutcome::GracefulShutdown);
     EXPECT_EQ(gateway_state->calls, 1);
 }
 
@@ -846,9 +846,9 @@ TEST(MainLoop, AlreadyRequestedStopSkipsValidationAndUpdates) {
         .wait_for_stop = [&stop] { return stop.wait(); },
     };
 
-    const int code = coro::run(loop, app::main_loop(config, runtime_services));
+    const auto outcome = coro::run(loop, app::main_loop(config, runtime_services));
 
-    EXPECT_EQ(code, EXIT_SUCCESS);
+    EXPECT_EQ(outcome, app::MainLoopOutcome::GracefulShutdown);
     EXPECT_EQ(gateway_state->calls, 0);
     EXPECT_EQ(gateway_state->validation.calls, 0);
 }
@@ -952,12 +952,12 @@ TEST(MainLoop, StartupValidation_RejectionFailsBeforeAnyUpdate) {
         .wait_for_stop = [&stop] { return stop.wait(); },
     };
 
-    const int code = coro::run(loop, app::main_loop(config, runtime_services));
+    const auto outcome = coro::run(loop, app::main_loop(config, runtime_services));
 
     // A driver that says its parameters are wrong must not have any update
     // published against them, and the startup has to fail so a supervisor does
     // not restart into the same mistake.
-    EXPECT_EQ(code, EXIT_FAILURE);
+    EXPECT_EQ(outcome, app::MainLoopOutcome::ConfigurationRejected);
     EXPECT_EQ(gateway_state->validation.calls, 1);
     EXPECT_EQ(gateway_state->calls, 0);
 }
@@ -990,11 +990,11 @@ TEST(MainLoop, StartupValidation_DriverWithoutEntryWarnsAndRuns) {
         .wait_for_stop = [&stop] { return stop.wait(); },
     };
 
-    const int code = coro::run(loop, app::main_loop(config, runtime_services));
+    const auto outcome = coro::run(loop, app::main_loop(config, runtime_services));
 
     // A plugin built against an older ABI cannot stop a daemon that updates
     // correctly; the run warns and proceeds.
-    EXPECT_EQ(code, EXIT_SUCCESS);
+    EXPECT_EQ(outcome, app::MainLoopOutcome::GracefulShutdown);
     EXPECT_EQ(gateway_state->validation.calls, 0);
     EXPECT_EQ(gateway_state->calls, 1);
 
@@ -1031,9 +1031,9 @@ TEST(MainLoop, StartupValidation_TimeoutFailsBeforeAnyUpdate) {
         .policy = app::UpdatePolicy{.driver_validation_budget = 5s},
     };
 
-    const int code = coro::run(loop, app::main_loop(config, runtime_services));
+    const auto outcome = coro::run(loop, app::main_loop(config, runtime_services));
 
-    EXPECT_EQ(code, EXIT_FAILURE);
+    EXPECT_EQ(outcome, app::MainLoopOutcome::ConfigurationRejected);
     EXPECT_EQ(gateway_state->calls, 0);
 }
 
@@ -1063,10 +1063,10 @@ TEST(MainLoop, StartupValidation_AncestorCancellationSkipsUpdates) {
         .policy = app::UpdatePolicy{.driver_validation_budget = 3600s},
     };
 
-    const auto outcome = coro::run(loop, coro::with_timeout(5s, [&]() -> coro::Task<int> {
+    const auto timed = coro::run(loop, coro::with_timeout(5s, [&]() -> coro::Task<app::MainLoopOutcome> {
                                        co_return co_await app::main_loop(config, runtime_services);
                                    }));
-    completed = !outcome.timed_out;
+    completed = !timed.timed_out;
 
     // Validation runs inside the cancellable scope, so the budget is a shield
     // the outer scope tears down rather than something the run has to finish.
@@ -1113,20 +1113,20 @@ TEST(MainLoop, StopSignalCancelsStartupValidation) {
         .wait_for_stop = [&stop] { return stop.wait(); },
         .policy = app::UpdatePolicy{.driver_validation_budget = 3600s},
     };
-    int code = EXIT_FAILURE;
-    const auto outcome = coro::run(loop, coro::with_timeout(5s, [&]() {
-                                       return coro::with_nursery([&](coro::Nursery& nursery) -> coro::Task<void> {
-                                           nursery.spawn_discard(sender());
-                                           code = co_await app::main_loop(config, services);
-                                           nursery.cancel();
-                                       });
-                                   }));
-    EXPECT_FALSE(outcome.timed_out);
+    app::MainLoopOutcome main_loop_outcome = app::MainLoopOutcome::ConfigurationRejected;
+    const auto timed = coro::run(loop, coro::with_timeout(5s, [&]() {
+                                     return coro::with_nursery([&](coro::Nursery& nursery) -> coro::Task<void> {
+                                         nursery.spawn_discard(sender());
+                                         main_loop_outcome = co_await app::main_loop(config, services);
+                                         nursery.cancel();
+                                     });
+                                 }));
+    EXPECT_FALSE(timed.timed_out);
     EXPECT_TRUE(signal_sent);
     EXPECT_TRUE(stop.requested());
     EXPECT_TRUE(validation_cancelled);
     EXPECT_FALSE(validation_completed);
-    EXPECT_EQ(code, EXIT_SUCCESS);
+    EXPECT_EQ(main_loop_outcome, app::MainLoopOutcome::GracefulShutdown);
     EXPECT_EQ(state->validation.calls, 1);
     EXPECT_EQ(state->calls, 0);
     EXPECT_TRUE(state->destroyed);
@@ -1156,9 +1156,9 @@ TEST(MainLoop, SigtermDuringGatewayConstructionStopsBeforeAnyUpdate) {
         .wait_for_stop = [&stop] { return stop.wait(); },
     };
 
-    const int code = coro::run(loop, app::main_loop(config, runtime_services));
+    const auto outcome = coro::run(loop, app::main_loop(config, runtime_services));
 
-    EXPECT_EQ(code, EXIT_SUCCESS);
+    EXPECT_EQ(outcome, app::MainLoopOutcome::GracefulShutdown);
     EXPECT_TRUE(stop.requested());
     EXPECT_EQ(gateway_state->calls, 0);
     EXPECT_TRUE(gateway_state->destroyed);

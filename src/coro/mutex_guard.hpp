@@ -7,8 +7,8 @@
 // alias remains for callers that prefer to spell it through the mutex.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_MUTEX_GUARD_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_MUTEX_GUARD_HPP
+#ifndef YADDNSC_CORO_MUTEX_GUARD_HPP
+#define YADDNSC_CORO_MUTEX_GUARD_HPP
 
 #include <utility>
 
@@ -68,4 +68,4 @@ private:
 
 }  // namespace coro
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_MUTEX_GUARD_HPP
+#endif  // YADDNSC_CORO_MUTEX_GUARD_HPP

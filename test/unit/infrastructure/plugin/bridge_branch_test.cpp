@@ -1,5 +1,5 @@
 //
-// Unit tests for the branch arms of src/infrastructure/plugin/bridge.cpp that
+// Unit tests for the branch arms of src/infrastructure/plugin/sync/bridge.cpp that
 // the gateway's happy path never reaches: ingress closure, closed-group
 // rejection, and the two dispatch-failure arms of Bridge::exchange.
 //
@@ -32,7 +32,8 @@
 #include "coro/task.hpp"
 #include "coro/with_nursery.hpp"
 #include "infrastructure/http/types.h"
-#include "infrastructure/plugin/bridge.h"
+#include "infrastructure/plugin/detail/cycle.h"
+#include "infrastructure/plugin/sync/bridge.h"
 #include "mocks/allocation_fault.h"
 #include "yaddnsc/sdk/driver_abi.h"
 
@@ -99,20 +100,20 @@ constexpr std::chrono::seconds kWaitBudget{5};
 
 TEST(BridgeIngress, StartCycle_AfterGroupClosed_ThrowsInsteadOfPublishing) {
     coro::Loop loop;
-    std::unique_ptr<plugin::Bridge> bridge;
+    coro::NurseryToken lifetime;
     bool caught = false;
 
     auto root = [&]() -> coro::Task<void> {
         co_await coro::with_nursery(
             [&](coro::Nursery& group) -> coro::Task<void> {
-                bridge = std::make_unique<plugin::Bridge>(loop, group, http::Options{}, kWaitBudget);
+                lifetime = coro::nursery_token(group);
                 co_return;
             },
             coro::NurseryPolicy::SUPERVISOR);
         // The group exited: its ingress token closed, so the dead group is
         // never dereferenced and the cycle is refused as a value.
         try {
-            bridge->start_cycle(std::make_shared<plugin::CallState>(), noop_cycle());
+            plugin::start_cycle(lifetime, std::make_shared<plugin::CallState>(), noop_cycle());
         } catch (const std::logic_error&) {
             caught = true;
         }
@@ -133,7 +134,7 @@ TEST(BridgeIngress, StartCycle_SlotAllocationFailure_PropagatesAndKeepsTheGroupU
     auto root = [&]() -> coro::Task<void> {
         co_await coro::with_nursery(
             [&](coro::Nursery& group) -> coro::Task<void> {
-                plugin::Bridge bridge{loop, group, http::Options{}, kWaitBudget};
+                const auto lifetime = coro::nursery_token(group);
                 auto state = std::make_shared<plugin::CallState>();
                 auto cycle = noop_cycle();
                 {
@@ -141,7 +142,7 @@ TEST(BridgeIngress, StartCycle_SlotAllocationFailure_PropagatesAndKeepsTheGroupU
                     // left untouched and can still accept work afterwards.
                     const FailNextAllocation failure;
                     try {
-                        bridge.start_cycle(state, std::move(cycle));
+                        plugin::start_cycle(lifetime, state, std::move(cycle));
                     } catch (const std::bad_alloc&) {
                         caught = true;
                     }
@@ -154,7 +155,7 @@ TEST(BridgeIngress, StartCycle_SlotAllocationFailure_PropagatesAndKeepsTheGroupU
                     std::chrono::milliseconds{1}, [&]() -> coro::Task<void> { co_await state->result_ready.wait(); });
                 failure_notified = probe.completed;
                 try {
-                    bridge.start_cycle(std::make_shared<plugin::CallState>(), noop_cycle());
+                    plugin::start_cycle(lifetime, std::make_shared<plugin::CallState>(), noop_cycle());
                     second_cycle_published = true;
                 } catch (const std::bad_alloc&) {
                     ADD_FAILURE() << "a failed spawn must not poison the group";

@@ -176,16 +176,4 @@ TEST(CertDiscoveryPaths, DiscoverCaBundle_RepeatedCalls_ReturnTheSameMemoisedRes
     }
 }
 
-TEST(CertDiscoveryPaths, GetSystemCaPath_RepeatedCalls_ReturnTheSameMemoisedResult) {
-    const auto first = Utils::Cert::get_system_ca_path();
-    const auto second = Utils::Cert::get_system_ca_path();
-
-    EXPECT_EQ(second, first);
-    if (first.has_value()) {
-        EXPECT_FALSE(first->empty());
-        std::error_code ec;
-        EXPECT_TRUE(std::filesystem::is_regular_file(*first, ec)) << *first;
-    }
-}
-
 }  // namespace

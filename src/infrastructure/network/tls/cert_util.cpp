@@ -60,27 +60,6 @@ namespace {
 }
 }  // anonymous namespace
 
-// ── get_system_ca_path ──────────────────────────────────────────────────
-
-std::optional<std::string> get_system_ca_path() {
-    static const std::optional<std::string> system_ca_path = []() -> std::optional<std::string> {
-        SPDLOG_DEBUG("Looking for CA bundle...");
-
-        const auto& hardcoded = get_hardcoded_paths();
-        if (hardcoded) {
-            SPDLOG_DEBUG("Found CA bundle at {}", *hardcoded);
-            return *hardcoded;
-        }
-
-        SPDLOG_WARN(
-            "CA bundle not found; certificate verification stays enabled and TLS connections will fail "
-            "if no trust store is available");
-        return std::nullopt;
-    }();
-
-    return system_ca_path;
-}
-
 // ── discover_ca_bundle ──────────────────────────────────────────────────
 
 std::optional<std::string> discover_ca_bundle() {

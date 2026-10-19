@@ -32,9 +32,10 @@ private:
     /// Build the DuckDNS API request URL from config and update params.
     static std::string generate_url(const DuckDnsParams& cfg, const yaddnsc::sdk::UpdateRequest& params);
 
-    /// Validate the DuckDNS API response (expects "OK" or "KO").
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
-                                             const yaddnsc::sdk::AsyncServices& services);
+    /// Validate the DuckDNS API response (expects "OK" or "KO"). A rejected
+    /// response reports the provider's own message.
+    [[nodiscard]] static yaddnsc::sdk::Result check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                                             const yaddnsc::sdk::AsyncServices& services);
 };
 
 #endif  // YADDNSC_DRV_DUCKDNS_DUCKDNS_H

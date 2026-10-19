@@ -10,18 +10,19 @@
 #define YADDNSC_INFRASTRUCTURE_DNS_RESOLVER_DOH_H
 
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
-
-#include <expected>
 
 #include "coro/async_mutex.hpp"
 #include "coro/task.hpp"
 #include "domain/error/dns_error_info.h"
 #include "infrastructure/dns/policy.h"
 #include "infrastructure/dns/resolver/resolver.h"
+
+class Uri;
 
 namespace http {
 class PersistentClient;
@@ -52,13 +53,19 @@ namespace dns {
 /// cross-thread lock.
 class DohResolver final : public Resolver {
 public:
-    /// @param url      DoH endpoint, e.g. "https://dns.example/dns-query".
+    /// @param endpoint The DoH endpoint, already parsed and already accepted by
+    ///                 dns::parse_resolver_endpoint — e.g.
+    ///                 "https://dns.example/dns-query". That module owns the
+    ///                 https/nonempty-host/nonzero-port grammar, so it is not
+    ///                 interpreted or re-checked here.
     /// @param options  HTTP policy; its injected resolver resolves the endpoint
     ///                 host, and its TLS options are the endpoint's.
     ///                 ALPN is forced to HTTP/1.1.
     /// @param policy   Local budgets for admitted queries.
-    /// @throws std::invalid_argument when `url` is not a valid https URL.
-    DohResolver(const std::string& url, http::Options options, Policy policy = {});
+    /// @pre `endpoint` satisfies the endpoint module's contract. It is a
+    ///      precondition, not a runtime check: a violation is a programming
+    ///      defect, reported by the HTTP client as std::invalid_argument.
+    DohResolver(const Uri& endpoint, http::Options options, Policy policy = {});
 
     ~DohResolver();
 

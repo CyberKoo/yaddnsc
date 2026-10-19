@@ -34,7 +34,6 @@
 #include "coro/with_nursery.hpp"
 #include "domain/error/dns_error.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
-#include "infrastructure/dns/dns_packet_exception.h"
 #include "infrastructure/dns/parser.h"
 #include "infrastructure/dns/resolver/resolver.h"
 #include "infrastructure/dns/types.h"
@@ -42,7 +41,7 @@
 #include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/logging/level_enabled.h"
 #include "support/fmt.hpp"
-#include "support/util/random.hpp"
+#include "support/util/random_engine.hpp"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace domain {
@@ -269,14 +268,14 @@ coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispat
 
     if (host.empty())
         host = ".";  // Root name, not the parser's unfiltered diagnostic mode.
-    // Validate local input without entropy: this packet is never sent. Actual
-    // backends acquire secure IDs and translate entropy failure to CONNECTION,
-    // so it participates in the same failover/retry policy as other operations.
-    try {
-        [[maybe_unused]] const auto checked =
-            QueryBuilder{0}.add_question(host, Util::type_to_record_type(kind)).build();
-    } catch (const DnsPacketException& error) {
-        co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::INVALID_QUERY, error.what()});
+    // Validate local input without entropy and without serializing a packet that
+    // is never sent: the wire layer answers whether the question could be built.
+    // Actual backends acquire secure IDs and translate entropy failure to
+    // CONNECTION, so they participate in the same failover/retry policy as other
+    // operations.
+    if (const auto valid = validate_query_name(host, Util::type_to_record_type(kind)); !valid) {
+        co_return std::unexpected(
+            domain::DnsErrorInfo{domain::DnsError::INVALID_QUERY, std::move(valid.error().reason)});
     }
 
     std::vector<Resolver*> all;

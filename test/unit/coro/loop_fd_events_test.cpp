@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <coroutine>
 #include <functional>
 #include <source_location>
 #include <stdexcept>
@@ -28,13 +29,11 @@
 #include <system_error>
 #include <vector>
 
-#include <coroutine>
+#include <gtest/gtest.h>
 #include <unistd.h>
 
-#include <gtest/gtest.h>
-
 #include "coro/coro.h"
-#include "support/util/fd.hpp"
+#include "coro/detail/pipe.h"
 
 namespace {
 
@@ -69,6 +68,7 @@ public:
     TracingLoop() { loop_.set_trace_sink(&record_trace, &recorder_); }
 
     [[nodiscard]] coro::Loop& loop() noexcept { return loop_; }
+
     [[nodiscard]] const TraceRecorder& recorder() const noexcept { return recorder_; }
 };
 
@@ -80,7 +80,7 @@ public:
 
 TEST(FdWaitEvents, RegisteringADescriptor_TracesTheRequestedEvents) {
     TracingLoop tracing;
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
     ASSERT_TRUE(read_end);
     ASSERT_TRUE(write_end);
     // A readable descriptor, so the wait completes instead of parking the loop.
@@ -100,7 +100,7 @@ TEST(FdWaitEvents, RegisteringADescriptor_TracesTheRequestedEvents) {
 
 TEST(FdWaitEvents, PeerHangup_RendersPollhupAndStaysReadiness) {
     TracingLoop tracing;
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
     ASSERT_TRUE(read_end);
     write_end.reset();  // peer gone: reads report POLLHUP
 
@@ -110,15 +110,14 @@ TEST(FdWaitEvents, PeerHangup_RendersPollhupAndStaysReadiness) {
     };
     EXPECT_NO_THROW(coro::run(tracing.loop(), root()));
 
-    EXPECT_TRUE(any_line_contains(tracing.recorder(), "POLLHUP"))
-        << "hangup must reach the trace renderer as POLLHUP";
+    EXPECT_TRUE(any_line_contains(tracing.recorder(), "POLLHUP")) << "hangup must reach the trace renderer as POLLHUP";
     // The ready-path trace is the one that formats the *reported* events.
     EXPECT_TRUE(any_line_contains(tracing.recorder(), "ready:"));
 }
 
 TEST(FdWaitEvents, DescriptorClosedAfterRegistration_ThrowsAndRendersPollnval) {
     TracingLoop tracing;
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
     ASSERT_TRUE(read_end);
     ASSERT_TRUE(write_end);
     const int fd = read_end.get();
@@ -152,8 +151,7 @@ TEST(LoopTeardown, PostedAfterShutdown_IsReleasedWithoutRunning) {
         loop.post([&ran] { ran.store(true, std::memory_order_release); });
         EXPECT_FALSE(ran.load(std::memory_order_acquire));
     }
-    EXPECT_FALSE(ran.load(std::memory_order_acquire))
-        << "a node orphaned at teardown must be disposed, never run";
+    EXPECT_FALSE(ran.load(std::memory_order_acquire)) << "a node orphaned at teardown must be disposed, never run";
 }
 
 TEST(LoopTeardown, PostedBeforeShutdown_StillRuns) {
@@ -190,7 +188,7 @@ coro::Task<void> wait_for_readable_then_mark(int fd, PollProgress& progress) {
 
 TEST(PollBudget, LongReadyChain_ScansFdsWithoutBlocking) {
     TracingLoop tracing;
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
     ASSERT_TRUE(read_end);
     ASSERT_TRUE(write_end);
     const char byte = 'x';
@@ -235,7 +233,7 @@ TEST(PollBudget, LongReadyChain_ScansFdsWithoutBlocking) {
 
 TEST(PollBudget, NewFdRegistration_PollsAheadOfTheFrameBudget) {
     TracingLoop tracing;
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
     ASSERT_TRUE(read_end);
     ASSERT_TRUE(write_end);
     const char byte = 'x';

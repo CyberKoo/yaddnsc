@@ -36,7 +36,9 @@
 #include "domain/error/dns_error_info.h"
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
+#include "infrastructure/http/client.h"
 #include "infrastructure/http/error.h"
+#include "infrastructure/http/persistent_client.h"
 #include "infrastructure/http/protocol/exchange.h"
 #include "infrastructure/http/protocol/read_window.h"
 #include "infrastructure/http/protocol/wire.h"
@@ -240,7 +242,9 @@ TEST(HttpExchange, chunked_body_WithExtensionsAndTrailers_Decodes) {
     ASSERT_EQ(response->trailers.size(), 1U);
     EXPECT_EQ(response->trailers.begin()->first, "X-Trailer");
     EXPECT_EQ(response->trailers.begin()->second, "yes");
-    // HTTP/1.1 without a Connection: close is reusable.
+    // Chunked coding states its own body boundary, so the connection can carry
+    // another request; whether it does is the session's decision.
+    EXPECT_TRUE(response->framing.self_delimiting);
 }
 
 TEST(HttpExchange, chunked_manyOneByteReads_DecodesIdentically) {
@@ -296,9 +300,8 @@ TEST(HttpExchange, noBody_204_LeavesTheBodyEmptyAndStaysReusable) {
     ASSERT_TRUE(response.has_value());
     EXPECT_EQ(response->status, 204);
     EXPECT_TRUE(response->text().empty());
-    // 204 has no body framing, and the request did not ask to close, so the
-    // connection is reusable under HTTP/1.1.
-    EXPECT_TRUE(response->reusable);
+    // 204 carries no body at all, so the next response starts right here.
+    EXPECT_TRUE(response->framing.self_delimiting);
 }
 
 TEST(HttpExchange, keepAlive_twoResponsesInOneRead_CarryOverThroughPending) {
@@ -316,7 +319,7 @@ TEST(HttpExchange, keepAlive_twoResponsesInOneRead_CarryOverThroughPending) {
     ASSERT_TRUE(second.has_value());
     EXPECT_EQ(second->text(), "two");
     EXPECT_TRUE(pending.empty());
-    EXPECT_TRUE(second->reusable);
+    EXPECT_TRUE(second->framing.self_delimiting);
 }
 
 TEST(HttpExchange, conflicting_framing_IsRejected) {
@@ -377,7 +380,7 @@ TEST(ReadWindow, take_rest_EmptiesTheWindow) {
 // ---------------------------------------------------------------------------
 
 TEST(HttpRedirect, moved_permanently_RewritesToGetAndKeepsTheOrigin) {
-    const auto current = get_request("/old");
+    const http::Request current;
     const auto uri = Uri::parse("https://example.test/old").value();
     http::Options options;
 
@@ -386,12 +389,12 @@ TEST(HttpRedirect, moved_permanently_RewritesToGetAndKeepsTheOrigin) {
     ASSERT_TRUE(evaluation.plan.has_value());
     EXPECT_FALSE(evaluation.plan->cross_origin);
     EXPECT_EQ(evaluation.plan->next.method, http::Method::GET);
-    EXPECT_EQ(evaluation.plan->next.target, "/new?q=1");
+    EXPECT_EQ(evaluation.plan->url, "https://example.test:443/new?q=1");
     EXPECT_FALSE(evaluation.plan->next.body.has_value());
 }
 
 TEST(HttpRedirect, Resolve_RelativeReferences_UsesUriResolution) {
-    const auto current = get_request("/a//b?q=old");
+    const http::Request current;
     const auto uri = Uri::parse("https://example.test/a//b?q=old").value();
     const http::Options options;
     const std::pair<std::string_view, std::string_view> cases[] = {
@@ -410,7 +413,7 @@ TEST(HttpRedirect, Resolve_RelativeReferences_UsesUriResolution) {
         const auto evaluation =
             http::evaluate_redirect(302, {{"Location", std::string(location)}}, 0, options, current, uri);
         ASSERT_TRUE(evaluation.plan.has_value());
-        EXPECT_EQ(evaluation.plan->next.target, target);
+        EXPECT_EQ(http::make_target(Uri::parse(evaluation.plan->url).value()), target);
         EXPECT_FALSE(evaluation.plan->cross_origin);
     }
     for (const auto location : {"a b", "//bad:65536", "mailto:user", "ftp://example.test/new"}) {
@@ -420,9 +423,11 @@ TEST(HttpRedirect, Resolve_RelativeReferences_UsesUriResolution) {
 }
 
 TEST(HttpRedirect, temporary_redirect_307_PreservesMethodAndBody) {
-    auto current = get_request("/old");
+    http::Request current;
     current.method = http::Method::POST;
     current.body = "payload";
+    current.content_type = "application/dns-message";
+    current.replay_safe = true;
     const auto uri = Uri::parse("https://example.test/old").value();
     http::Options options;
 
@@ -433,11 +438,18 @@ TEST(HttpRedirect, temporary_redirect_307_PreservesMethodAndBody) {
     ASSERT_TRUE(evaluation.plan->next.body.has_value());
     EXPECT_EQ(*evaluation.plan->next.body, "payload");
     EXPECT_EQ(evaluation.plan->next.method, http::Method::POST);
-    ASSERT_EQ(evaluation.plan->next.headers.count("Content-Length"), 1U);
+    EXPECT_EQ(evaluation.plan->next.headers.count("Content-Length"), 0U);
+    EXPECT_TRUE(evaluation.plan->next.replay_safe);
+    EXPECT_EQ(evaluation.plan->next.content_type, "application/dns-message");
+    const auto wire = http::build_wire_request(evaluation.plan->next, "https", "example.test", 443, options);
+    ASSERT_EQ(wire.headers.count("Content-Length"), 1U);
+    ASSERT_EQ(wire.headers.count("Content-Type"), 1U);
+    EXPECT_EQ(wire.headers.find("Content-Length")->second, "7");
+    EXPECT_EQ(wire.headers.find("Content-Type")->second, "application/dns-message");
 }
 
 TEST(HttpRedirect, cross_origin_DropsCredentials) {
-    auto current = get_request("/old");
+    http::Request current;
     current.headers.emplace("Authorization", "Bearer secret");
     current.headers.emplace("Cookie", "session=1");
     current.headers.emplace("X-Keep", "yes");
@@ -455,7 +467,7 @@ TEST(HttpRedirect, cross_origin_DropsCredentials) {
 }
 
 TEST(HttpRedirect, https_to_http_downgrade_IsNotFollowed) {
-    const auto current = get_request("/old");
+    const http::Request current;
     const auto uri = Uri::parse("https://example.test/old").value();
     http::Options options;
 
@@ -467,7 +479,7 @@ TEST(HttpRedirect, https_to_http_downgrade_IsNotFollowed) {
 }
 
 TEST(HttpRedirect, beyondTheLimit_ReportsTheLimit) {
-    const auto current = get_request("/old");
+    const http::Request current;
     const auto uri = Uri::parse("https://example.test/old").value();
     http::Options options;
     options.max_redirects = 2;
@@ -479,7 +491,7 @@ TEST(HttpRedirect, beyondTheLimit_ReportsTheLimit) {
 }
 
 TEST(HttpRedirect, disabledFollowing_LeavesTheResponseAlone) {
-    const auto current = get_request("/old");
+    const http::Request current;
     const auto uri = Uri::parse("https://example.test/old").value();
     http::Options options;
     options.follow_redirects = false;
@@ -644,6 +656,30 @@ public:
     int tls_calls{0};
     int tcp_calls{0};
 };
+
+TEST(HttpRedirect, PersistentToTransientKeepsTheExchangeBudget) {
+    for (const bool persistent : {false, true}) {
+        auto factory = std::make_shared<ScriptedSessionFactory>();
+        factory->payloads = {
+            "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.2/next\r\nContent-Length: 0\r\n\r\n",
+            "HTTP/1.1 302 Found\r\nLocation: /again\r\nContent-Length: 0\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n",
+        };
+        http::Options options;
+        options.factory = factory;
+        options.max_redirects = 1;
+        coro::ManualClock clock;
+        coro::Loop loop{clock};
+        http::Client transient{options};
+        http::PersistentClient client{"http://127.0.0.1", options};
+        const http::Request request;
+        const auto result = coro::run(loop, persistent ? client.exchange("/start", request)
+                                                       : transient.exchange("http://127.0.0.1/start", request));
+        ASSERT_FALSE(result.has_value());
+        EXPECT_EQ(result.error().code, ErrorCode::REDIRECT_LIMIT_EXCEEDED);
+        EXPECT_EQ(factory->tcp_calls, 2);
+    }
+}
 
 enum class StalledHttpStage { CONNECT, WRITE, HEADERS, BODY };
 

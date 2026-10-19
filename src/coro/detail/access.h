@@ -4,8 +4,8 @@
 // caller that reached them directly could bypass the ready queue (axiom 4) or
 // leave a waiter linked into a scope it does not own. Every runtime awaitable
 // goes through the two access structs declared here instead.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_ACCESS_H
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_ACCESS_H
+#ifndef YADDNSC_CORO_DETAIL_ACCESS_H
+#define YADDNSC_CORO_DETAIL_ACCESS_H
 
 #include <cassert>
 #include <functional>
@@ -73,7 +73,9 @@ struct ScopeAccess {
     }
 
     /// Timer action for the timeout and deadline combinators.
-    static void timeout_action(void* context) noexcept;
+    static void timeout_action(void* context) noexcept {
+        static_cast<CancelScope*>(context)->cancel(CancelCause::TIMEOUT);
+    }
 };
 
 /// Resumes a parked frame through the loop's ready queue, addressed by the
@@ -99,6 +101,12 @@ inline void schedule_resume(ExecutionRecord& record) noexcept {
     wake(record);
 }
 
+/// Defined here for the same reason as schedule_resume: the wait protocol header
+/// stays independent of CancelScope's subscription bookkeeping.
+inline void link_subscription(CancelScope& scope, CancelSubscription& subscription) noexcept {
+    ScopeAccess::add_subscriber(scope, subscription);
+}
+
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_ACCESS_H
+#endif  // YADDNSC_CORO_DETAIL_ACCESS_H

@@ -7,10 +7,12 @@
 //   - Move assignment transfers ownership; old fd is closed.
 //   - reset() replaces the managed fd.
 //   - release() transfers ownership to caller; wrapper becomes invalid.
-//   - make_pipe() produces valid read/write ends.
-//   - make_pipe() fds have close-on-exec set.
 //   - Destruction closes the fd.
 //   - Copy operations are deleted (compile-time).
+//
+// The MakePipe_* cases below exercise the runtime's wake-pipe factory
+// (coro/detail/pipe.h), which returns UniqueFd pairs; the factory itself is
+// runtime-private, so its contract is covered from here rather than duplicated.
 // =============================================================================
 
 #include "support/util/fd.hpp"
@@ -23,6 +25,8 @@
 #include <gtest/gtest.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#include "coro/detail/pipe.h"
 
 // ── Default construction ─────────────────────────────────────────────────────
 
@@ -182,7 +186,7 @@ TEST(UniqueFdTest, Destructor_ClosesFd) {
 // ── make_pipe() ───────────────────────────────────────────────────────────────
 
 TEST(UniqueFdTest, MakePipe_BothEndsValid) {
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
 
     EXPECT_TRUE(read_end);
     EXPECT_TRUE(write_end);
@@ -191,7 +195,7 @@ TEST(UniqueFdTest, MakePipe_BothEndsValid) {
 }
 
 TEST(UniqueFdTest, MakePipe_WriteAndRead) {
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
 
     ASSERT_TRUE(read_end);
     ASSERT_TRUE(write_end);
@@ -205,7 +209,7 @@ TEST(UniqueFdTest, MakePipe_WriteAndRead) {
 }
 
 TEST(UniqueFdTest, MakePipe_CloseOnExecSet) {
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
 
     ASSERT_TRUE(read_end);
     ASSERT_TRUE(write_end);
@@ -220,7 +224,7 @@ TEST(UniqueFdTest, MakePipe_CloseOnExecSet) {
 }
 
 TEST(UniqueFdTest, MakePipe_NonBlockingSet) {
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
 
     ASSERT_TRUE(read_end);
     ASSERT_TRUE(write_end);
@@ -237,7 +241,7 @@ TEST(UniqueFdTest, MakePipe_NonBlockingSet) {
 // Regression: draining an empty non-blocking pipe must return EAGAIN instead
 // of blocking forever (a blocking read here deadlocked multi-consumer drains).
 TEST(UniqueFdTest, MakePipe_ReadOnEmptyPipe_ReturnsEagain) {
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
 
     ASSERT_TRUE(read_end);
     ASSERT_TRUE(write_end);

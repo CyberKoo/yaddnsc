@@ -4,15 +4,15 @@
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
+#include "coro/detail/pipe.h"
 #include "support/coro/burst_latency.hpp"
 #include "support/coro/payload_residency.hpp"
-#include "support/util/fd.hpp"
 
 TEST(CoroObservation, InBurstTimerAndIoWaitForWholeBatchExecutionAndRetirement) {
     for (const int children : {1, 64, 512}) {
         for (const int mode : {0, 1, 2}) {
             SCOPED_TRACE(::testing::Message() << "children=" << children << " mode=" << mode);
-            auto [read_end, write_end] = Utils::make_pipe();
+            auto [read_end, write_end] = coro::detail::make_pipe();
             ASSERT_TRUE(read_end);
             ASSERT_TRUE(write_end);
             coro::ManualClock clock;

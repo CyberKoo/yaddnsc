@@ -481,6 +481,9 @@ add_unit_test(algorithm     SOURCE support/algorithm_test.cpp)
 add_unit_test(bytes         SOURCE support/bytes_test.cpp)
 add_unit_test(exception     SOURCE support/exception_test.cpp)
 add_unit_test(fd            SOURCE support/fd_test.cpp)
+# The MakePipe_* cases cover the runtime's wake-pipe factory, which returns
+# UniqueFd pairs and lives in yaddnsc_coro.
+target_link_libraries(test_fd PRIVATE yaddnsc_coro)
 add_unit_test(fmt_polyfill  SOURCE support/fmt_polyfill_test.cpp)
 add_unit_test(random        SOURCE support/random_test.cpp)
 target_link_libraries(test_random PRIVATE OpenSSL::Crypto)

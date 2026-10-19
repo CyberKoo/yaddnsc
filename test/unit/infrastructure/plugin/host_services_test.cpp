@@ -1,5 +1,5 @@
 //
-// Unit tests for src/infrastructure/plugin/host_services.cpp
+// Unit tests for src/infrastructure/plugin/sync/host_services.cpp
 //
 // Covers the host half of the plugin ABI firewall: the log-level and
 // HTTP-method mappings, the C-frame trampolines the context installs in the
@@ -13,7 +13,7 @@
 // defect arm a test-local allocator fault for exactly one allocation.
 // =============================================================================
 
-#include "infrastructure/plugin/host_services.h"
+#include "infrastructure/plugin/sync/host_services.h"
 
 #include <array>
 #include <chrono>
@@ -38,7 +38,8 @@
 #include "coro/task.hpp"
 #include "coro/with_nursery.hpp"
 #include "infrastructure/http/types.h"
-#include "infrastructure/plugin/bridge.h"
+#include "infrastructure/plugin/detail/cycle.h"
+#include "infrastructure/plugin/sync/bridge.h"
 #include "mocks/allocation_fault.h"
 #include "yaddnsc/sdk/driver_abi.h"
 

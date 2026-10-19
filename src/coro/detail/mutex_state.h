@@ -3,8 +3,8 @@
 // Leaf implementation type: it depends on other detail headers only, which is
 // what lets detail/mutex_wait.h build the lock awaiter without async_mutex.hpp
 // and keeps the module's include graph acyclic.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_MUTEX_STATE_H
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_MUTEX_STATE_H
+#ifndef YADDNSC_CORO_DETAIL_MUTEX_STATE_H
+#define YADDNSC_CORO_DETAIL_MUTEX_STATE_H
 
 #include <deque>
 
@@ -80,4 +80,4 @@ struct MutexState {
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_MUTEX_STATE_H
+#endif  // YADDNSC_CORO_DETAIL_MUTEX_STATE_H

@@ -27,12 +27,12 @@
 
 #include "domain/config/runtime_config.h"
 #include "infrastructure/plugin/driver_catalog.h"
-#include "infrastructure/plugin/driver_instance.h"
 #include "infrastructure/plugin/driver_loader.h"
 #include "infrastructure/plugin/plugin_error.h"
 #include "infrastructure/plugin/plugin_load_exception.h"
 #include "infrastructure/plugin/plugin_loader.h"
 #include "infrastructure/plugin/shared_library.h"
+#include "infrastructure/plugin/sync/driver_instance.h"
 #include "plugin/plugin_test_doubles.h"
 
 namespace {

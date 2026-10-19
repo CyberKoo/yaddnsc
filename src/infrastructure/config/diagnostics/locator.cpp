@@ -196,6 +196,11 @@ struct StringToken {
 /// scalar array element, enters the same state exactly once.
 }  // namespace
 
+ScanPolicy scan_policy(const ParseFailure& failure) noexcept {
+    return {.key_offset_after_quote = failure.kind == ErrorKind::UNKNOWN_KEY,
+            .inspect_complete_string = failure.kind == ErrorKind::ENUM};
+}
+
 Site locate(std::string_view buffer, std::size_t offset, ScanPolicy policy) {
     Site site;
     std::vector<Frame> stack;

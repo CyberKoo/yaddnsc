@@ -6,25 +6,36 @@
 
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <expected>
+#include <optional>
 #include <string>
 #include <utility>
-#include <optional>
 
 #include "coro/scope.hpp"
 #include "coro/task.hpp"
-#include "infrastructure/http/wire_request.h"
-#include "infrastructure/network/factory/default_stream_factory.h"
 #include "domain/error/dns_error_info.h"
+#include "infrastructure/http/error.h"
 #include "infrastructure/http/types.h"
+#include "infrastructure/network/factory/default_stream_factory.h"
+#include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/options.h"
 #include "support/fmt.hpp"
 
-namespace net {
-enum class IoError;
-}  // namespace net
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace http {
+namespace {
+
+/// The diagnosis of one failed candidate: a peer that would not complete a TLS
+/// negotiation is reported apart from an unreachable socket, and the remaining
+/// candidates are still tried.
+[[nodiscard]] Error connect_failure(const std::string_view host, const net::IoError error) {
+    if (error == net::IoError::TLS_HANDSHAKE_FAILED) {
+        return {ErrorCode::TLS_HANDSHAKE_FAILED, fmt::format(R"(TLS handshake with "{}" failed)", host)};
+    }
+    return connect_error(host);
+}
+
+}  // namespace
 
 coro::Task<std::expected<std::vector<domain::InetAddress>, Error>> resolve_host(std::string host,
                                                                                 const Options& options) {
@@ -78,10 +89,12 @@ coro::Task<std::expected<std::unique_ptr<net::Stream>, Error>> connect_stream(
             if (*bounded) {
                 co_return stream;
             }
+            last = connect_failure(host, (*bounded).error());
         } else if (auto connected = co_await attempt(); connected) {
             co_return stream;
+        } else {
+            last = connect_failure(host, connected.error());
         }
-        last = connect_error(host);
     }
     co_return std::unexpected(std::move(last));
 }

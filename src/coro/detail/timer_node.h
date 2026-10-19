@@ -1,6 +1,6 @@
 // Coroutine runtime — internal timer-heap node.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_TIMER_NODE_H
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_TIMER_NODE_H
+#ifndef YADDNSC_CORO_DETAIL_TIMER_NODE_H
+#define YADDNSC_CORO_DETAIL_TIMER_NODE_H
 
 #include <cstddef>
 #include <cstdint>
@@ -23,4 +23,4 @@ struct TimerNode {
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_TIMER_NODE_H
+#endif  // YADDNSC_CORO_DETAIL_TIMER_NODE_H

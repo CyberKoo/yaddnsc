@@ -2,8 +2,8 @@
 //
 // These are the runtime's own frame machinery. Nothing here is named by a
 // caller except Task::promise_type, which the compiler needs spelled out.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_TASK_PROMISE_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_TASK_PROMISE_HPP
+#ifndef YADDNSC_CORO_DETAIL_TASK_PROMISE_HPP
+#define YADDNSC_CORO_DETAIL_TASK_PROMISE_HPP
 
 #include <cassert>
 #include <coroutine>
@@ -289,4 +289,4 @@ TaskAwaiter<T> TaskAccess::await_in_scope(Task<T>& task, Loop& loop, CancelScope
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_TASK_PROMISE_HPP
+#endif  // YADDNSC_CORO_DETAIL_TASK_PROMISE_HPP

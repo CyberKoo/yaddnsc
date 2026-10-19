@@ -1,9 +1,10 @@
 #include "infrastructure/dns/wire/builder.h"
 
 #include <cstddef>
+#include <expected>
+#include <string>
 #include <utility>
 
-#include <expected>
 #include <yaddnsc/util/format.hpp>
 
 #include "infrastructure/dns/dns_packet_exception.h"
@@ -34,17 +35,21 @@ public:
 
     // Encode a domain name into DNS label sequence (RFC 1035 §4.1.2).
     //
-    // Throws DnsPacketException if:
-    //   - any label exceeds 63 octets
+    // The grammar lives here and nowhere else: validate_query_name() reads the
+    // same rules without throwing, and encode_name() is this throwing façade.
+    //
+    // Returns the wire-format reason if:
+    //   - the name carries an embedded NUL
+    //   - any label is empty or exceeds 63 octets
     //   - the encoded name exceeds 255 octets
-    void encode_name(std::string_view name) {
+    [[nodiscard]] std::expected<void, std::string> try_encode_name(std::string_view name) {
         if (name.find('\0') != std::string_view::npos) {
-            throw DnsPacketException("DNS query name contains an embedded NUL");
+            return std::unexpected(std::string("DNS query name contains an embedded NUL"));
         }
         if (name.empty() || name == ".") {
             // Root label only — empty name or bare dot represents the root.
             buf_.push_back(0);
-            return;
+            return {};
         }
 
         // Pre-compute the total encoded length to validate early.
@@ -55,14 +60,14 @@ public:
         const bool trailing_dot = name.back() == '.';
         const size_t encoded_size = name.size() + (trailing_dot ? 1 : 2);
         if (encoded_size > 255) {
-            throw DnsPacketException(
+            return std::unexpected(
                 fmt::format("Domain name \"{}\" is too long ({} octets, max 255)", name, encoded_size));
         }
 
         size_t pos = 0;
         while (pos < name.size()) {
             auto dot = name.find('.', pos);
-            if (dot == std::string::npos) {
+            if (dot == std::string_view::npos) {
                 dot = name.size();
             }
 
@@ -71,10 +76,10 @@ public:
                 // An interior empty label ("a..b" or a leading dot) would emit
                 // a zero length byte mid-name, which parsers read as the root
                 // terminator — silently truncating the name on the wire.
-                throw DnsPacketException(fmt::format("Empty label in domain name \"{}\" at offset {}", name, pos));
+                return std::unexpected(fmt::format("Empty label in domain name \"{}\" at offset {}", name, pos));
             }
             if (label_len > 63) {
-                throw DnsPacketException(fmt::format("Label too long in domain name \"{}\" at offset {}", name, pos));
+                return std::unexpected(fmt::format("Label too long in domain name \"{}\" at offset {}", name, pos));
             }
 
             buf_.push_back(label_len);
@@ -85,6 +90,13 @@ public:
         }
 
         buf_.push_back(0);  // Root label (terminator).
+        return {};
+    }
+
+    void encode_name(std::string_view name) {
+        if (auto encoded = try_encode_name(name); !encoded) {
+            throw DnsPacketException(std::move(encoded.error()));
+        }
     }
 
     void write_bytes(std::span<const std::uint8_t> bytes) { buf_.insert(buf_.end(), bytes.begin(), bytes.end()); }
@@ -299,5 +311,15 @@ std::vector<std::uint8_t> QueryBuilder::build() const {
     }
 
     return std::move(w).finish();
+}
+
+std::expected<void, QueryNameError> validate_query_name(const std::string_view host, const RecordType type) {
+    WireWriter w;
+    if (auto encoded = w.try_encode_name(host); !encoded) {
+        return std::unexpected(QueryNameError{std::move(encoded.error())});
+    }
+    w.write_uint16(static_cast<std::uint16_t>(type));
+    w.write_uint16(static_cast<std::uint16_t>(RecordClass::IN));
+    return {};
 }
 }  // namespace dns

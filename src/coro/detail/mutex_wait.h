@@ -4,8 +4,8 @@
 // async_mutex.hpp: awaiting a member function requires that member's awaitable
 // to be complete at the call site, so async_mutex.hpp includes *this* header
 // and this header must not include that one. See detail/mutex_state.h.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_MUTEX_WAIT_H
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_MUTEX_WAIT_H
+#ifndef YADDNSC_CORO_DETAIL_MUTEX_WAIT_H
+#define YADDNSC_CORO_DETAIL_MUTEX_WAIT_H
 
 #include <coroutine>
 
@@ -108,4 +108,4 @@ private:
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_MUTEX_WAIT_H
+#endif  // YADDNSC_CORO_DETAIL_MUTEX_WAIT_H

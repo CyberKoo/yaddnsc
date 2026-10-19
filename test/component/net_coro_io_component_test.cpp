@@ -61,6 +61,7 @@
 #include "infrastructure/network/tls/context.h"
 #include "infrastructure/network/transport/datagram.h"
 #include "infrastructure/network/transport/udp_socket.h"
+#include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
 #include "support/util/fd.hpp"
 #include "yaddnsc/util/format.hpp"
@@ -422,7 +423,7 @@ TEST(NetCoroDns, doh_resolvesThroughThePersistentHttpSession) {
 
     http::Options options;
     options.tls_context = client_context({.verify_peer = false});
-    dns::DohResolver resolver{fmt::format("https://127.0.0.1:{}/dns-query", DOH_PORT), options};
+    dns::DohResolver resolver{*Uri::parse(fmt::format("https://127.0.0.1:{}/dns-query", DOH_PORT)), options};
 
     auto resolve = [&]() -> coro::Task<std::pair<bool, bool>> {
         auto first = co_await resolver.query("yaddnsc.test", domain::RecordKind::A);
@@ -451,7 +452,7 @@ TEST(NetCoroDns, doh_enforcesResponseSemantics) {
 
     http::Options options;
     options.tls_context = client_context({.verify_peer = false});
-    dns::DohResolver resolver{fmt::format("https://127.0.0.1:{}/dns-query", DOH_PORT), options};
+    dns::DohResolver resolver{*Uri::parse(fmt::format("https://127.0.0.1:{}/dns-query", DOH_PORT)), options};
 
     using QueryResult = std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>;
     auto resolve = [&]() -> coro::Task<std::array<QueryResult, 4>> {
@@ -484,7 +485,8 @@ TEST(NetCoroDns, doh_enforcesResponseSemantics) {
     }
     std::vector<std::unique_ptr<dns::Resolver>> resolvers;
     resolvers.push_back(
-        std::make_unique<dns::DohResolver>(fmt::format("https://127.0.0.1:{}/dns-query", DOH_PORT), options));
+        std::make_unique<dns::DohResolver>(*Uri::parse(fmt::format("https://127.0.0.1:{}/dns-query", DOH_PORT)),
+                                         options));
     resolvers.push_back(std::make_unique<dns::ClassicResolver>(loopback_v4(), CLASSIC_PORT));
     dns::Dispatcher dispatcher{std::move(resolvers), dns::Strategy::FALLBACK};
     const auto fallback = run_task(dispatcher.resolve("doh-malformed.yaddnsc.test", domain::RecordKind::A));
@@ -570,7 +572,7 @@ TEST(NetCoroDns, doh_scopeTimeout_abortsTheQuery) {
 
     http::Options options;
     options.tls_context = client_context({.verify_peer = false});
-    dns::DohResolver resolver{fmt::format("https://127.0.0.1:{}/dns-query", DOH_PORT), options};
+    dns::DohResolver resolver{*Uri::parse(fmt::format("https://127.0.0.1:{}/dns-query", DOH_PORT)), options};
 
     // doh_server.py accepts this name and then never answers, so only the
     // caller's cancel scope can end the wait — the transport has no timeout.

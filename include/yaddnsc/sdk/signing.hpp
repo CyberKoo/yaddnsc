@@ -4,13 +4,13 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include <format>
 #include <openssl/evp.h>
 #include <openssl/types.h>
 
@@ -24,6 +24,16 @@
 /// storage, so allocation failures propagate normally rather than causing an
 /// unexpected termination through a false noexcept contract.
 namespace yaddnsc::sdk::signing {
+
+// ── Byte views ───────────────────────────────────────────────────────────
+
+/// Borrow @p text as raw bytes for the primitives below.
+///
+/// Zero-copy view: the caller keeps the backing string alive and unmodified for
+/// as long as the returned span is used.
+[[nodiscard]] inline std::span<const std::uint8_t> as_bytes(std::string_view text) noexcept {
+    return {reinterpret_cast<const std::uint8_t*>(text.data()), text.size()};
+}
 
 // ── Hash ─────────────────────────────────────────────────────────────────
 
@@ -152,8 +162,7 @@ inline std::vector<std::uint8_t> yaddnsc::sdk::signing::sha1(std::span<const std
 // ===========================================================================
 
 inline std::string yaddnsc::sdk::signing::sha256_hex(std::string_view data) {
-    const std::vector<std::uint8_t> raw(data.begin(), data.end());
-    const auto digest = sha256(std::span<const std::uint8_t>(raw));
+    const auto digest = sha256(as_bytes(data));
     return hex_encode(digest);
 }
 
@@ -235,7 +244,7 @@ inline std::string yaddnsc::sdk::signing::base64_encode(std::span<const std::uin
 }
 
 // ===========================================================================
-//  signing::base64_encode
+//  signing::iso8601_timestamp
 // ===========================================================================
 
 inline std::string yaddnsc::sdk::signing::iso8601_timestamp() {

@@ -47,7 +47,7 @@ TEST(GoDaddyDriverTest, Descriptor_ReturnsExpectedMetadata) {
     EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
               "Updates DNS records via the GoDaddy API");
     EXPECT_EQ(std::string_view(descriptor->author.data, descriptor->author.size), "Kotarou");
-    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "1.0.0");
+    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "1.1.0");
     EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_A, 0u);
     EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_AAAA, 0u);
 }
@@ -130,6 +130,8 @@ TEST(GoDaddyDriverTest, Update_Non200WithBody_ReturnsUpstreamRejected) {
     fake.queue_response(400, R"({"message":"Bad Request"})");
     const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
+    // GoDaddy answers without a structured error, so the status names the rejection.
+    EXPECT_EQ(result.error_message, "GoDaddy API request failed with HTTP status 400");
 }
 
 TEST(GoDaddyDriverTest, Update_Non200EmptyBody_ReturnsUpstreamRejected) {

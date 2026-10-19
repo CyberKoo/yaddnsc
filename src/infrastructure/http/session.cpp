@@ -4,39 +4,28 @@
 
 #include "session.h"
 
-#include <algorithm>
+#include <algorithm>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <chrono>
-#include <compare>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <compare>    // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <expected>
 #include <map>
 #include <optional>
 #include <span>
 #include <utility>
 #include <vector>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-
-#include <expected>
-
 #include "coro/cancelled.h"
-#include "coro/mutex_guard.hpp"
 #include "coro/now.hpp"
 #include "coro/scope.hpp"
 #include "domain/network/inet_address.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "infrastructure/http/protocol/exchange.h"
 #include "infrastructure/http/protocol/wire.h"
 #include "infrastructure/http/transport.h"
 #include "infrastructure/http/wire_request.h"
 #include "infrastructure/network/transport/stream.h"
 
 namespace http {
-namespace {
-
-/// Methods safe to replay after a rebuilt connection (RFC 9110 §9.2.2).
-[[nodiscard]] bool is_idempotent(const Method method) noexcept {
-    return method == Method::GET || method == Method::HEAD || method == Method::OPTIONS || method == Method::PUT ||
-           method == Method::DELETE;
-}
-
-}  // namespace
 
 Session::Session(Options options, std::string scheme, std::string host, const std::uint16_t port)
     : options_(std::move(options)), scheme_(std::move(scheme)), host_(std::move(host)), port_(port) {}
@@ -46,19 +35,13 @@ Session::~Session() {
 }
 
 coro::Task<std::expected<Response, Error>> Session::exchange(std::string target, const Request& request) {
-    // Waiting semantics: a second concurrent exchange queues here instead of
-    // being rejected. A cancelled wait leaves the session untouched.
-    auto wait = [this]() -> coro::Task<coro::AsyncMutex::Guard> { co_return co_await mutex_.lock(); };
-    std::optional<coro::AsyncMutex::Guard> guard;
-    if (options_.queue_timeout.count() > 0) {
-        auto queued = co_await coro::with_timeout(options_.queue_timeout, wait);
-        if (queued.timed_out) {
-            co_return std::unexpected(Error{ErrorCode::QUEUE_TIMEOUT, "HTTP session queue timed out"});
-        }
-        guard.emplace(std::move(*queued));
-    } else {
-        guard.emplace(co_await wait());
+    auto admitted = co_await admit();
+    if (!admitted) {
+        co_return std::unexpected(std::move(admitted.error()));
     }
+    // Held for the rest of the exchange: the guard releases the session lock
+    // when this frame is destroyed.
+    auto guard = std::move(*admitted);
     try {
         // A close() that arrived while an exchange held the guard is honoured now,
         // under the guard, before the connection is reused.
@@ -67,63 +50,31 @@ coro::Task<std::expected<Response, Error>> Session::exchange(std::string target,
             drop_connection();
         }
 
-        if (auto valid = validate_request(request); !valid) {
-            co_return std::unexpected(std::move(valid.error()));
-        }
-
         // An expired keep-alive deadline retires the connection before reuse.
-        if (stream_ != nullptr && keep_alive_deadline_.has_value() &&
-            co_await coro::current_time() >= *keep_alive_deadline_) {
+        if (stream_ != nullptr && policy_.expired(co_await coro::current_time())) {
             drop_connection();
         }
         const bool reused = stream_ != nullptr && stream_->connected();
+
+        // Built and checked before the connection is touched, so an unusable
+        // request costs no dial.
+        auto wire = build_wire_request(request, scheme_, host_, port_, options_);
+        wire.target = std::move(target);
+        if (auto valid = validate_wire_request(wire); !valid) {
+            co_return std::unexpected(std::move(valid.error()));
+        }
+
         if (auto ready = co_await ensure_stream(); !ready) {
             co_return std::unexpected(std::move(ready.error()));
         }
 
-        auto wire = build_wire_request(request, scheme_, host_, port_, options_);
-        wire.target = std::move(target);
-
-        auto raw = co_await do_exchange(wire);
+        auto raw = co_await exchange_attempt(wire, request.replay_safe, reused);
         if (!raw) {
-            const bool retry = raw.error().code == ErrorCode::CONNECTION_LOST &&
-                               (is_idempotent(wire.method) || (request.replay_safe && reused));
-            // A failed exchange can leave unread bytes on the stream, so it is never
-            // reused: either the retry rebuilds it or the failure is reported.
-            drop_connection();
-            if (!retry) {
-                co_return std::unexpected(std::move(raw.error()));
-            }
-            if (auto ready = co_await ensure_stream(); !ready) {
-                co_return std::unexpected(std::move(ready.error()));
-            }
-            raw = co_await do_exchange(wire);
-            if (!raw) {
-                drop_connection();
-                co_return std::unexpected(std::move(raw.error()));
-            }
+            co_return std::unexpected(std::move(raw.error()));
         }
 
-        if (raw->keep_alive_max.has_value()) {
-            // `max` caps the requests on this connection; a repeated header must not
-            // reset a budget earlier exchanges already consumed.
-            keep_alive_remaining_ = keep_alive_remaining_.has_value()
-                                        ? std::min(*keep_alive_remaining_, *raw->keep_alive_max)
-                                        : *raw->keep_alive_max;
-        }
-        if (raw->keep_alive_timeout.has_value()) {
-            keep_alive_deadline_ = co_await coro::current_time() + std::chrono::seconds(*raw->keep_alive_timeout);
-        }
-        if (keep_alive_remaining_.has_value()) {
-            if (*keep_alive_remaining_ > 0) {
-                --*keep_alive_remaining_;
-            }
-            if (*keep_alive_remaining_ == 0) {
-                raw->reusable = false;
-            }
-        }
-
-        if (!raw->reusable) {
+        policy_.record(raw->framing, co_await coro::current_time());
+        if (!policy_.reusable(raw->framing, closes_connection(options_))) {
             drop_connection();
         }
         // A close() requested mid-exchange drops the connection as soon as the
@@ -143,8 +94,43 @@ coro::Task<std::expected<Response, Error>> Session::exchange(std::string target,
     }
 }
 
-coro::Task<std::expected<protocol::RawResponse, Error>> Session::do_exchange(const protocol::WireRequest& wire) {
-    return protocol::exchange(*stream_, wire, options_.limits, pending_);
+coro::Task<std::expected<coro::AsyncMutex::Guard, Error>> Session::admit() {
+    // Waiting semantics: a second concurrent exchange queues here instead of
+    // being rejected. A cancelled wait leaves the session untouched.
+    auto wait = [this]() -> coro::Task<coro::AsyncMutex::Guard> { co_return co_await mutex_.lock(); };
+    if (options_.queue_timeout.count() > 0) {
+        auto queued = co_await coro::with_timeout(options_.queue_timeout, wait);
+        if (queued.timed_out) {
+            co_return std::unexpected(Error{ErrorCode::QUEUE_TIMEOUT, "HTTP session queue timed out"});
+        }
+        co_return std::move(*queued);
+    }
+    co_return co_await wait();
+}
+
+coro::Task<std::expected<protocol::RawResponse, Error>> Session::exchange_attempt(const protocol::WireRequest& wire,
+                                                                                  const bool replay_safe,
+                                                                                  const bool reused) {
+    auto raw = co_await protocol::exchange(*stream_, wire, options_.limits, pending_);
+    if (raw) {
+        co_return raw;
+    }
+    const bool retry =
+        raw.error().code == ErrorCode::CONNECTION_LOST && SessionPolicy::may_replay(wire.method, replay_safe, reused);
+    // A failed exchange can leave unread bytes on the stream, so it is never
+    // reused: either the retry rebuilds it or the failure is reported.
+    drop_connection();
+    if (!retry) {
+        co_return std::unexpected(std::move(raw.error()));
+    }
+    if (auto ready = co_await ensure_stream(); !ready) {
+        co_return std::unexpected(std::move(ready.error()));
+    }
+    raw = co_await protocol::exchange(*stream_, wire, options_.limits, pending_);
+    if (!raw) {
+        drop_connection();
+    }
+    co_return raw;
 }
 
 coro::Task<std::expected<void, Error>> Session::ensure_stream() {
@@ -190,8 +176,7 @@ void Session::drop_connection() noexcept {
         stream_.reset();
     }
     pending_.clear();
-    keep_alive_remaining_.reset();
-    keep_alive_deadline_.reset();
+    policy_.reset();
 }
 
 }  // namespace http

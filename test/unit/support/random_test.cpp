@@ -1,7 +1,9 @@
 //
-// Unit tests for util/random.hpp — Utils::Random::engine().
+// Unit tests for util/random.hpp and util/random_engine.hpp —
+// Utils::Random::crypto_u16() and Utils::Random::engine().
 //
 // Verifies:
+//   - crypto_u16() returns a value from a healthy source.
 //   - engine() returns a reference to a usable RNG engine.
 //   - operator() produces values within the full uint32_t range.
 //   - Multiple invocations produce different values (statistical
@@ -19,6 +21,8 @@
 #include <type_traits>
 
 #include <gtest/gtest.h>
+
+#include "support/util/random_engine.hpp"
 
 TEST(RandomCryptoTest, HealthySource_ReturnsCheckedValue) {
     const auto value = Utils::Random::crypto_u16();

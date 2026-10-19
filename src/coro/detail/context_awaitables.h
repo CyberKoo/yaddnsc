@@ -1,7 +1,7 @@
 // Coroutine runtime — awaitables behind current_time(), checkpoint() and
 // current_scope(). Each uses the awaiting frame's runtime context.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_CONTEXT_AWAITABLES_H
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_CONTEXT_AWAITABLES_H
+#ifndef YADDNSC_CORO_DETAIL_CONTEXT_AWAITABLES_H
+#define YADDNSC_CORO_DETAIL_CONTEXT_AWAITABLES_H
 
 #include <cassert>
 #include <coroutine>
@@ -121,4 +121,4 @@ private:
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_CONTEXT_AWAITABLES_H
+#endif  // YADDNSC_CORO_DETAIL_CONTEXT_AWAITABLES_H

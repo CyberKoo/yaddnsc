@@ -28,10 +28,3 @@ TEST(CertUtilEnvOverrideTest, DiscoverCaBundle_EnvVarHit) {
     ASSERT_TRUE(path.has_value());
     EXPECT_EQ(*path, file);
 }
-
-TEST(CertUtilEnvOverrideTest, GetSystemCaPath_StillWorks) {
-    const auto path = Utils::Cert::get_system_ca_path();
-    if (path.has_value()) {
-        EXPECT_FALSE(path->empty());
-    }
-}

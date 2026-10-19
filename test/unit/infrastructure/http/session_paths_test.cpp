@@ -3,11 +3,11 @@
 // (src/infrastructure/http/session.cpp and persistent_client.cpp).
 //
 // Covers: the lost-connection replay policy (which methods are idempotent, when
-// a request must be explicitly replay-safe), the keep-alive request budget, the
-// session lock's queue timeout, the connect/resolve failure paths of
-// ensure_stream, and the persistent client's origin parsing, target resolution
-// and redirect handling (same origin on the reused connection, a cross-origin
-// hop through a transient client).
+// a request must be explicitly replay-safe), the keep-alive request budget and
+// the connection reuse decision, the session lock's queue timeout, the
+// connect/resolve failure paths of ensure_stream, and the persistent client's
+// origin parsing, target resolution and redirect handling (same origin on the
+// reused connection, a cross-origin hop through a transient client).
 //
 // Everything runs on a scripted in-memory stream (the net::Stream injection
 // point) or on a ManualClock; there is no socket, no DNS and no filesystem I/O.
@@ -311,6 +311,53 @@ TEST(HttpSessionKeepAlive, repeatedBudget_IsClampedToTheLowerValue) {
     factory->queue(Behaviour{.incoming = OK});
     EXPECT_TRUE(coro::run(session.exchange("/third", NO_REQUEST)).has_value());
     EXPECT_EQ(factory->tcp_calls, 2);
+}
+
+TEST(HttpSessionReuse, aRequestThatAsksToCloseEndsTheConnectionAfterOneExchange) {
+    // The peer permits reuse, but the client asked to close: the session's own
+    // request policy retires the connection after the exchange.
+    auto factory = factory_for({Behaviour{.incoming = OK}, Behaviour{.incoming = OK}});
+    Options options = options_for(factory);
+    options.keep_alive = false;
+    http::Session session = session_for(options);
+
+    EXPECT_TRUE(coro::run(session.exchange("/first", NO_REQUEST)).has_value());
+    EXPECT_NE(factory->sent_on(0).find("Connection: close"), std::string::npos);
+    EXPECT_TRUE(coro::run(session.exchange("/second", NO_REQUEST)).has_value());
+    EXPECT_EQ(factory->tcp_calls, 2);
+}
+
+TEST(HttpSessionReuse, peerAskingToCloseEndsTheConnectionAfterOneExchange) {
+    const std::string closed = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    auto factory = factory_for({Behaviour{.incoming = closed}, Behaviour{.incoming = OK}});
+    const Options options = options_for(factory);
+    http::Session session = session_for(options);
+
+    EXPECT_TRUE(coro::run(session.exchange("/first", NO_REQUEST)).has_value());
+    EXPECT_TRUE(coro::run(session.exchange("/second", NO_REQUEST)).has_value());
+    EXPECT_EQ(factory->tcp_calls, 2);
+}
+
+TEST(HttpSessionReuse, http10PeerNeedsAnExplicitKeepAlive) {
+    // HTTP/1.0 has no persistent-connection default; only the peer's own
+    // keep-alive directive opts in.
+    const std::string plain = "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n";
+    auto factory = factory_for({Behaviour{.incoming = plain + plain}, Behaviour{.incoming = plain}});
+    http::Session session = session_for(options_for(factory));
+
+    EXPECT_TRUE(coro::run(session.exchange("/first", NO_REQUEST)).has_value());
+    EXPECT_TRUE(coro::run(session.exchange("/second", NO_REQUEST)).has_value());
+    EXPECT_EQ(factory->tcp_calls, 2);
+}
+
+TEST(HttpSessionReuse, http10PeerThatOptsInIsReused) {
+    const std::string kept = "HTTP/1.0 200 OK\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n";
+    auto factory = factory_for({Behaviour{.incoming = kept + kept}, Behaviour{.incoming = kept}});
+    http::Session session = session_for(options_for(factory));
+
+    EXPECT_TRUE(coro::run(session.exchange("/first", NO_REQUEST)).has_value());
+    EXPECT_TRUE(coro::run(session.exchange("/second", NO_REQUEST)).has_value());
+    EXPECT_EQ(factory->tcp_calls, 1);
 }
 
 // ---------------------------------------------------------------------------

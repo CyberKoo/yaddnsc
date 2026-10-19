@@ -12,12 +12,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <map>
-#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
-#include <expected>
 
 #include "coro/task.hpp"
 #include "infrastructure/http/error.h"
@@ -37,11 +36,9 @@ struct WireRequest;
 /// lifetime of this value.
 struct RawResponse {
     int status{0};
-    HttpVersion version{HttpVersion::V1_1};
-    /// The peer's framing permits another request on this connection.
-    bool reusable{false};
-    std::optional<unsigned> keep_alive_max;
-    std::optional<unsigned> keep_alive_timeout;
+    /// What the peer said about the connection this response arrived on. The
+    /// reuse decision belongs to the caller that owns that connection.
+    ResponseFraming framing{};
     std::multimap<std::string, std::string> headers;
     std::multimap<std::string, std::string> trailers;
     std::string body;
@@ -63,6 +60,10 @@ struct RawResponse {
 /// Does not connect: the caller owns stream lifecycle. `pending` carries bytes
 /// read past the previous response so a keep-alive stream can serve several
 /// exchanges; it is updated in place.
+///
+/// The wire request must already have passed the request builder's validation
+/// (see `http::validate_wire_request`); this layer serializes what it is handed
+/// and parses the response.
 ///
 /// Lifetime: the coroutine frame borrows `stream`, `request` and `pending`, so
 /// all three must outlive the returned task (they do when the task is awaited

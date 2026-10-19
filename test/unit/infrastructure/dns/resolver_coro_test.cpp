@@ -55,6 +55,7 @@
 #include "infrastructure/network/address/host_resolver.h"
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
+#include "infrastructure/uri/uri.h"
 
 namespace {
 
@@ -183,7 +184,8 @@ private:
 };
 
 /// A DoH endpoint on an IP literal: the URL host bypasses the injected resolver.
-constexpr const char* DOH_URL = "https://203.0.113.10/dns-query";
+/// Held as the parsed Uri the production path hands over, not as a URL string.
+const Uri DOH_ENDPOINT = *Uri::parse("https://203.0.113.10/dns-query");
 
 // ---------------------------------------------------------------------------
 // DoT: the resolve and each address's connect have their own budget
@@ -305,7 +307,7 @@ TEST(DohResolver, Query_FactoryDefect_PropagatesToOperationBoundary) {
     auto factory = std::make_shared<ThrowingFactory>();
     http::Options options;
     options.factory = factory;
-    dns::DohResolver resolver{DOH_URL, options};
+    dns::DohResolver resolver{DOH_ENDPOINT, options};
 
     EXPECT_THROW(
         { [[maybe_unused]] auto result = coro::run(resolver.query("x.test", domain::RecordKind::A)); },
@@ -319,7 +321,7 @@ TEST(DohResolver, connectTimeoutFailsAsConnectionBeforeTheExchangeBudget) {
     http::Options options;
     options.factory = factory;
     options.connect_timeout = 100ms;
-    dns::DohResolver resolver{DOH_URL, options};
+    dns::DohResolver resolver{DOH_ENDPOINT, options};
     const auto start = clock.now();
 
     std::optional<QueryResult> result;
@@ -463,7 +465,7 @@ TEST(DohResolver, oversizedResponseAllowsFailoverWithoutSameBackendRetry) {
     options.limits.max_header_bytes = 64;
     options.factory = std::make_shared<ScriptFactory>(
         "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: 0\r\n\r\n");
-    dns::DohResolver resolver{DOH_URL, options};
+    dns::DohResolver resolver{DOH_ENDPOINT, options};
 
     const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
 
@@ -483,7 +485,7 @@ TEST(DohResolver, oversizedBodyAllowsFailoverWithoutSameBackendRetry) {
     options.limits.max_body_bytes = 64;
     options.factory = std::make_shared<ScriptFactory>(
         "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: 100\r\n\r\n");
-    dns::DohResolver resolver{DOH_URL, options};
+    dns::DohResolver resolver{DOH_ENDPOINT, options};
 
     const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
 
@@ -510,7 +512,7 @@ TEST(DohResolver, protocolUpgradeAnswerAllowsFailover) {
     http::Options options;
     options.factory = std::make_shared<ScriptFactory>(
         "HTTP/1.1 101 Switching Protocols\r\nConnection: upgrade\r\nUpgrade: h2c\r\nContent-Length: 0\r\n\r\n");
-    dns::DohResolver resolver{DOH_URL, options};
+    dns::DohResolver resolver{DOH_ENDPOINT, options};
 
     const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
 
@@ -531,7 +533,7 @@ TEST(DohResolver, unusableRemoteResponsesAllowFailover) {
         SCOPED_TRACE(script);
         http::Options options;
         options.factory = std::make_shared<ScriptFactory>(script);
-        dns::DohResolver resolver{DOH_URL, options};
+        dns::DohResolver resolver{DOH_ENDPOINT, options};
 
         const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
 
@@ -565,7 +567,7 @@ TEST(DotResolver, packetConstructionFailureIsInvalidQuery) {
 TEST(DohResolver, packetConstructionFailureIsInvalidQuery) {
     http::Options options;
     options.factory = std::make_shared<ThrowingFactory>();
-    dns::DohResolver resolver{DOH_URL, options};
+    dns::DohResolver resolver{DOH_ENDPOINT, options};
     const auto result = coro::run(resolver.query(overlong_label_host(), domain::RecordKind::A));
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DnsError::INVALID_QUERY);
@@ -656,7 +658,7 @@ TEST(DohResolver, blackHoledFirstAddressDoesNotPreventTryingTheSecond) {
     options.resolve = [dead, good](std::string, std::optional<domain::AddressFamily>) -> coro::Task<ResolveResult> {
         co_return std::vector<domain::InetAddress>{dead, good};
     };
-    dns::DohResolver resolver{"https://doh.test/dns-query", options};
+    dns::DohResolver resolver{*Uri::parse("https://doh.test/dns-query"), options};
     coro::ManualClock clock;
     coro::Loop loop{clock};
     const auto result = coro::run(loop, resolver.query("x.test", domain::RecordKind::A));
@@ -664,13 +666,14 @@ TEST(DohResolver, blackHoledFirstAddressDoesNotPreventTryingTheSecond) {
     EXPECT_EQ(factory->dialled, (std::vector<domain::InetAddress>{dead, good}));
 }
 
-TEST(DohResolver, directConstructionEnforcesHttpsAndTheResponseCap) {
-    EXPECT_THROW(
-        { dns::DohResolver resolver("http://203.0.113.10/dns-query", http::Options{}); }, std::invalid_argument);
+TEST(DohResolver, directConstructionEnforcesTheResponseCap) {
+    // HTTPS is no longer a construction-time check here: the endpoint module
+    // owns that grammar, so a non-https address never reaches this constructor
+    // on the production path (see DnsFactoryTest.RejectsNonHttpsDoHEndpoints).
     http::Options options;
     options.factory = std::make_shared<ScriptFactory>(
         "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: 20000\r\n\r\n");
-    dns::DohResolver resolver{DOH_URL, options};
+    dns::DohResolver resolver{DOH_ENDPOINT, options};
     const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
@@ -680,7 +683,7 @@ TEST(DohResolver, directConstructionEnforcesHttpsAndTheResponseCap) {
 TEST(DohResolver, rateLimitingIsRetryable) {
     http::Options options;
     options.factory = std::make_shared<ScriptFactory>("HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\r\n");
-    dns::DohResolver resolver{DOH_URL, options};
+    dns::DohResolver resolver{DOH_ENDPOINT, options};
     const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DnsError::RETRY);
@@ -823,7 +826,7 @@ TEST(EncryptedResolvers, lostReusedConnectionIsRepairedWithinTheSameAttempt) {
         } else {
             http::Options options;
             options.factory = factory;
-            resolver = std::make_unique<dns::DohResolver>(DOH_URL, options);
+            resolver = std::make_unique<dns::DohResolver>(DOH_ENDPOINT, options);
         }
         coro::run([&]() -> coro::Task<void> {
             for (int i = 0; i < 2; ++i) {
@@ -873,7 +876,7 @@ TEST(EncryptedResolvers, wholeQueryRetriesFitInsideTheApplicationBudget) {
                 } else {
                     http::Options options;
                     options.factory = factory;
-                    backends.push_back(std::make_unique<dns::DohResolver>(DOH_URL, options));
+                    backends.push_back(std::make_unique<dns::DohResolver>(DOH_ENDPOINT, options));
                 }
             }
             dns::Dispatcher dispatcher{std::move(backends)};
@@ -910,7 +913,7 @@ TEST(EncryptedResolvers, Query_CancelledSessionWait_LeavesActiveConnectionUntouc
         } else {
             http::Options options;
             options.factory = factory;
-            resolver = std::make_unique<dns::DohResolver>(DOH_URL, options);
+            resolver = std::make_unique<dns::DohResolver>(DOH_ENDPOINT, options);
         }
         coro::ManualClock clock;
         coro::Loop loop{clock};
@@ -1002,7 +1005,7 @@ TEST(EncryptedResolvers, Query_ConcurrentHealthyRequests_WaitWithoutBackendRetry
         } else {
             http::Options options;
             options.factory = factory;
-            resolver = std::make_unique<dns::DohResolver>(DOH_URL, options);
+            resolver = std::make_unique<dns::DohResolver>(DOH_ENDPOINT, options);
         }
         coro::ManualClock clock;
         coro::Loop loop{clock};

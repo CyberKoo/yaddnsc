@@ -6,10 +6,10 @@
 #include <benchmark/benchmark.h>
 
 #include "coro/coro.h"
+#include "coro/detail/pipe.h"
 #include "mocks/allocation_fault.h"
 #include "support/coro/burst_latency.hpp"
 #include "support/coro/payload_residency.hpp"
-#include "support/util/fd.hpp"
 
 namespace {
 
@@ -27,7 +27,7 @@ void report_average(benchmark::State& state, const std::string& name, double tot
 void bm_ready_burst(benchmark::State& state) {
     const int children = static_cast<int>(state.range(0));
     const int mode = static_cast<int>(state.range(1));
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
     if (!read_end || !write_end) {
         state.SkipWithError("burst observation needs a pipe");
         return;

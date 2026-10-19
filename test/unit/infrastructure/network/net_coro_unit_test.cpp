@@ -485,7 +485,7 @@ TEST(TlsStream, ensure_connected_PlainPeer_FailsHandshake) {
     };
     run_task(task());
     ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(*error, IoError::CONNECTION_FAILED);
+    EXPECT_EQ(*error, IoError::TLS_HANDSHAKE_FAILED);
     EXPECT_FALSE(stream.connected());
 }
 

@@ -10,16 +10,17 @@
 #ifndef YADDNSC_INFRASTRUCTURE_NETWORK_TLS_STREAM_H
 #define YADDNSC_INFRASTRUCTURE_NETWORK_TLS_STREAM_H
 
-#include <openssl/types.h>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <string>
 #include <vector>
-#include <expected>
 
-#include "domain/network/inet_address.h"
+#include <openssl/types.h>
+
 #include "coro/task.hpp"
+#include "domain/network/inet_address.h"
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/options.h"
 #include "infrastructure/network/transport/stream.h"
@@ -52,8 +53,10 @@ using SslPtr = std::unique_ptr<SSL, SslDeleter>;
 /// borrows the shared TlsContext.
 /// Non-movable, so `this` stays valid for every Task the stream returns.
 /// Failure: expected<T, IoError>; a failed connect or handshake closes the
-/// socket and leaves the stream reusable. EOF and protocol failures are
-/// CONNECTION_FAILED; a cancelled await throws `coro::Cancelled`.
+/// socket and leaves the stream reusable. Anything that stops the TLS session
+/// from coming up — unusable trust material, session setup, or the handshake
+/// itself — is TLS_HANDSHAKE_FAILED; EOF, protocol failures and a failed TCP
+/// connect are CONNECTION_FAILED. A cancelled await throws `coro::Cancelled`.
 /// Thread safety: not thread-safe and not concurrent-safe.
 class TlsStream final : public Stream {
 public:

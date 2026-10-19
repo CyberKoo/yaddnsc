@@ -3,8 +3,8 @@
 // The job holds a shared_ptr to the callable and to the result cell, so both
 // outlive an abandoned await. Atomic cancellation/completion and stop state
 // cross threads; all waiter registration is confined to the loop.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_OFFLOAD_JOB_H
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_OFFLOAD_JOB_H
+#ifndef YADDNSC_CORO_DETAIL_OFFLOAD_JOB_H
+#define YADDNSC_CORO_DETAIL_OFFLOAD_JOB_H
 
 #include <atomic>
 #include <cassert>
@@ -18,24 +18,13 @@
 #include "coro/cancel_scope.h"
 #include "coro/detail/access.h"
 #include "coro/detail/inbox_node.h"
+#include "coro/detail/offload_admission.h"
 #include "coro/detail/promise_base.h"
 #include "coro/detail/result_box.hpp"
 #include "coro/detail/wait_operation.h"
 #include "coro/loop.h"
 
 namespace coro::detail {
-
-/// One cancellable FIFO admission, owned by the awaiter's shared state.
-/// job is moved to the pool on admission; clearing it breaks its state lease.
-struct OffloadAdmission {
-    OffloadAdmission* next = nullptr;
-    OffloadAdmission* prev = nullptr;
-    std::function<void()> job;
-    void (*failed)(void*, std::exception_ptr) noexcept = nullptr;
-    void* owner = nullptr;
-    bool linked = false;
-    bool submitted = false;
-};
 
 /// State shared between the loop-side awaiter and the worker job.
 ///
@@ -256,4 +245,4 @@ struct OffloadAwaitable {
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_OFFLOAD_JOB_H
+#endif  // YADDNSC_CORO_DETAIL_OFFLOAD_JOB_H

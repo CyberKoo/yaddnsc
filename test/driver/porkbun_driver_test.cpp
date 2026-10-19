@@ -49,7 +49,7 @@ TEST(PorkbunDriverTest, Descriptor_ReturnsExpectedMetadata) {
     EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
               "Updates DNS records via the Porkbun API");
     EXPECT_EQ(std::string_view(descriptor->author.data, descriptor->author.size), "Kotarou");
-    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "1.0.0");
+    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "1.1.0");
     EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_A, 0u);
     EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_AAAA, 0u);
 }
@@ -160,6 +160,8 @@ TEST(PorkbunDriverTest, Update_ErrorWithoutCode_ReturnsUpstreamRejected) {
     fake.queue_response(200, R"({"status":"ERROR","message":"Invalid API key"})");
     const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
+    // The provider's own error detail reaches the update result.
+    EXPECT_EQ(result.error_message, "Porkbun API error unknown: Invalid API key");
 }
 
 TEST(PorkbunDriverTest, Update_Forbidden_ReturnsAuthenticationFailed) {

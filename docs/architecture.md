@@ -30,18 +30,21 @@ with_nursery                    fail-fast root scope; owns gateway/services
         |     +-- update_task         IP source -> DNS read -> decide -> driver update
 ```
 
-The executable is a thin `main()` over `Cli::parse` and
-`Composition::run`. The composition root is the only place concrete
-infrastructure is assembled; the application layer reaches it through ports.
-Each command handler owns its own presentation and exit code for its expected
-failures; `Composition::run` owns the logging pipeline's lifetime around
-command execution and catches defects escaping it. The same run entry point
-is used by the executable and command component tests.
+The executable is a thin `main()` over `Cli::parse` and `Composition::run`.
+The composition root is the only place concrete infrastructure is assembled;
+the application layer reaches it through ports. Each command handler owns its
+own presentation and exit code for its expected failures; `Composition::run`
+owns the logging pipeline's lifetime — including the process-wide severity its
+`LogLevelScope` guard applies and restores — around command execution, and
+catches defects escaping it. The same run entry point is used by the
+executable and command component tests.
 
 The work nursery isolates subdomain failures. Root-child defects cancel the run;
 runner-owned Resources keep gateway and service borrows alive through drain.
-If every update task ends without a stop request, the main loop logs CRITICAL
-and returns `EXIT_FAILURE`.
+`app::main_loop` returns a named `app::MainLoopOutcome` — the loop reports what
+happened, and the `run` handler maps it to a process status: a stop request is
+the normal way out, while a rejected configuration and the unexpected end of
+every update task both fail.
 
 **Stop signals.** Composition owns one runtime `coro::StopSignals` instance before startup
 and keeps it alive through `coro::run`, plugin unload and log drain. The same
@@ -72,9 +75,10 @@ shutdown signal still aborts the wait. Records sharing an identical
 (driver, `driver_params`) pair are checked once, so duplicated records do not
 multiply the wait. A synchronous plugin call already
 running on a worker must still finish before `coro::run` returns. A record whose
-driver explicitly rejects its parameters, or whose budget expires, fails the startup with `EXIT_FAILURE`
-instead of publishing updates against a configuration the driver says is
-wrong. A driver that exports no validation entry is warned about and skipped
+driver explicitly rejects its parameters, or whose budget expires, fails the
+startup instead of publishing updates against a configuration the driver says
+is wrong, and the `run` handler turns that outcome into a non-zero exit
+status. A driver that exports no validation entry is warned about and skipped
 under `run`, because refusing to start would break a configuration that updates
 correctly; `config test` requires the entry, since answering "is this
 configuration good?" is that command's entire purpose. Record types the driver
@@ -141,11 +145,12 @@ every child. Retries wait on a linear cancellable backoff sleep on the loop,
 not on a thread. INVALID_QUERY alone ends a group search; PARSE/CONFIG are
 endpoint diagnoses. Sequential and concurrent strategies share error precedence:
 INVALID_QUERY, CONFIG, PARSE, operational failure, NODATA, NXDOMAIN. Dispatcher
-input preflight builds an unsent fixed-ID packet and does not acquire entropy.
-Only actual backend/bootstrap queries acquire secure IDs; their entropy failures
-return CONNECTION, so dispatcher failover/retry remains reachable rather than
-losing the error to an exception from preflight. Invalid names still return
-INVALID_QUERY before a backend is called, even when the entropy source is down.
+input preflight asks the wire layer whether the question could be encoded: no
+packet is built and no entropy is acquired. Only actual backend/bootstrap
+queries acquire secure IDs; their entropy failures return CONNECTION, so
+dispatcher failover/retry remains reachable rather than losing the error to an
+exception from preflight. Invalid names still return INVALID_QUERY before a
+backend is called, even when the entropy source is down.
 A failed view must not be turned into a definitive negative answer. Bootstrap races a bounded
 set of servers per family, replacing failures immediately; silent servers do
 not delay the other candidates in that set. It does not retry a server in one
@@ -157,14 +162,19 @@ preserving collected addresses; there is no synthetic timer result child.
 
 DNS response matching compares opcode, ID and semantic QNAME/QTYPE/QCLASS,
 independent of case or compression encoding, while preserving label boundaries.
-The parser filters IN answers by owner and the in-answer CNAME chain; bootstrap
-also enforces A/AAAA lengths. Fast and full parser entry points share EDNS option
-validation and preserve the full 12-bit RCODE. CNAME-only replies without SOA
-negative evidence and referrals are unusable endpoint answers, not NODATA;
-there is no recursive referral chasing. mDNS has its own QR/opcode/RCODE/CLASS
-checks, masking the cache-flush bit. TCP/DoT/DoH accept at most 16KiB as a resource
-policy, not a DNS protocol limit. DoH enforces HTTPS and this cap even for direct
-construction, uses HTTP/1.1 and rejects all redirects as a local safety policy.
+The parser decodes wire names and sections; the answer semantics sit beside
+`match_response` in `dns/validator`, which narrows a decoded message to the IN
+answers for the asked owner, walks the in-answer CNAME chain, and reports a
+CNAME-only reply without SOA negative evidence, or a referral, as an unusable
+endpoint answer rather than NODATA — there is no recursive referral chasing.
+Bootstrap also enforces A/AAAA lengths. Fast and full parser entry points share
+EDNS option validation and preserve the full 12-bit RCODE. mDNS has its own
+QR/opcode/RCODE/CLASS checks, masking the cache-flush bit. TCP/DoT/DoH accept at
+most 16KiB as a resource policy, not a DNS protocol limit. DoH enforces that cap
+even for direct construction, uses HTTP/1.1 and rejects all redirects as a local
+safety policy; only `dns/endpoint` accepts its HTTPS URL (scheme, nonempty host,
+nonzero port), and the resolver consumes that parsed result instead of
+interpreting the address again.
 
 CNAME traversal accepts at most 16 alias hops, bounding repeated answer scans
 and cycle checks even on hostile packets. Shared DNS wire/exchange helpers must
@@ -526,6 +536,10 @@ Awaiting a member function requires that member's awaitable to be complete at
 the call site, so `async_mutex.hpp` includes the header defining its awaiter and
 that header must not include `async_mutex.hpp` — which is why `MutexGuard` and
 the shared `MutexState` are top-level types rather than nested members.
+The same one-way rule orders two detail headers when one defines members of a
+type the other declares: `detail/nursery_claims.hpp` carries the `NurseryState`
+completion registry, so it includes `detail/nursery_state.hpp` and every caller
+of those members — `detail/nursery_next_wait.hpp` alone — includes it in turn.
 Acyclicity across `src/` is a rule stated in the headers themselves, not a
 build check: what the build enforces is self-containment
 (`cmake/HeaderCheck.cmake` compiles every first-party header as its own
@@ -672,7 +686,7 @@ therefore does not wait for worker capacity. Startup/CLI metadata queries before
 |----------------------------|-------|--------------------|
 | `getifaddrs()` | `infrastructure/ip_source/iface_util.cpp`, offload for runtime interface/mDNS sources; synchronous before run | Live owned snapshot with IPv6 scope IDs, no cache; the caller deadline covers admission and work. Abandoned packets own all inputs until completion |
 | interface name/index lookup | `infrastructure/ip_source/mdns.cpp` and `iface_util.cpp`, offload for runtime selection | Index/address/name are computed before socket setup; no socket is passed to the worker. IPv4 default routing and IPv6 interface filtering are unchanged |
-| random acquisition | `support/util/random.hpp`, called by DNS builders and dispatcher shuffling on the loop | RAND_bytes may initialize/reseed or synchronize; random_device seeds the thread-local mt19937 on first use. No guaranteed latency bound. Unsent dispatcher preflight, fixed-ID mDNS and DoT wire sizing bypass secure-ID acquisition; cryptographic failure is an operational DNS error, never a predictable fallback |
+| random acquisition | `support/util/random.hpp` (cryptographic) and `support/util/random_engine.hpp` (non-cryptographic), called by DNS builders and dispatcher shuffling on the loop | RAND_bytes may initialize/reseed or synchronize; random_device seeds the thread-local mt19937 on first use. No guaranteed latency bound. Unsent dispatcher preflight, fixed-ID mDNS and DoT wire sizing bypass secure-ID acquisition; cryptographic failure is an operational DNS error, never a predictable fallback |
 | startup file/loader I/O | `composition/assembly.cpp` and `composition/commands/`, on the main thread before `coro::run` | Config read, static validation, plugin `dlopen`, the environment check and the trust-context build happen once, before any coroutine exists |
 | `/etc/resolv.conf` read | `infrastructure/dns/bootstrap/resolv_conf.cpp`, reached from `composition/assembly.cpp` on the main thread | A `std::ifstream` of a small system file, read once at startup to fill the bootstrap server list when none is configured |
 | CA discovery + trust-store load | `infrastructure/network/tls/context.cpp`, off-loop only (`TlsContext::create`) | Bundle discovery is a function-local static, so the filesystem is touched once per process rather than per `create()`; trust material is then populated eagerly during `create()` through `SSL_CTX_load_verify_locations`, or eager `X509_STORE_load_file` for each hashed certificate/CRL entry in the default cert dir. Trusted PEM AUX is preserved; missing/empty directories or any unreadable, malformed or hash-mismatched indexed entry reject the entire snapshot (stricter than lazy lookup). No lazy hash-dir lookup is installed, and existing contexts keep their snapshot until rebuilt. One immutable context is shared; handshake verification reads the trust snapshot instead of the filesystem |
@@ -683,8 +697,12 @@ therefore does not wait for worker capacity. Startup/CLI metadata queries before
 `src/support/util/` holds generic helpers — algorithm search, byte order,
 file-descriptor ownership, randomness and input validation. Randomness is the
 synchronous exception recorded above, not an absolute non-blocking guarantee.
-Other blocking or CPU-intensive additions must use `coro::offload`. Do not
-replace CSPRNG transaction IDs with mt19937 to avoid entropy cost.
+It is two headers because the two security contracts are opposite: `random.hpp`
+owns the CSPRNG (`crypto_u16` and its `EntropyError`) and is the only thing that
+name reaches, while `random_engine.hpp` owns the non-cryptographic
+`Utils::Random::engine()`. Other blocking or CPU-intensive additions must use
+`coro::offload`. Do not replace CSPRNG transaction IDs with mt19937 to avoid
+entropy cost.
 
 ## Layers
 
@@ -713,9 +731,14 @@ public headers.
   synchronous or coroutine-based; consumers include the contracts they use.
   Port headers contain contracts and their value types, not formatting or call-site
   conveniences. Logging uses the `ports/log.h` contract and the separate
-  `application/log_macros.h` formatting facade. spdlog, Glaze and the dynamic
-  loader are reached only from `src/infrastructure/`; CLI11 from
-  `src/cli/parser.cpp`, and OpenSSL also from `src/support/util/random.hpp`.
+  `application/log_macros.h` formatting facade. The pre-start driver-parameter
+  gate lives in `application/config_validation.h`, apart from the diagnostic
+  command handlers in `application/diagnostics.h`, because `run` and `config
+  test` are two views of one sweep rather than a diagnostic of its own.
+  spdlog, Glaze and the dynamic loader are reached only from
+  `src/infrastructure/`; CLI11 from
+  `src/cli/parser.cpp`, and OpenSSL also from `src/support/util/random.hpp`
+  (`random_engine.hpp` reaches only the standard library).
 - `src/coro/`: the coroutine runtime — loop, `Task`, structured
   scopes, cancellation combinators, sleeps, `AsyncMutex`, `offload`, and process stop signals.
   The thread pool lives here, owned by `Loop` and sized by
@@ -729,11 +752,28 @@ public headers.
   streams, shared transport types and socket primitives, and `tls/` the TLS
   stream, trust helpers and OpenSSL diagnostics. `factory/` assembles TCP and
   TLS streams above their interface; `transport/` never includes `tls/`.
+  `transport/io_error` separates an unreachable socket (CONNECTION_FAILED)
+  from a TLS session that never came up (TLS_HANDSHAKE_FAILED), so the layer
+  above can name a peer that would not negotiate rather than a dead route.
 - `src/infrastructure/http/`: the coroutine HTTP client and protocol implementation,
   built on `network/` and shared by DNS-over-HTTPS and IP-source adapters.
   Hostname resolution is an injected `net::HostResolver`, not a concrete DNS
-  dependency. Composition and the DoH factory bind explicit bootstrap servers;
-  without a resolver, hostnames fail fast and IP literals still work.
+  dependency. `redirect_exchange` owns one logical exchange and its redirect
+  budget across persistent-to-transient handoff; every hop without a session of
+  its own — a transient client's own hop, or one that leaves the persistent
+  origin — runs on a one-shot session, so it shares the persistent pipeline
+  (resolve, connect, lost-connection replay, keep-alive accounting) without
+  sharing a connection. Redirect decisions transform logical Requests, while
+  `wire_request` alone generates framing headers and is the single request-side
+  validator: the entry points (`client`, `persistent_client`) check the caller's
+  request once, and every layer below them treats request validity as an
+  invariant. The protocol layer reports framing facts only (version, connection
+  close, body boundary, keep-alive parameters); `session_policy` is the one place
+  that turns those plus the keep-alive budget into a reuse or replay decision.
+  Error construction, reason phrases and query-stripped diagnostic URLs live in
+  `http/error`, not the builder. Composition and the DoH factory bind explicit
+  bootstrap servers; without a resolver, hostnames fail fast and IP literals
+  still work.
 - `src/infrastructure/uri/`: the lightweight URI codec shared by config,
   HTTP, DNS and CLI code; it depends on domain address parsing, not transport.
   `Uri::resolve()` owns authority-based reference resolution and dot-segment
@@ -744,22 +784,47 @@ public headers.
 - `src/infrastructure/dns/`: the DNS wire layer plus the coroutine resolvers,
   the dispatcher, the factory and the resolver port adapter. `dns_classic` is
   the lower target. The factory maps the address URI scheme to a closed set of
-  backends (classic, DoT, DoH); there is no runtime registry — tests inject
-  fakes through the `Dispatcher` constructor and the resolver options' factory
-  and resolve seams.
+  backends (classic, DoT, DoH). The pure `dns/endpoint` module owns that endpoint
+  grammar and is shared by static config validation and backend construction;
+  neither path interprets resolver-address syntax independently. There is no
+  runtime registry — tests inject fakes through the `Dispatcher` constructor
+  and the resolver options' factory and resolve seams.
 - `src/infrastructure/ip_source/`: interface, HTTP and mDNS IP sources behind
-  the IP-source port.
+  the IP-source port. mDNS owns query/response policy and hop-limit intent and
+  runs its query and answer datagrams over the same `network/transport`
+  `UdpSocket` classic DNS uses; `network/transport/multicast` owns native
+  multicast setup and move-only group membership, applied between that socket's
+  open and its bind. Interface metadata remains an owned offload result, not
+  socket work.
 - `src/infrastructure/plugin/`: the plugin host — loader, catalog, instance
   lease, and the coroutine bridge and gateway. Loader/ABI failures use
   `plugin::PluginError` from `plugin_error.h`; business driver failures remain
-  `domain::DriverError`.
+  `domain::DriverError`. The root gateway only gates capabilities, selects an
+  execution mode and subscribes to the cycle. `plugin/detail/` owns shared ABI
+  result translation and cycle admission/acknowledgement. `plugin/sync/` owns
+  whole-worker cycles, instance RAII, blocking HTTP bridging and Host Services.
+  `plugin/async/` owns joined ABI steps, the loop-side HTTP event pump, update
+  protocol and network-free validation; its cycle state is private to that mode.
+  A CycleSubscription parks the gateway frame directly, preserving
+  cancellation-before-consumption and late-defect reporting.
 - `src/infrastructure/config/`: JSON parsing, normalization, validation and
-  parse diagnostics.
+  parse diagnostics. Three modules have one owner each rather than a rule
+  spread over the loading path: `bootstrap_dns` (the canonical address or
+  error that static validation and normalization both read), `redaction`
+  (the only redacting view of a configuration, whose sole consumer is
+  `config show`), and `diagnostics/suggestion` (the "did you mean" heuristic
+  behind an unknown-key message, split from the `diagnostics/decision`
+  classification policy).
 - `src/infrastructure/logging/`: the `LoggerPort` facade and the async sink.
 - `src/cli/`: argument parsing and output presentation.
 - `src/composition/`: the composition root. It assembles infrastructure and
-  dispatches commands; driver-parameter validation and bounded DNS lookup live
-  in application diagnostics and operate through ports.
+  dispatches commands; `assembly.h` holds the shared recipes every command
+  builds on — one dispatcher construction, one traced loop, one driver gateway,
+  one HTTP/gateway option bundle — so no handler re-derives them. The bounded
+  DNS lookup lives in application diagnostics and operates through ports, and
+  the driver-parameter sweep lives in application config validation. Config-test
+  quiet flags and output-prefix categories belong to CLI presentation, not
+  application.
 - `src/support/`: internal shared helpers, forwarding to `include/yaddnsc/util/`
   where an equivalent public utility exists.
 - `include/yaddnsc/sdk/` and `include/yaddnsc/util/`: the public surface — the
@@ -767,6 +832,24 @@ public headers.
   is `include/yaddnsc/util/`. The host includes them directly; the guard bans
   `yaddnsc/util/*` from `driver/**`, so a plugin reaches the same utilities
   through the SDK re-exports (`include/yaddnsc/sdk/format.hpp`).
+  The sync and async SDK headers both consume `sdk/driver_common.hpp` (the DTOs,
+  the ABI value conversion they share, and the shared parameter checks —
+  `require_non_empty`, `optional_non_negative`, `validate_via`), plus three
+  narrowly scoped headers:
+  `sdk/log.hpp` holds the logging mechanism and the `YADDNSC_SDK_LOG_*` /
+  `YADDNSC_ASYNC_SDK_LOG_*` macro families once, `sdk/run_update.hpp` holds the
+  update-tail helpers (`format_request` and the shared response helpers
+  `log_response_body`, `transient_rejection`, `status_rejection`,
+  `upstream_rejection`, `rejection_message`) and includes
+  `sdk/upstream_failure.hpp`,
+  and the host-side seam — `sdk/detail/async_instance.hpp` and
+  `sdk/detail/driver_instance.hpp` — holds the async instance and the entry
+  machinery the definition macros expand to. Each mode header includes its
+  detail header last, so the single-header include path stays valid.
+  `sdk/upstream_failure.hpp` owns upstream rejection classification and
+  Retry-After hints; it uses `sdk/http_date.hpp` only for HTTP-date parsing.
+  Async helpers do not include sync driver entry machinery;
+  `driver.hpp` continues re-exporting the shared helpers for existing consumers.
 - `driver/`: bundled provider plugins, built against the public headers.
 - `include/yaddnsc/sdk/signing.hpp`: header-only crypto helpers for plugins
   (`yaddnsc_plugin_sdk_crypto` interface target). Consumers compile the helpers
@@ -786,7 +869,7 @@ Changing the internal contract requires updating its host adapters, not the C AB
 | Coroutine runtime | the injected `Loop::TraceSink` (`coro/loop.h`), wired to the central backend by composition — only in trace-enabled builds, where `#if SPDLOG_ACTIVE_LEVEL <= SPDLOG_LEVEL_TRACE` compiles the sink in and leaves it null otherwise; the module itself holds no logging dependency |
 | Application | the injected `app::LoggerPort` contract in `ports/log.h` and the `YLOG_*` formatting macros in `application/log_macros.h` |
 | Infrastructure / support | `SPDLOG_*` through the centrally configured backend; no independent sinks, and no application port introduced for logging alone |
-| SDK / plugins | Host Services (`yaddnsc_host_services::log`); C++ helpers normally use the `YADDNSC_SDK_LOG_*` macros in `include/yaddnsc/sdk/driver.hpp` |
+| SDK / plugins | Host Services (`yaddnsc_host_services::log`); C++ helpers normally use the `YADDNSC_SDK_LOG_*` macros (`YADDNSC_ASYNC_SDK_LOG_*` in async mode), defined once in `include/yaddnsc/sdk/log.hpp` and re-exported by `driver.hpp` / `async_driver.hpp` |
 | CLI / composition | the same spdlog backend for host diagnostics; user-facing output is presentation and uses `std::print` / `std::println` on stdout/stderr |
 
 ## Manual boundary review

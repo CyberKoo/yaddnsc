@@ -37,9 +37,10 @@ private:
     static yaddnsc::sdk::HttpRequest generate_request(const NamecheapParams& cfg,
                                                       const yaddnsc::sdk::UpdateRequest& params);
 
-    /// Validate the Namecheap API response XML using libxml2.
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
-                                             const yaddnsc::sdk::AsyncServices& services);
+    /// Validate the Namecheap API response XML using libxml2. A rejected
+    /// response reports the provider's own error detail.
+    [[nodiscard]] static yaddnsc::sdk::Result check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                                             const yaddnsc::sdk::AsyncServices& services);
 };
 
 #endif  // YADDNSC_DRV_NAMECHEAP_NAMECHEAP_H

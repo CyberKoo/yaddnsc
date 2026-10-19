@@ -28,8 +28,8 @@
 #include <benchmark/benchmark.h>
 
 #include "coro/coro.h"
+#include "coro/detail/pipe.h"
 #include "mocks/allocation_fault.h"
-#include "support/util/fd.hpp"
 
 #include "coro_lifecycle_scenarios.h"
 
@@ -112,7 +112,7 @@ BENCHMARK(BM_controlled_race)->Arg(2)->Arg(8)->Arg(32);
 
 static void BM_destruct_overlay(benchmark::State& state) {
     const bool heavy = state.range(0) != 0;
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
     if (!read_end || !write_end) {
         state.SkipWithError("destructor overlay needs a pipe");
         return;

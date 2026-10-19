@@ -29,7 +29,8 @@
 
 #include "coro/detail/execution_record.h"
 #include "coro/detail/inbox_node.h"
-#include "coro/detail/offload_job.h"
+#include "coro/detail/offload_admission.h"
+#include "coro/detail/pipe.h"
 #include "coro/detail/result_state.hpp"
 #include "coro/detail/time_math.h"
 #include "coro/detail/timer_node.h"
@@ -202,7 +203,7 @@ Loop::~Loop() noexcept {
 }
 
 void Loop::open_self_pipe() {
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = detail::make_pipe();
     if (!read_end || !write_end) {
         throw std::runtime_error("loop self-pipe creation failed");
     }

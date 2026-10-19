@@ -35,9 +35,10 @@ private:
     /// Build an Alibaba Cloud DNS UpdateDomainRecord request with RPC signature.
     static yaddnsc::sdk::HttpRequest generate_request(const AlibabaParams& cfg, const yaddnsc::sdk::UpdateRequest& ctx);
 
-    /// Validate the Alibaba Cloud DNS API response.
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
-                                             const yaddnsc::sdk::AsyncServices& services);
+    /// Validate the Alibaba Cloud DNS API response. A rejected response
+    /// reports the provider's own error detail.
+    [[nodiscard]] static yaddnsc::sdk::Result check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                                             const yaddnsc::sdk::AsyncServices& services);
 };
 
 #endif  // YADDNSC_DRV_ALIBABA_CLOUD_ALIBABA_CLOUD_H

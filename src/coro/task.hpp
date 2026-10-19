@@ -18,8 +18,8 @@
 // construct one.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_TASK_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_TASK_HPP
+#ifndef YADDNSC_CORO_TASK_HPP
+#define YADDNSC_CORO_TASK_HPP
 
 #include <coroutine>
 #include <utility>
@@ -108,4 +108,4 @@ inline Task<void> TaskPromise<void>::get_return_object() {
 }  // namespace detail
 }  // namespace coro
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_TASK_HPP
+#endif  // YADDNSC_CORO_TASK_HPP

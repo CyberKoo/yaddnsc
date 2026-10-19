@@ -6,8 +6,8 @@
 // of duplicating a partial specialization each time.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_RESULT_BOX_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_RESULT_BOX_HPP
+#ifndef YADDNSC_CORO_DETAIL_RESULT_BOX_HPP
+#define YADDNSC_CORO_DETAIL_RESULT_BOX_HPP
 
 #include <optional>
 #include <utility>
@@ -48,4 +48,4 @@ struct ResultBox<void> {
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_RESULT_BOX_HPP
+#endif  // YADDNSC_CORO_DETAIL_RESULT_BOX_HPP

@@ -57,9 +57,4 @@ ParseFailure adapt_error(glz::error_code code) {
     }
 }
 
-ScanPolicy scan_policy(const ParseFailure& failure) noexcept {
-    return {.key_offset_after_quote = failure.kind == ErrorKind::UNKNOWN_KEY,
-            .inspect_complete_string = failure.kind == ErrorKind::ENUM};
-}
-
 }  // namespace Config::Diagnostic

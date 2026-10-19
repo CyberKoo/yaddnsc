@@ -1,12 +1,13 @@
 #include "linode.h"
 
+#include <expected>
+#include <string>
 #include <vector>
 
 #include <glaze/glaze.hpp>
 #include <yaddnsc/sdk/async_driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/format.hpp>
-#include <yaddnsc/sdk/redact.hpp>
 
 #include "config.hpp"
 #include "response.hpp"
@@ -21,36 +22,28 @@ using yaddnsc::sdk::Method;
 using yaddnsc::sdk::Result;
 using yaddnsc::sdk::Task;
 using yaddnsc::sdk::UpdateRequest;
-using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 constexpr std::string_view API_URL = "https://api.linode.com/v4/domains/{DOMAIN_ID}/records/{RECORD_ID}";
 constexpr std::string_view DRIVER_NAME = "linode";
+/// Subject of the shared rejection messages.
+constexpr std::string_view REJECTION_SUBJECT = "Linode API request";
 }  // namespace
 
-YADDNSC_DEFINE_ASYNC_DRIVER(LinodeDriver, "linode", "Updates DNS records via the Linode API", "Kotarou", "1.0.0",
+YADDNSC_DEFINE_ASYNC_DRIVER(LinodeDriver, "linode", "Updates DNS records via the Linode API", "Kotarou", "1.1.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 LinodeParams LinodeDriver::parse_params(std::string_view json) {
     auto cfg = parse_config<LinodeParams>(json);
-    if (cfg.token.empty()) {
-        throw yaddnsc::sdk::ConfigParseError("Required parameter 'token' must not be empty");
-    }
-    if (cfg.domain_id.empty()) {
-        throw yaddnsc::sdk::ConfigParseError("Required parameter 'domain_id' must not be empty");
-    }
-    if (cfg.record_id.empty()) {
-        throw yaddnsc::sdk::ConfigParseError("Required parameter 'record_id' must not be empty");
-    }
-    if (cfg.ttl_sec && *cfg.ttl_sec < 0) {
-        throw yaddnsc::sdk::ConfigParseError("Parameter 'ttl_sec' must not be negative");
-    }
+    require_non_empty("token", cfg.token);
+    require_non_empty("domain_id", cfg.domain_id);
+    require_non_empty("record_id", cfg.record_id);
+    optional_non_negative("ttl_sec", cfg.ttl_sec);
     return cfg;
 }
 
 Result LinodeDriver::validate(std::string_view driver_param_json) const {
-    [[maybe_unused]] const auto cfg = parse_params(driver_param_json);
-    return {};
+    return validate_via(driver_param_json, parse_params);
 }
 
 Task<Result> LinodeDriver::update(AsyncUpdateContext& context) {
@@ -67,41 +60,37 @@ Task<Result> LinodeDriver::update(AsyncUpdateContext& context) {
     return run_update(context, DRIVER_NAME, request, check_response);
 }
 
-bool LinodeDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
-    YADDNSC_ASYNC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
+Result LinodeDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
+    yaddnsc::sdk::log_response_body(services, response);
 
     // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
-    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
-        YADDNSC_ASYNC_SDK_LOG_WARN(services, "Linode API request failed with HTTP status {}: {}", response.status_code,
-                             truncate_for_log(response.body));
-        return false;
+    if (auto rejection = yaddnsc::sdk::transient_rejection(services, response, REJECTION_SUBJECT)) {
+        return std::unexpected(*rejection);
     }
 
     // Linode returns 200 OK with the updated record object on success.
     if (response.status_code == 200) {
         YADDNSC_ASYNC_SDK_LOG_DEBUG(services, "DNS record updated successfully");
-        return true;
+        return {};
     }
 
     // Error responses include a JSON body with error details.
-    if (!response.body.empty()) {
-        if (auto result = parse_response<LinodeErrorResponse>(response.body); result && !result->errors.empty()) {
-            for (const auto& err : result->errors) {
-                if (err.field.empty()) {
-                    YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Linode API error: {}", err.reason);
-                } else {
-                    YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Linode API error in field {}: {}", err.field, err.reason);
-                }
+    if (auto result = parse_response<LinodeErrorResponse>(response.body); result && !result->errors.empty()) {
+        std::string detail;
+        for (const auto& err : result->errors) {
+            const auto text = err.field.empty()
+                                  ? fmt::format("Linode API error: {}", err.reason)
+                                  : fmt::format("Linode API error in field {}: {}", err.field, err.reason);
+            YADDNSC_ASYNC_SDK_LOG_ERROR(services, "{}", text);
+            if (!detail.empty()) {
+                detail += "; ";
             }
-        } else {
-            YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Linode API request failed with HTTP status {}: {}", response.status_code,
-                                  truncate_for_log(response.body));
+            detail += text;
         }
-    } else {
-        YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Linode API request failed with HTTP status {}", response.status_code);
+        return std::unexpected(yaddnsc::sdk::upstream_rejection(response, detail));
     }
 
-    return false;
+    return std::unexpected(yaddnsc::sdk::status_rejection(services, response, REJECTION_SUBJECT));
 }
 
 std::string LinodeDriver::generate_body(const UpdateRequest& request, std::optional<int> ttl_sec) {

@@ -1,7 +1,6 @@
 #ifndef YADDNSC_DRV_ROUTE53_ROUTE53_H
 #define YADDNSC_DRV_ROUTE53_ROUTE53_H
 
-#include <string>
 #include <string_view>
 
 #include <yaddnsc/sdk/async_driver.hpp>
@@ -34,13 +33,10 @@ private:
     /// Shared schema and semantic validation for validate/update.
     [[nodiscard]] static Route53Params parse_params(std::string_view json);
 
-    /// Validate the Route 53 API response (XML with libxml2).
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
-                                             const yaddnsc::sdk::AsyncServices& services);
-
-    /// Build the XML request body for a Route 53 UPSERT change batch.
-    static std::string build_xml_body(const std::string& fqdn, std::string_view rd_type, std::string_view ip_addr,
-                                      int ttl);
+    /// Validate the Route 53 API response (XML with libxml2). A rejected
+    /// response reports the provider's own error detail.
+    [[nodiscard]] static yaddnsc::sdk::Result check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                                             const yaddnsc::sdk::AsyncServices& services);
 };
 
 #endif  // YADDNSC_DRV_ROUTE53_ROUTE53_H

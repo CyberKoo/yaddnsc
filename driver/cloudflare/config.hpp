@@ -1,6 +1,7 @@
 #ifndef YADDNSC_DRV_CLOUDFLARE_CONFIG_HPP
 #define YADDNSC_DRV_CLOUDFLARE_CONFIG_HPP
 
+#include <optional>
 #include <string>
 
 #include <glaze/glaze.hpp>

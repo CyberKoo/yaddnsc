@@ -18,7 +18,7 @@
 #include "coro/detail/access.h"
 #include "coro/detail/context_awaitables.h"
 #include "coro/detail/nursery_state.hpp"
-#include "support/util/fd.hpp"
+#include "coro/detail/pipe.h"
 
 namespace {
 static_assert(!std::is_move_constructible_v<coro::detail::ExecutionRecord>);
@@ -487,7 +487,7 @@ TEST(ExecutionRecord, FrameDestructorUnregistersItsTimerAndItsFd) {
         },
         &lines);
 
-    auto [read_end, write_end] = Utils::make_pipe();
+    auto [read_end, write_end] = coro::detail::make_pipe();
     ASSERT_TRUE(read_end);
     ASSERT_TRUE(write_end);
     const char byte = 'x';

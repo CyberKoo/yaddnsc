@@ -1,6 +1,6 @@
 // Coroutine runtime — supervised failures that nobody consumed.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_GROUP_ERROR_H
-#define YADDNSC_INFRASTRUCTURE_CORO_GROUP_ERROR_H
+#ifndef YADDNSC_CORO_GROUP_ERROR_H
+#define YADDNSC_CORO_GROUP_ERROR_H
 
 #include <exception>
 #include <utility>
@@ -25,4 +25,4 @@ private:
 };
 
 }  // namespace coro
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_GROUP_ERROR_H
+#endif  // YADDNSC_CORO_GROUP_ERROR_H

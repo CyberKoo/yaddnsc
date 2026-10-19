@@ -77,13 +77,6 @@ TEST(CertUtilTest, DiscoverCaBundle_Basic) {
     }
 }
 
-TEST(CertUtilTest, GetSystemCaPath_ReturnsPathOrNullopt) {
-    const auto path = Utils::Cert::get_system_ca_path();
-    if (path) {
-        EXPECT_FALSE(path->empty());
-    }
-}
-
 using ComponentTest::make_certificate;
 using ComponentTest::write_indexed_certificate;
 

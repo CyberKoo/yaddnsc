@@ -4,19 +4,20 @@
 // captured streams.
 // =============================================================================
 
+#include "cli/presenter.h"
+
 #include <cstdlib>
+#include <expected>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-#include <expected>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
 #include "application/diagnostics.h"
 #include "application/ports/driver_catalog.h"
-#include "cli/presenter.h"
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
@@ -63,17 +64,15 @@ TEST(CliPresenterTest, DnsResolve_Records_PrintsResultBlock) {
 
 TEST(CliPresenterTest, DriverList_PerDriverFailure_PrintsInlineError) {
     std::vector<app::DriverListItem> items;
+    items.push_back(app::DriverListItem{.name = "good",
+                                        .detail = app::DriverDescription{.name = "good",
+                                                                         .version = "1.0",
+                                                                         .author = "a",
+                                                                         .description = "d",
+                                                                         .supported_records = {domain::RecordKind::A},
+                                                                         .supports_validate = true}});
     items.push_back(app::DriverListItem{
-        .name = "good",
-        .detail = app::DriverDescription{.name = "good",
-                                         .version = "1.0",
-                                         .author = "a",
-                                         .description = "d",
-                                         .supported_records = {domain::RecordKind::A},
-                                         .supports_validate = true}});
-    items.push_back(app::DriverListItem{
-        .name = "bad",
-        .detail = std::unexpected(domain::DriverError{domain::DriverError::Code::NOT_FOUND, {}})});
+        .name = "bad", .detail = std::unexpected(domain::DriverError{domain::DriverError::Code::NOT_FOUND, {}})});
 
     StdoutCapture capture;
     EXPECT_EQ(Cli::present_driver_list(items), EXIT_SUCCESS);
@@ -93,7 +92,7 @@ TEST(CliPresenterTest, ConfigTest_QuietSuccess_PrintsNothing) {
 }
 
 TEST(CliPresenterTest, ConfigTest_ErrorPrefixes) {
-    using Error = app::ConfigTestError;
+    using Error = Cli::ConfigTestError;
 
     {
         StreamCapture err{STDERR_FILENO};

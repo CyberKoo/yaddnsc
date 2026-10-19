@@ -1,6 +1,7 @@
 //
 // Unit tests for config/diagnostics/error_adapter.cpp — the Glaze
-// error_code → internal ParseFailure mapping and the scan policy it picks.
+// error_code → internal ParseFailure mapping, and config/diagnostics/locator.cpp
+// — the scan policy the mapped kind selects.
 // No JSON is parsed: every case feeds a code straight into the adapter.
 //
 // Verified:

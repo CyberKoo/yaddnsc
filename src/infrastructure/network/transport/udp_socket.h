@@ -10,13 +10,13 @@
 #define YADDNSC_INFRASTRUCTURE_NETWORK_TRANSPORT_UDP_SOCKET_H
 
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <span>
-#include <expected>
 
+#include "coro/task.hpp"
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
-#include "coro/task.hpp"
 #include "infrastructure/network/transport/datagram.h"
 #include "infrastructure/network/transport/io_error.h"
 #include "support/util/fd.hpp"
@@ -49,6 +49,11 @@ public:
     UdpSocket& operator=(const UdpSocket&) = delete;
     UdpSocket(UdpSocket&&) = delete;
     UdpSocket& operator=(UdpSocket&&) = delete;
+
+    /// Open the socket without binding it, so an adapter can configure socket
+    /// options (multicast group join and friends) that must precede the bind.
+    /// Idempotent; does not block.
+    [[nodiscard]] std::expected<void, IoError> open();
 
     /// Bind to a local address and port; port 0 asks for an ephemeral one.
     /// Idempotent: binding an already-bound socket is a no-op. Does not block.

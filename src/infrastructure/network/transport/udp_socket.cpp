@@ -30,6 +30,10 @@ std::expected<void, IoError> UdpSocket::ensure_open() {
     return {};
 }
 
+std::expected<void, IoError> UdpSocket::open() {
+    return ensure_open();
+}
+
 std::expected<void, IoError> UdpSocket::bind(domain::InetAddress local, const std::uint16_t port) {
     if (auto open = ensure_open(); !open) {
         return open;

@@ -1,6 +1,6 @@
 // Coroutine runtime — shared promise-to-execution binding.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_PROMISE_BASE_H
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_PROMISE_BASE_H
+#ifndef YADDNSC_CORO_DETAIL_PROMISE_BASE_H
+#define YADDNSC_CORO_DETAIL_PROMISE_BASE_H
 
 #include <exception>
 
@@ -37,4 +37,4 @@ struct PromiseBase {
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_PROMISE_BASE_H
+#endif  // YADDNSC_CORO_DETAIL_PROMISE_BASE_H

@@ -7,6 +7,7 @@
 
 #include "coro/task.hpp"
 #include "infrastructure/ip_source/result.h"
+#include "infrastructure/network/transport/udp_socket.h"
 
 namespace domain {
 enum class RecordKind;
@@ -15,11 +16,12 @@ enum class RecordKind;
 namespace ipsource::detail {
 
 /// Collect the first matching mDNS answer from a borrowed nonblocking socket.
-/// Ownership: fd and hostname must outlive the task. No multicast setup here.
+/// Ownership: socket and hostname must outlive the task. No multicast setup here.
 /// Failure: receive failures become IpSourceError; invalid traffic is discarded
 /// with periodic cancellable backoff. The caller's scope bounds the window.
 /// Cancellation: propagates coro::Cancelled. Thread safety: loop-thread only.
-[[nodiscard]] coro::Task<Result> receive_mdns(int fd, const std::string& hostname, domain::RecordKind type);
+[[nodiscard]] coro::Task<Result> receive_mdns(net::UdpSocket& socket, const std::string& hostname,
+                                              domain::RecordKind type);
 
 }  // namespace ipsource::detail
 

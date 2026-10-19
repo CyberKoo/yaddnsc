@@ -13,8 +13,8 @@
 // detail/mutex_state.h.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_ASYNC_MUTEX_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_ASYNC_MUTEX_HPP
+#ifndef YADDNSC_CORO_ASYNC_MUTEX_HPP
+#define YADDNSC_CORO_ASYNC_MUTEX_HPP
 
 #include "coro/detail/mutex_state.h"
 #include "coro/detail/mutex_wait.h"  // IWYU pragma: export
@@ -51,4 +51,4 @@ private:
 };
 }  // namespace coro
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_ASYNC_MUTEX_HPP
+#endif  // YADDNSC_CORO_ASYNC_MUTEX_HPP

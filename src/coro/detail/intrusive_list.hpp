@@ -22,8 +22,8 @@
 // Thread safety: none. Concurrent mutation from several threads is a caller
 // defect; callers that need it must serialize access themselves.
 //
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_INTRUSIVE_LIST_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_INTRUSIVE_LIST_HPP
+#ifndef YADDNSC_CORO_DETAIL_INTRUSIVE_LIST_HPP
+#define YADDNSC_CORO_DETAIL_INTRUSIVE_LIST_HPP
 
 #include <cassert>
 #include <exception>
@@ -211,4 +211,4 @@ private:
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_INTRUSIVE_LIST_HPP
+#endif  // YADDNSC_CORO_DETAIL_INTRUSIVE_LIST_HPP

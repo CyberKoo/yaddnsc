@@ -2,6 +2,7 @@
 #define YADDNSC_INFRASTRUCTURE_DNS_WIRE_BUILDER_H
 
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <span>
 #include <string>
@@ -11,6 +12,27 @@
 #include "infrastructure/dns/types.h"
 
 namespace dns {
+
+/// A query name the wire layer refuses to encode, with the wire-format reason.
+struct QueryNameError {
+    std::string reason;
+};
+
+/// Check one question against the wire grammar without building a packet.
+///
+/// Applies exactly the name rules QueryBuilder::build() applies (RFC 1035
+/// §4.1.2: no embedded NUL, labels of 1..63 octets, at most 255 encoded
+/// octets), so a caller can reject a local question without allocating a
+/// packet or acquiring entropy for a transaction ID.
+///
+/// @param host  Question name; "" and "." both denote the root.
+/// @param type  Record type of the question. QTYPE is an unconstrained 16-bit
+///              field, so it is encoded rather than checked — completing the
+///              question is what proves it could be built.
+/// @return The rejection reason, or nothing when the question is encodable.
+///         Allocation failure may propagate.
+[[nodiscard]] std::expected<void, QueryNameError> validate_query_name(std::string_view host, RecordType type);
+
 /// Fluent DNS packet builder (wire format, RFC 1035).
 ///
 /// Constructs arbitrary DNS query/update packets with full control over

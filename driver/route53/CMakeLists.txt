@@ -5,6 +5,6 @@ if(NOT YADDNSC_HAS_SDK_XML_COMPONENT)
   return()
 endif()
 
-add_library(route53 MODULE route53.cpp)
+add_library(route53 MODULE route53.cpp sigv4.cpp xml_payload.cpp)
 target_link_libraries(route53 PRIVATE yaddnsc_plugin_sdk_xml yaddnsc_plugin_sdk_crypto)
 message(STATUS "libxml2 found — building route53 driver")

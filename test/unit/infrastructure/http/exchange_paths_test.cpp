@@ -3,9 +3,13 @@
 // (src/infrastructure/http/protocol/wire.cpp and exchange.cpp).
 //
 // Everything runs against a scripted in-memory stream (the net::Stream
-// injection point): the request guard that refuses an unsafe request before a
-// byte is written, the response-header parser's smuggling defences, the strict
-// RFC 9112 chunk-size / trailer grammar, and the close-delimited body.
+// injection point): the response-header parser's smuggling defences, the
+// connection framing facts it reports, the strict RFC 9112 chunk-size / trailer
+// grammar, and the close-delimited body.
+//
+// The request guard that refuses an unsafe request lives with the request
+// builder (wire_request_test.cpp); this layer serializes a wire request that
+// already passed it.
 //
 // The happy paths (framing, 1xx, keep-alive carry-over, the read window and the
 // redirect policy) live in http_coro_test.cpp.
@@ -18,6 +22,7 @@
 #include <coroutine>
 #include <cstdint>
 #include <cstring>
+#include <expected>
 #include <initializer_list>
 #include <map>
 #include <optional>
@@ -26,7 +31,6 @@
 #include <string_view>
 #include <utility>
 
-#include <expected>
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
@@ -41,12 +45,6 @@ namespace {
 
 using http::Error;
 using http::ErrorCode;
-
-/// A request header as (name, value), so a table of header cases stays readable.
-using Header = std::pair<std::string, std::string>;
-
-/// The shortest bodyless response, for cases where only the request guard matters.
-constexpr std::string_view NO_CONTENT = "HTTP/1.1 204 No Content\r\n\r\n";
 
 /// A chunked response whose chunk-size line is `size_line`, carrying the chunk "hello".
 [[nodiscard]] std::string chunked(const std::string_view size_line) {
@@ -132,25 +130,10 @@ private:
     return request;
 }
 
-[[nodiscard]] http::protocol::WireRequest get_with(const Header& header) {
-    auto request = get_to();
-    request.headers.emplace(header.first, header.second);
-    return request;
-}
-
 /// Expect the response parser to reject `response_wire` with `code` and `message`.
 void expect_response_rejected(const std::string_view response_wire, const ErrorCode code,
                               const std::string_view message, const http::Limits& limits = {}) {
     const auto response = run_exchange(response_wire, get_to(), limits);
-    ASSERT_FALSE(response.has_value());
-    EXPECT_EQ(response.error().code, code);
-    EXPECT_EQ(response.error().message, message);
-}
-
-/// Expect the request guard to reject `request` before a byte reaches the stream.
-void expect_request_rejected(const http::protocol::WireRequest& request, const ErrorCode code,
-                             const std::string_view message) {
-    const auto response = run_exchange(NO_CONTENT, request);
     ASSERT_FALSE(response.has_value());
     EXPECT_EQ(response.error().code, code);
     EXPECT_EQ(response.error().message, message);
@@ -187,104 +170,6 @@ TEST(HttpWireSerialize, bodyFollowsTheTerminatedHeaderBlock) {
     request.body = "payload";
 
     EXPECT_EQ(http::protocol::serialize(request), "POST /dns-query HTTP/1.1\r\nContent-Length: 7\r\n\r\npayload");
-}
-
-// ---------------------------------------------------------------------------
-// request guard: the request target
-// ---------------------------------------------------------------------------
-
-TEST(HttpExchangeRequestTarget, asteriskFormIsAccepted) {
-    const auto response = run_exchange(NO_CONTENT, get_to("*"));
-
-    ASSERT_TRUE(response.has_value());
-    EXPECT_EQ(response->status, 204);
-}
-
-TEST(HttpExchangeRequestTarget, originFormIsRequired) {
-    for (const auto& target : {"", "dns-query", "/dns query"}) {
-        SCOPED_TRACE(target);
-        expect_request_rejected(get_to(target), ErrorCode::INVALID_REQUEST, "invalid HTTP request target");
-    }
-}
-
-// ---------------------------------------------------------------------------
-// request guard: header fields
-// ---------------------------------------------------------------------------
-
-TEST(HttpExchangeRequestHeader, namesMustBeTokensAndValuesPrintable) {
-    for (const auto& header : {Header{"Invalid Header", "value"}, Header{"X-Trace", "value\r\nInjected: yes"}}) {
-        SCOPED_TRACE(header.first);
-        expect_request_rejected(get_with(header), ErrorCode::INVALID_REQUEST, "invalid HTTP request header");
-    }
-}
-
-TEST(HttpExchangeRequestHeader, connectionMustBeATokenList) {
-    expect_request_rejected(get_with({"Connection", "clo se"}), ErrorCode::INVALID_REQUEST,
-                            "invalid HTTP request header");
-}
-
-TEST(HttpExchangeRequestHeader, upgradeIsRejectedInEitherForm) {
-    // A direct Upgrade field and the Connection-token spelling must both fail:
-    // this client speaks HTTP/1.x framing only.
-    for (const auto& header : {Header{"Upgrade", "websocket"}, Header{"Connection", "upgrade"}}) {
-        SCOPED_TRACE(header.first);
-        expect_request_rejected(get_with(header), ErrorCode::UNSUPPORTED_PROTOCOL,
-                                "HTTP protocol upgrade is not supported");
-    }
-}
-
-TEST(HttpExchangeRequestHeader, transferCodingAndTrailersAreRejected) {
-    // Either field would let the caller re-frame a body the client already
-    // framed, which is a request-smuggling vector.
-    for (const auto& header : {Header{"Transfer-Encoding", "chunked"}, Header{"Trailer", "X-Checksum"}}) {
-        SCOPED_TRACE(header.first);
-        expect_request_rejected(get_with(header), ErrorCode::INVALID_REQUEST,
-                                "request transfer coding and trailers are not supported");
-    }
-}
-
-TEST(HttpExchangeRequestHeader, contentLengthMustBeNumeric) {
-    for (const auto& value : {"abc", "", "1 2"}) {
-        SCOPED_TRACE(value);
-        expect_request_rejected(get_with({"Content-Length", value}), ErrorCode::INVALID_REQUEST,
-                                "invalid HTTP Content-Length");
-    }
-}
-
-TEST(HttpExchangeRequestHeader, duplicateRoutingOrFramingHeadersConflict) {
-    // Two Host fields, two Connection fields and two Content-Length fields each
-    // leave the peer's routing and framing ambiguous.
-    expect_request_rejected(get_with({"Host", "other.test"}), ErrorCode::INVALID_REQUEST,
-                            "conflicting HTTP framing or routing headers");
-
-    auto connections = get_to();
-    connections.headers.emplace("Connection", "close");
-    connections.headers.emplace("Connection", "keep-alive");
-    expect_request_rejected(connections, ErrorCode::INVALID_REQUEST, "conflicting HTTP framing or routing headers");
-
-    auto lengths = get_to();
-    lengths.headers.emplace("Content-Length", "0");
-    lengths.headers.emplace("Content-Length", "0");
-    expect_request_rejected(lengths, ErrorCode::INVALID_REQUEST, "conflicting HTTP framing or routing headers");
-}
-
-TEST(HttpExchangeRequestHeader, contentLengthMustMatchTheBodyActuallySent) {
-    expect_request_rejected(get_with({"Content-Length", "5"}), ErrorCode::INVALID_REQUEST,
-                            "conflicting HTTP framing or routing headers");
-
-    auto agreed = get_with({"Content-Length", "5"});
-    agreed.body = "hello";
-    const auto response = run_exchange(NO_CONTENT, agreed);
-    ASSERT_TRUE(response.has_value());
-    EXPECT_EQ(response->status, 204);
-}
-
-TEST(HttpExchangeRequestHeader, connectionCloseEndsTheSessionAfterOneExchange) {
-    const auto response =
-        run_exchange("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n", get_with({"Connection", "close"}));
-
-    ASSERT_TRUE(response.has_value());
-    EXPECT_FALSE(response->reusable);
 }
 
 // ---------------------------------------------------------------------------
@@ -356,11 +241,33 @@ TEST(HttpExchangeResponseHeader, keepAliveParametersAreCarried) {
         run_exchange("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nKeep-Alive: max=42, timeout=7\r\n\r\n", get_to());
 
     ASSERT_TRUE(response.has_value());
-    ASSERT_TRUE(response->keep_alive_max.has_value());
-    ASSERT_TRUE(response->keep_alive_timeout.has_value());
-    EXPECT_EQ(*response->keep_alive_max, 42U);
-    EXPECT_EQ(*response->keep_alive_timeout, 7U);
-    EXPECT_TRUE(response->reusable);
+    ASSERT_TRUE(response->framing.max.has_value());
+    ASSERT_TRUE(response->framing.timeout.has_value());
+    EXPECT_EQ(*response->framing.max, 42U);
+    EXPECT_EQ(*response->framing.timeout, 7U);
+    EXPECT_TRUE(response->framing.self_delimiting);
+}
+
+TEST(HttpExchangeResponseFraming, connectionCloseIsReportedAsAFactNotADecision) {
+    // Whether this connection is reused is the session's decision; the parser
+    // only reports what the peer said.
+    const auto response = run_exchange("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", get_to());
+
+    ASSERT_TRUE(response.has_value());
+    EXPECT_TRUE(response->framing.connection_close);
+    EXPECT_TRUE(response->framing.self_delimiting);
+    EXPECT_EQ(response->framing.version, http::HttpVersion::V1_1);
+}
+
+TEST(HttpExchangeResponseFraming, http10NeedsAnExplicitKeepAlive) {
+    const auto plain = run_exchange("HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n", get_to());
+    ASSERT_TRUE(plain.has_value());
+    EXPECT_EQ(plain->framing.version, http::HttpVersion::V1_0);
+    EXPECT_FALSE(plain->framing.keep_alive);
+
+    const auto kept = run_exchange("HTTP/1.0 200 OK\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n", get_to());
+    ASSERT_TRUE(kept.has_value());
+    EXPECT_TRUE(kept->framing.keep_alive);
 }
 
 TEST(HttpExchangeResponseBody, closeDelimitedRunsToThePeerClose) {
@@ -370,7 +277,7 @@ TEST(HttpExchangeResponseBody, closeDelimitedRunsToThePeerClose) {
 
     ASSERT_TRUE(response.has_value());
     EXPECT_EQ(response->text(), "close delimited");
-    EXPECT_FALSE(response->reusable);
+    EXPECT_FALSE(response->framing.self_delimiting);
 }
 
 TEST(HttpExchangeResponseBody, oneShotOverloadCarriesNothingForward) {
@@ -381,7 +288,7 @@ TEST(HttpExchangeResponseBody, oneShotOverloadCarriesNothingForward) {
 
     ASSERT_TRUE(response.has_value());
     EXPECT_EQ(response->text(), "ok");
-    EXPECT_TRUE(response->reusable);
+    EXPECT_TRUE(response->framing.self_delimiting);
 }
 
 // ---------------------------------------------------------------------------

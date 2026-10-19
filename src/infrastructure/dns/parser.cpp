@@ -19,6 +19,7 @@
 
 #include "domain/error/dns_error.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
+#include "infrastructure/dns/validator.h"
 #include "support/fmt.hpp"
 #include "support/string_util.hpp"
 #include "support/util/bytes.hpp"
@@ -67,7 +68,7 @@ void append_name_octet(std::string& out, const std::uint8_t byte) {
 // Name decompression (RFC 1035 §4.1.4)
 // =============================================================================
 
-std::string dns::RecordParser::decompress_name(const std::span<const std::uint8_t> wire, size_t& offset) {
+std::string dns::decompress_name(const std::span<const std::uint8_t> wire, size_t& offset) {
     // Track visited offsets to detect pointer cycles.
     // Fixed-size array on the stack: zero allocation, cache-friendly.
     // MAX_POINTER_DEPTH bounds the worst-case chain length, so
@@ -167,6 +168,22 @@ std::string dns::RecordParser::decompress_name(const std::span<const std::uint8_
     }
 
     return result;
+}
+
+std::string dns::present_name(const std::string_view name) {
+    // A dot separates labels and is kept as written; every other octet goes
+    // through the same presentation rules decompress_name() applies.
+    std::string presented;
+    presented.reserve(name.size());
+    for (const char raw : name) {
+        const auto byte = static_cast<unsigned char>(raw);
+        if (byte == '.') {
+            presented += '.';
+        } else {
+            append_name_octet(presented, byte);
+        }
+    }
+    return presented;
 }
 
 // =============================================================================
@@ -551,71 +568,6 @@ dns::Question dns::RecordParser::parse_question(const std::span<const std::uint8
     return question;
 }
 
-void dns::RecordParser::filter_answers(ParsedMessage& message, const std::span<const std::uint8_t> wire,
-                                       const std::string& host, const std::optional<RecordType> type_filter) {
-    if (host.empty())
-        return;
-    std::string presented_host;
-    for (const char raw : host) {
-        const auto byte = static_cast<unsigned char>(raw);
-        if (byte == '.')
-            presented_host += '.';
-        else
-            append_name_octet(presented_host, byte);
-    }
-    std::vector<std::string> chain{std::move(presented_host)};
-    for (;;) {
-        std::optional<std::string> target;
-        for (const auto& rr : message.answers) {
-            if (rr.qclass != static_cast<std::uint16_t>(RecordClass::IN) ||
-                rr.type != static_cast<std::uint16_t>(RecordType::CNAME) || !name_matches(rr.name, chain.back())) {
-                continue;
-            }
-            size_t end = rr.rdata_offset;
-            auto next = decompress_name(wire, end);
-            const auto length = Utils::Bytes::read_u16_be(wire.subspan(rr.rdata_offset - 2));
-            if (end != rr.rdata_offset + length || (target && !name_matches(*target, next))) {
-                throw DnsLookupException("Invalid or conflicting CNAME RDATA", domain::DnsError::PARSE);
-            }
-            target = std::move(next);
-        }
-        if (!target)
-            break;
-        // Bound both repeated answer scans and cycle checks on hostile packets.
-        // Sixteen alias hops cover ordinary DDNS/CDN names without unbounded work.
-        if (chain.size() > 16) {
-            throw DnsLookupException("DNS CNAME chain exceeds 16 hops", domain::DnsError::PARSE);
-        }
-        if (std::ranges::any_of(chain, [&target](const auto& name) { return name_matches(name, *target); })) {
-            throw DnsLookupException("DNS CNAME chain contains a cycle", domain::DnsError::PARSE);
-        }
-        chain.push_back(std::move(*target));
-    }
-    if (type_filter && std::ranges::none_of(message.answers, [&chain, type_filter](const auto& rr) {
-            return rr.qclass == static_cast<std::uint16_t>(RecordClass::IN) &&
-                   rr.type == static_cast<std::uint16_t>(*type_filter) && name_matches(rr.name, chain.back());
-        })) {
-        const auto has_authority = [&message](RecordType type) {
-            return std::ranges::any_of(message.authorities, [type](const auto& rr) {
-                return rr.qclass == static_cast<std::uint16_t>(RecordClass::IN) &&
-                       rr.type == static_cast<std::uint16_t>(type);
-            });
-        };
-        if ((chain.size() > 1 || has_authority(RecordType::NS)) && !has_authority(RecordType::SOA)) {
-            throw DnsLookupException("DNS response is CNAME-only or a referral, not a complete answer",
-                                     domain::DnsError::PARSE);
-        }
-    }
-    std::erase_if(message.answers, [&chain](const auto& rr) {
-        if (rr.qclass != static_cast<std::uint16_t>(RecordClass::IN))
-            return true;
-        if (rr.type == static_cast<std::uint16_t>(RecordType::CNAME)) {
-            return !std::ranges::any_of(chain, [&rr](const auto& name) { return name_matches(rr.name, name); });
-        }
-        return !name_matches(rr.name, chain.back());
-    });
-}
-
 dns::RecordParser::RecordParser(const std::span<const std::uint8_t> data) : wire_(data) {
     message_ = parse_message(data);
     SPDLOG_TRACE(R"(DNS message parser initialised (message size: {}, answer count: {}))", data.size(),
@@ -649,7 +601,7 @@ dns::ParsedResponse dns::RecordParser::parse_response(const std::span<const std:
     response.rcode = message.rcode;
 
     if (response.rcode == Rcode::NOERROR) {
-        filter_answers(message, data, host, type_filter);
+        Validator::select_answers(message, data, host, type_filter);
         if (type_filter) {
             std::erase_if(message.answers, [type_filter](const auto& rr) {
                 return rr.type != static_cast<std::uint16_t>(*type_filter);
@@ -662,7 +614,7 @@ dns::ParsedResponse dns::RecordParser::parse_response(const std::span<const std:
 }
 
 dns::FormattedResponse dns::RecordParser::parse_strings(const std::span<const std::uint8_t> data,
-                                                        [[maybe_unused]] const std::string& host,
+                                                        const std::string& host,
                                                         const std::optional<RecordType> type_filter) {
     // Fast path: parse without copying RDATA — rdata_to_string reads
     // directly from the wire buffer via rdata_offset.
@@ -671,7 +623,7 @@ dns::FormattedResponse dns::RecordParser::parse_strings(const std::span<const st
     response.rcode = msg.rcode;
 
     if (response.rcode == Rcode::NOERROR) [[likely]] {
-        filter_answers(msg, data, host, type_filter);
+        Validator::select_answers(msg, data, host, type_filter);
         response.records.reserve(msg.answers.size());
         for (const auto& answer : msg.answers) {
             // Skip records that do not answer the query — above all the CNAME

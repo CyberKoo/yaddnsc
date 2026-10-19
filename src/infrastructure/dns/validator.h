@@ -2,15 +2,13 @@
 #define YADDNSC_INFRASTRUCTURE_DNS_VALIDATOR_H
 
 #include <cstdint>
-#include <span>
-
 #include <expected>
+#include <optional>
+#include <span>
+#include <string>
 
 #include "domain/error/dns_error_info.h"
-
-namespace dns {
-struct Question;
-}  // namespace dns
+#include "infrastructure/dns/types.h"
 
 /// Validate a DNS response against its request.
 ///
@@ -45,6 +43,25 @@ namespace dns::Validator {
                                                                        std::span<const std::uint8_t> response);
 [[nodiscard]] std::expected<void, domain::DnsErrorInfo> validate_response(std::span<const std::uint8_t> request,
                                                                           std::span<const std::uint8_t> response);
+
+/// Narrow a decoded message to the IN answers that answer `host`, and decide
+/// whether what is left is a usable answer at all.
+///
+/// Walks the in-answer CNAME chain (RFC 1034 §3.6.2) to the final owner, drops
+/// foreign owners and classes, and reports the endpoint's answer as unusable
+/// when `type_filter` yields no record and the reply is CNAME-only or a
+/// referral without SOA negative evidence — there is no recursive referral
+/// chasing. This is the answer-semantics verdict, so it lives beside the
+/// request/response match rather than in the wire decoder.
+///
+/// An empty `host` disables owner filtering altogether — the diagnostic mode
+/// that hands back every answer of the packet.
+///
+/// @throws DnsLookupException (PARSE) on malformed or conflicting CNAME RDATA,
+///         on an overlong or cyclic chain, and on an unusable answer.
+///         Allocation failure may propagate.
+void select_answers(ParsedMessage& message, std::span<const std::uint8_t> wire, const std::string& host,
+                    std::optional<RecordType> type_filter);
 }  // namespace dns::Validator
 
 #endif  // YADDNSC_INFRASTRUCTURE_DNS_VALIDATOR_H

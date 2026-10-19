@@ -8,6 +8,7 @@
 #include "infrastructure/dns/factory.h"
 
 #include <algorithm>
+#include <expected>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -15,7 +16,6 @@
 #include <utility>
 #include <vector>
 
-#include <expected>
 #include <gtest/gtest.h>
 
 #include "domain/config/dns_config.h"
@@ -23,6 +23,7 @@
 #include "domain/error/error.h"
 #include "infrastructure/config/config.h"
 #include "infrastructure/config/static_validator.h"
+#include "infrastructure/dns/endpoint.h"
 #include "infrastructure/uri/uri.h"
 
 namespace {
@@ -36,6 +37,28 @@ namespace {
 /// Build a dispatcher holding a single configured server.
 [[nodiscard]] std::unique_ptr<dns::Dispatcher> build(const domain::DnsServer& server) {
     return dns::make_dispatcher(settings_with({server}), {}, nullptr);
+}
+
+TEST(DnsFactoryTest, ParsedEndpointOwnsItsTransportAndEffectivePort) {
+    const auto classic = dns::parse_resolver_endpoint({"[::1]", 5353});
+    ASSERT_TRUE(classic.has_value());
+    EXPECT_EQ(classic->kind, dns::ResolverEndpoint::Kind::CLASSIC);
+    EXPECT_EQ(classic->port, 5353);
+    EXPECT_EQ(classic->uri.get_host(), "::1");
+    ASSERT_TRUE(classic->literal.has_value());
+    EXPECT_EQ(classic->literal->to_string(), "::1");
+
+    const auto dot = dns::parse_resolver_endpoint({"tls://dns.test", 53});
+    ASSERT_TRUE(dot.has_value());
+    EXPECT_EQ(dot->kind, dns::ResolverEndpoint::Kind::DOT);
+    EXPECT_EQ(dot->port, 853);
+
+    const std::string url = "https://dns.test:8443/dns-query?mode=wire";
+    const auto doh = dns::parse_resolver_endpoint({url, 53});
+    ASSERT_TRUE(doh.has_value());
+    EXPECT_EQ(doh->kind, dns::ResolverEndpoint::Kind::DOH);
+    EXPECT_EQ(doh->port, 8443);
+    EXPECT_EQ(doh->uri.get_raw_uri(), url);
 }
 
 TEST(DnsFactoryTest, StaticValidationAndFactoryAgreeOnEndpoints) {
@@ -130,6 +153,21 @@ TEST(DnsFactoryTest, ClassicHostname_Throws) {
 TEST(DnsFactoryTest, UnknownSchema_Throws) {
     EXPECT_THROW(
         { [[maybe_unused]] auto dispatcher = build({.address = "ftp://1.1.1.1", .port = 53}); }, std::invalid_argument);
+}
+
+// The DoH grammar (https, nonempty host, nonzero port) lives in the endpoint
+// module alone; the resolver consumes its result instead of re-checking it.
+TEST(DnsFactoryTest, RejectsNonHttpsDoHEndpoints) {
+    for (const auto& address : {"http://dns.test/dns-query", "https://dns.test:0/dns-query"}) {
+        SCOPED_TRACE(address);
+        const auto endpoint = dns::parse_resolver_endpoint({address, 53});
+        EXPECT_FALSE(endpoint.has_value());
+        EXPECT_THROW({ [[maybe_unused]] auto dispatcher = build({.address = address, .port = 53}); },
+                     std::invalid_argument);
+    }
+    // An empty host is rejected the same way.
+    const auto endpoint = dns::parse_resolver_endpoint({"https:///dns-query", 53});
+    EXPECT_FALSE(endpoint.has_value());
 }
 
 TEST(DnsFactoryTest, EmptyServerList_Throws) {

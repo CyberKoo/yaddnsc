@@ -1,6 +1,6 @@
 // Coroutine runtime — runner-owned nursery resources and its single close path.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_NURSERY_RUNNER_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_NURSERY_RUNNER_HPP
+#ifndef YADDNSC_CORO_DETAIL_NURSERY_RUNNER_HPP
+#define YADDNSC_CORO_DETAIL_NURSERY_RUNNER_HPP
 
 #include <exception>
 #include <functional>
@@ -90,4 +90,4 @@ Task<void> run_nursery(std::optional<Resources> resources, std::optional<Fn> fn,
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_NURSERY_RUNNER_HPP
+#endif  // YADDNSC_CORO_DETAIL_NURSERY_RUNNER_HPP

@@ -27,6 +27,18 @@ TEST(CliParseTest, NoArgs_ReturnsFailureWithoutCommand) {
     EXPECT_NE(result.exit_code, 0);
 }
 
+// The no-subcommand fallback has no presenter entry of its own: it hands the
+// reason to Cli::present_error, so the wording and the exit code stay the one
+// the presenter's "Error: " contract owns.
+TEST(CliParseTest, NoArgs_PrintsThePresentersErrorLine) {
+    StreamCapture err{STDERR_FILENO};
+    const auto result = parse({"yaddnsc"});
+
+    EXPECT_FALSE(result.command.has_value());
+    EXPECT_EQ(result.exit_code, EXIT_FAILURE);
+    EXPECT_EQ(err.str(), "Error: no subcommand specified. Use --help to see available commands.\n");
+}
+
 TEST(CliParseTest, VersionFlag_ExitsZero) {
     const auto result = parse({"yaddnsc", "--version"});
 

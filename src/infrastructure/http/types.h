@@ -94,6 +94,28 @@ private:
     std::string body_;
 };
 
+/// What one exchange observed about the connection its response arrived on.
+///
+/// These are wire facts, not a reuse decision: whether the connection carries
+/// another request also depends on the local request policy and on the
+/// keep-alive budget, which the session layer owns.
+struct ResponseFraming {
+    /// The version the response was framed with.
+    HttpVersion version{HttpVersion::V1_1};
+    /// The body ended at a boundary the peer stated (a length, chunked coding,
+    /// or no body at all), so the next response on this connection starts where
+    /// this one ended.
+    bool self_delimiting{false};
+    /// The peer announced that it closes the connection after this response.
+    bool connection_close{false};
+    /// The peer explicitly permits reuse (HTTP/1.0 `Connection: keep-alive`).
+    bool keep_alive{false};
+    /// Request cap the peer states for this connection (`Keep-Alive: max=`).
+    std::optional<unsigned> max;
+    /// Idle window the peer grants this connection (`Keep-Alive: timeout=`).
+    std::optional<unsigned> timeout;
+};
+
 /// Size limits for a single exchange.
 struct Limits {
     std::size_t max_header_bytes{64 * 1024};
@@ -117,6 +139,7 @@ struct Options {
     /// User-Agent header value; empty emits no User-Agent header.
     std::string user_agent{};
     bool follow_redirects{true};
+    /// Total follow-up hops per logical exchange, including cross-origin handoff.
     int max_redirects{10};
     Limits limits{};
     /// Per-address connection budget, including the TLS handshake. An expired

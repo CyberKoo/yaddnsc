@@ -25,9 +25,10 @@ namespace Config {
 /// field to carry them rejects them explicitly rather than through this
 /// predicate.
 ///
-/// Single source of truth so the validator, the normalizer and the runtime
-/// cannot disagree about which spellings are acceptable — every entry path
-/// (run, config test, dns resolve) accepts and rejects exactly the same set.
+/// Sole consumer: resolve_bootstrap_dns, which owns the bootstrap_dns rule that
+/// static validation and normalization both read. Configured resolver endpoints
+/// use dns::parse_resolver_endpoint for their full grammar; both ultimately use
+/// domain::InetAddress to recognize the bare host.
 [[nodiscard]] std::optional<std::string_view> bare_ip_host(const Uri& uri);
 
 }  // namespace Config

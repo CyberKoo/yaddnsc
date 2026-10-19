@@ -30,9 +30,9 @@ private:
     /// Build the HTTP GET request with the IP address embedded in the URL template.
     static yaddnsc::sdk::HttpRequest generate_request(const yaddnsc::sdk::UpdateRequest& params);
 
-    /// Validate the response — returns true for 2xx status codes.
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
-                                             const yaddnsc::sdk::AsyncServices& services);
+    /// Validate the response — accepts a 2xx status code with a body.
+    [[nodiscard]] static yaddnsc::sdk::Result check_response(const yaddnsc::sdk::AsyncHttpResponse& response,
+                                                             const yaddnsc::sdk::AsyncServices& services);
 };
 
 #endif  // YADDNSC_DRV_SIMPLE_SIMPLE_H

@@ -1,5 +1,6 @@
 #include "dnspod.h"
 
+#include <expected>
 #include <map>
 #include <optional>
 #include <string>
@@ -36,6 +37,9 @@ constexpr std::string_view API_URL_GLOBAL = "https://api.dnspod.com/Record.Ddns"
 
 constexpr std::string_view DRIVER_NAME = "dnspod";
 
+/// Subject of the shared rejection messages.
+constexpr std::string_view REJECTION_SUBJECT = "DNSPod API request";
+
 const std::unordered_map<std::string_view, std::string_view> ERROR_CODES = {
     {"-15", "Domain got prohibited"},
     {"-8", "You need a upgrade for the domain you are acting for"},
@@ -61,32 +65,21 @@ const std::unordered_map<std::string_view, std::string_view> ERROR_CODES = {
 };
 }  // namespace
 
-YADDNSC_DEFINE_ASYNC_DRIVER(DnsPodDriver, "dnspod", "Updates DNS records via the DNSPod API", "Kotarou", "2.0.0",
+YADDNSC_DEFINE_ASYNC_DRIVER(DnsPodDriver, "dnspod", "Updates DNS records via the DNSPod API", "Kotarou", "2.1.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 DnsPodParams DnsPodDriver::parse_params(std::string_view json) {
     auto cfg = parse_config<DnsPodParams>(json);
-    if (cfg.domain_id.empty()) {
-        throw yaddnsc::sdk::ConfigParseError("Required parameter 'domain_id' must not be empty");
-    }
-    if (cfg.record_id.empty()) {
-        throw yaddnsc::sdk::ConfigParseError("Required parameter 'record_id' must not be empty");
-    }
-    if (cfg.login_token.empty()) {
-        throw yaddnsc::sdk::ConfigParseError("Required parameter 'login_token' must not be empty");
-    }
-    if (cfg.record_line && cfg.record_line->empty()) {
-        throw yaddnsc::sdk::ConfigParseError("Parameter 'record_line' must not be empty when provided");
-    }
-    if (cfg.record_line_id && cfg.record_line_id->empty()) {
-        throw yaddnsc::sdk::ConfigParseError("Parameter 'record_line_id' must not be empty when provided");
-    }
+    require_non_empty("domain_id", cfg.domain_id);
+    require_non_empty("record_id", cfg.record_id);
+    require_non_empty("login_token", cfg.login_token);
+    require_non_empty("record_line", cfg.record_line);
+    require_non_empty("record_line_id", cfg.record_line_id);
     return cfg;
 }
 
 Result DnsPodDriver::validate(std::string_view driver_param_json) const {
-    [[maybe_unused]] const auto cfg = parse_params(driver_param_json);
-    return {};
+    return validate_via(driver_param_json, parse_params);
 }
 
 Task<Result> DnsPodDriver::update(AsyncUpdateContext& context) {
@@ -119,43 +112,42 @@ HttpRequest DnsPodDriver::generate_request(const DnsPodParams& cfg, const Update
     return request;
 }
 
-bool DnsPodDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
-    YADDNSC_ASYNC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
+Result DnsPodDriver::check_response(const AsyncHttpResponse& response, const AsyncServices& services) {
+    yaddnsc::sdk::log_response_body(services, response);
 
     auto resp = parse_response<DnsPodResponse>(response.body);
     if (resp && resp->status.has_value() && resp->status->code == "1") {
         if (resp->record.has_value()) {
             auto& record = resp->record.value();
             YADDNSC_ASYNC_SDK_LOG_DEBUG(services, "Record updated successfully, id: {}, name: {}, value: {}", record.id,
-                                  record.name, record.value);
+                                        record.name, record.value);
         }
-        return true;
+        return {};
     }
 
     // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
-    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
-        YADDNSC_ASYNC_SDK_LOG_WARN(services, "DNSPod API request failed with HTTP status {}: {}", response.status_code,
-                             truncate_for_log(response.body));
-        return false;
+    if (auto rejection = yaddnsc::sdk::transient_rejection(services, response, REJECTION_SUBJECT)) {
+        return std::unexpected(*rejection);
     }
 
     if (!resp) {
         YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Failed to parse DNSPod API response");
-        return false;
+        return std::unexpected(yaddnsc::sdk::upstream_rejection(response, "Failed to parse DNSPod API response"));
     }
 
     if (!resp->status.has_value()) {
         YADDNSC_ASYNC_SDK_LOG_ERROR(services, "Server returned an unknown error, raw response: {}",
-                              truncate_for_log(response.body));
-        return false;
+                                    truncate_for_log(response.body));
+        return std::unexpected(yaddnsc::sdk::upstream_rejection(response, "DNSPod API returned an unknown error"));
     }
 
     auto& status = resp->status.value();
     auto description = describe_error_code(status.code);
-    YADDNSC_ASYNC_SDK_LOG_ERROR(services, "DNSPod API error code {} with message {}: {}", status.code, status.message,
-                          description);
+    const auto text =
+        fmt::format("DNSPod API error code {} with message {}: {}", status.code, status.message, description);
+    YADDNSC_ASYNC_SDK_LOG_ERROR(services, "{}", text);
 
-    return false;
+    return std::unexpected(yaddnsc::sdk::upstream_rejection(response, text));
 }
 
 std::string_view DnsPodDriver::describe_error_code(std::string_view code) {

@@ -53,6 +53,11 @@
  * Readers use yaddnsc_struct_has_field before touching a field added after
  * ABI 1.0.
  *
+ * Layout convention: a validation inline is placed next to the type it
+ * validates, under that type's own banner. A type introduced by a later minor
+ * brings its validator with it rather than collecting validators in one
+ * block, so the frozen declaration order below only ever grows.
+ *
  * Plugins are in-process trusted code, not a sandbox. A plugin can abort,
  * loop forever, corrupt host memory, or call the system directly.
  */
@@ -74,7 +79,8 @@ extern "C" {
 #define YADDNSC_DRIVER_ABI_MINOR UINT16_C(1)
 #define YADDNSC_DRIVER_MAGIC UINT64_C(0x594144444E534300)
 
-/* True when the provider implements every requirement of need. The host is
+/* ── Version negotiation ──────────────────────────────────────────────────
+ * True when the provider implements every requirement of need. The host is
  * the provider on both sides: it provides the version a plugin declares, and
  * its services table provides the minimum version the plugin requires.
  */
@@ -113,7 +119,8 @@ typedef struct yaddnsc_bytes {
     size_t size;
 } yaddnsc_bytes;
 
-/* A zero-length view may use NULL data. A non-zero length view must point to
+/* ── View validation ──────────────────────────────────────────────────────
+ * A zero-length view may use NULL data. A non-zero length view must point to
  * readable storage. These helpers are the mandatory validation boundary
  * before constructing a C++ string_view/span from an ABI view.
  */
@@ -158,6 +165,10 @@ typedef uint32_t yaddnsc_status;
  * may return it; create, validate, http_start and http_cancel must not. */
 #define YADDNSC_STATUS_PENDING UINT32_C(11)
 
+/* ── Status validation ────────────────────────────────────────────────────
+ * An unknown status makes an error report illegal; the host records one as
+ * INTERNAL_ERROR and a plugin must not produce one.
+ */
 static inline int yaddnsc_status_is_valid(yaddnsc_status status) {
     switch (status) {
         case YADDNSC_STATUS_OK:
@@ -177,8 +188,10 @@ static inline int yaddnsc_status_is_valid(yaddnsc_status status) {
     }
 }
 
-/* The async step set: the 1.0 completion set plus PENDING. Use this for
- * begin/resume results only; keep yaddnsc_status_is_valid for old entries. */
+/* ── Step-status validation ───────────────────────────────────────────────
+ * The async step set: the 1.0 completion set plus PENDING. Use this for
+ * begin/resume results only; keep yaddnsc_status_is_valid for old entries.
+ */
 static inline int yaddnsc_async_step_status_is_valid(yaddnsc_status status) {
     return yaddnsc_status_is_valid(status) || status == YADDNSC_STATUS_PENDING;
 }
@@ -216,7 +229,8 @@ typedef uint32_t yaddnsc_http_method;
 #define YADDNSC_HTTP_HEAD UINT32_C(6)
 #define YADDNSC_HTTP_OPTIONS UINT32_C(7)
 
-/* Capability bits are a host-enforced contract, not a hint. The host
+/* ── Driver capability bits ───────────────────────────────────────────────
+ * Capability bits are a host-enforced contract, not a hint. The host
  * delivers "A" only when CAPABILITY_A is set and "AAAA" only when
  * CAPABILITY_AAAA is set. Any other record type, including "TXT", is
  * rejected before the plugin is called, so that path produces no
@@ -226,6 +240,9 @@ typedef uint32_t yaddnsc_http_method;
  * rejected at load. ABI 1.0 has no capability bit for any other record
  * type. A new bit is a minor bump; the version check runs first, and a host
  * accepts every bit introduced by its minor and below.
+ *
+ * The capability validator lives below, with the other inline validators
+ * kept in their frozen positions.
  */
 #define YADDNSC_DRIVER_CAPABILITY_A (UINT64_C(1) << 0)
 #define YADDNSC_DRIVER_CAPABILITY_AAAA (UINT64_C(1) << 1)
@@ -247,6 +264,10 @@ typedef struct yaddnsc_http_header {
     yaddnsc_string value;
 } yaddnsc_http_header;
 
+/* ── Header validation ────────────────────────────────────────────────────
+ * A header array is valid when it is empty or points at header_count
+ * readable headers, and each header's two views are valid.
+ */
 static inline int yaddnsc_http_header_is_valid(yaddnsc_http_header header) {
     return yaddnsc_string_is_valid(header.name) && yaddnsc_string_is_valid(header.value);
 }
@@ -255,6 +276,10 @@ static inline int yaddnsc_http_header_array_is_valid(const yaddnsc_http_header* 
     return count == 0 || headers != NULL;
 }
 
+/* ── Capability validation ────────────────────────────────────────────────
+ * The load-time gate for YADDNSC_DRIVER_CAPABILITY_*: no bit outside
+ * YADDNSC_DRIVER_CAPABILITIES_SUPPORTED may be set.
+ */
 static inline int yaddnsc_driver_capabilities_are_valid(uint64_t capabilities) {
     return (capabilities & ~YADDNSC_DRIVER_CAPABILITIES_SUPPORTED) == 0;
 }
@@ -597,7 +622,7 @@ yaddnsc_status yaddnsc_driver_update_async_resume(yaddnsc_async_driver* driver, 
 yaddnsc_status yaddnsc_driver_async_validate(yaddnsc_async_driver* driver, yaddnsc_string driver_param_json,
                                              yaddnsc_error* out_error);
 
-/* ── struct_size helpers (C and C++) ──────────────────────────────────────*/
+/* ── struct_size helpers and validation (C and C++) ───────────────────────*/
 
 /* Byte size covering `member` of `type` completely — the only legal test
  * for field visibility. All arithmetic is compile-time constant. */

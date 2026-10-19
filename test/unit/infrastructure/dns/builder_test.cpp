@@ -484,6 +484,43 @@ TEST(QueryBuilderTest, AcceptsMaxNameLength) {
     EXPECT_NO_THROW({ [[maybe_unused]] auto _ = builder.build(); });
 }
 
+// ===========================================================================
+//  Input validation — dns::validate_query_name
+// ===========================================================================
+
+TEST(ValidateQueryNameTest, AcceptsEveryNameTheBuilderEncodes) {
+    // The pre-flight check is the same grammar without a packet: root in both
+    // spellings, a trailing dot and a maximal label all still encode.
+    EXPECT_TRUE(dns::validate_query_name("example.com", dns::RecordType::A).has_value());
+    EXPECT_TRUE(dns::validate_query_name("example.com.", dns::RecordType::AAAA).has_value());
+    EXPECT_TRUE(dns::validate_query_name(".", dns::RecordType::A).has_value());
+    EXPECT_TRUE(dns::validate_query_name("", dns::RecordType::A).has_value());
+    EXPECT_TRUE(dns::validate_query_name(std::string(63, 'a') + ".test", dns::RecordType::A).has_value());
+}
+
+TEST(ValidateQueryNameTest, RejectsEveryNameTheBuilderThrows) {
+    EXPECT_FALSE(dns::validate_query_name(std::string(64, 'a') + ".test", dns::RecordType::A).has_value());
+    EXPECT_FALSE(dns::validate_query_name("a..b", dns::RecordType::A).has_value());
+    EXPECT_FALSE(dns::validate_query_name(".example.com", dns::RecordType::A).has_value());
+    EXPECT_FALSE(dns::validate_query_name(std::string("foo\0bar.test", 12), dns::RecordType::A).has_value());
+
+    std::string long_name;
+    for (int i = 0; i < 6; ++i) {
+        if (i > 0)
+            long_name += '.';
+        long_name.append(50, 'a');
+    }
+    EXPECT_FALSE(dns::validate_query_name(long_name, dns::RecordType::A).has_value());
+}
+
+TEST(ValidateQueryNameTest, ReportsTheWireReasonInsteadOfThrowing) {
+    const auto accepted = dns::validate_query_name("example.com", dns::RecordType::A);
+    ASSERT_TRUE(accepted.has_value());
+    const auto rejected = dns::validate_query_name("a..b", dns::RecordType::A);
+    ASSERT_FALSE(rejected.has_value());
+    EXPECT_FALSE(rejected.error().reason.empty());
+}
+
 TEST(QueryBuilderTest, ThrowsOnEdnsVersionNonZero) {
     dns::QueryBuilder builder;
     builder.add_question("example.com", dns::RecordType::A);

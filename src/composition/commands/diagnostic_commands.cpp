@@ -7,12 +7,11 @@
 #include <memory>
 #include <optional>
 #include <span>
-#include <stdexcept>
 #include <string>
 
 #include <magic_enum/magic_enum.hpp>
-#include <spdlog/spdlog.h>
 
+#include "application/config_validation.h"
 #include "application/diagnostics.h"
 #include "application/environment_validator.h"
 #include "cli/command.h"
@@ -28,24 +27,14 @@
 #include "domain/error/error.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/config/config.h"
 #include "infrastructure/config/config_exception.h"
-#include "infrastructure/dns/dispatcher.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include "infrastructure/dns/factory.h"
-#include "infrastructure/dns/policy.h"
+#include "infrastructure/config/redaction.h"
 #include "infrastructure/dns/resolver_adapter.h"
 #include "infrastructure/http/types.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/ip_source/system_network_interfaces.h"
 #include "infrastructure/logging/spdlog_logger.h"
 #include "infrastructure/plugin/driver_catalog.h"
-#include "infrastructure/plugin/driver_gateway.h"
+#include "infrastructure/plugin/driver_gateway.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "support/exception.h"
-
-namespace coro {
-class Nursery;
-}  // namespace coro
-
-namespace net {
-class TlsContext;
-}  // namespace net
 
 namespace Composition {
 int execute_command(const Cli::DriverListCommand& command) {
@@ -71,24 +60,12 @@ int execute_command(const Cli::InterfaceIpCommand& command) {
 int execute_command(const Cli::DnsResolveCommand& command) {
     const auto config = internal::load_runtime_config(command.config_path);
     const auto tls_context = internal::make_default_tls_context();
-    const auto dispatcher = [&] {
-        try {
-            return dns::make_dispatcher(config.resolver, config.resolver.bootstrap_servers, tls_context,
-                                        internal::DNS_POLICY);
-        } catch (const std::invalid_argument& error) {
-            // Same translation as the run command: factory checks protect
-            // direct callers too, so drift from static validation is a
-            // configuration failure rather than an internal exception type
-            // escaping into this command's presentation.
-            throw ConfigException(error.what());
-        }
-    }();
+    const auto dispatcher = internal::make_dispatcher(config.resolver, tls_context);
     dns::DispatcherResolverPort resolver_port{*dispatcher};
     // A plain root preserves the default Ctrl-C disposition for this one-shot command.
-    coro::Loop loop;
-    internal::install_loop_trace_sink(loop);
+    auto loop = internal::make_traced_loop();
     const auto outcome =
-        coro::run(loop, app::dns_resolve_command(resolver_port, command.host, command.type, std::chrono::seconds{30}));
+        coro::run(*loop, app::dns_resolve_command(resolver_port, command.host, command.type, std::chrono::seconds{30}));
     return Cli::present_dns_resolve(outcome);
 }
 
@@ -105,18 +82,7 @@ int execute_command(const Cli::ConfigShowCommand& command) {
 }
 
 int execute_command(const Cli::ConfigTestCommand& command) {
-    using Error = app::ConfigTestError;
-
-    // <scope> is unavailable on supported libstdc++ versions.
-    struct RestoreLogLevel {
-        spdlog::level::level_enum previous = spdlog::get_level();
-
-        ~RestoreLogLevel() noexcept { spdlog::set_level(previous); }
-    } restore_level;
-
-    if (command.quiet) {
-        spdlog::set_level(spdlog::level::off);
-    }
+    using Error = Cli::ConfigTestError;
 
     try {
         const auto config = internal::load_runtime_config(command.config_path);
@@ -141,15 +107,15 @@ int execute_command(const Cli::ConfigTestCommand& command) {
         // validate_config runs in the VALIDATE phase, so the plugin cannot
         // reach http_exchange here and no TLS context is needed.
         const auto http_options = internal::make_coro_http_options(config.resolver, nullptr);
-        coro::Loop loop;
-        internal::install_loop_trace_sink(loop);
-        coro::run(loop,
+        auto loop = internal::make_traced_loop();
+        coro::Loop& validation_loop = *loop;
+        coro::run(validation_loop,
                   coro::with_nursery(
                       std::unique_ptr<plugin::DriverGateway>{},
-                      [&config, &driver_catalog, &logger, &loop, &http_options](
+                      [&config, &driver_catalog, &logger, &validation_loop, &http_options](
                           coro::Nursery& nursery, std::unique_ptr<plugin::DriverGateway>& gateway) -> coro::Task<void> {
-                          gateway = std::make_unique<plugin::DriverGateway>(
-                              driver_catalog, logger, loop, nursery, internal::make_gateway_options(http_options));
+                          gateway = internal::make_driver_gateway(driver_catalog, logger, validation_loop, nursery,
+                                                                 http_options);
                           // The runner keeps the gateway alive through every bridge child.
                           const auto outcome = co_await app::validate_driver_configs(
                               *gateway, config, app::ConfigValidationMode::REQUIRE_VALIDATION,

@@ -25,6 +25,8 @@
 
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/http_date.hpp>
+#include <yaddnsc/sdk/upstream_failure.hpp>
 
 using yaddnsc::sdk::HttpHeader;
 using yaddnsc::sdk::HttpHeaderView;
@@ -40,6 +42,23 @@ HttpResponse response_with(std::initializer_list<std::pair<std::string_view, std
         response.headers.push_back(HttpHeaderView{name, value});
     }
     return response;
+}
+
+TEST(SdkCompletion, TerminalResultUsesTheCompletionSetNotAsyncStepStatuses) {
+    for (const yaddnsc_status input : {YADDNSC_STATUS_OK, YADDNSC_STATUS_INVALID_CONFIG, YADDNSC_STATUS_RATE_LIMITED,
+                                       YADDNSC_STATUS_CANCELLED, YADDNSC_STATUS_PENDING, yaddnsc_status{999}}) {
+        std::string storage;
+        yaddnsc_error error{};
+        error.struct_size = sizeof(error);
+        const auto status = yaddnsc::sdk::detail::translate_result(
+            std::unexpected(yaddnsc::sdk::Error{input, "detail", 17}), storage, &error);
+        const auto expected =
+            yaddnsc_status_is_valid(input) && input != YADDNSC_STATUS_OK ? input : YADDNSC_STATUS_INTERNAL_ERROR;
+        EXPECT_EQ(status, expected);
+        EXPECT_EQ(error.status, expected);
+        EXPECT_EQ(error.retry_after_seconds, 17U);
+        EXPECT_EQ(yaddnsc::sdk::detail::to_view(error.message), "detail");
+    }
 }
 
 // =============================================================================

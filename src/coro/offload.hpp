@@ -24,8 +24,8 @@
 // Debug builds, undefined behavior in Release.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_OFFLOAD_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_OFFLOAD_HPP
+#ifndef YADDNSC_CORO_OFFLOAD_HPP
+#define YADDNSC_CORO_OFFLOAD_HPP
 
 #include <functional>
 #include <memory>
@@ -105,4 +105,4 @@ template<typename F>
 
 }  // namespace coro
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_OFFLOAD_HPP
+#endif  // YADDNSC_CORO_OFFLOAD_HPP

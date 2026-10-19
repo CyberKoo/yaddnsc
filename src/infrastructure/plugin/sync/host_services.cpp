@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <expected>
 #include <map>
 #include <optional>
 #include <span>
@@ -17,13 +18,12 @@
 #include <string_view>
 #include <utility>
 
-#include <expected>
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "application/ports/log.h"
 #include "coro/cancelled.h"
 #include "infrastructure/http/types.h"
-#include "infrastructure/plugin/abi_string.h"
+#include "infrastructure/plugin/detail/abi_string.h"
 
 namespace plugin {
 

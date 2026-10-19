@@ -6,8 +6,8 @@
 // the template definition is available at instantiation. This header includes
 // scope_outcome.hpp for the public result it builds, not scope.hpp, keeping the
 // include graph acyclic.
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_SCOPE_RUNNER_HPP
-#define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_SCOPE_RUNNER_HPP
+#ifndef YADDNSC_CORO_DETAIL_SCOPE_RUNNER_HPP
+#define YADDNSC_CORO_DETAIL_SCOPE_RUNNER_HPP
 
 #include <exception>
 #include <type_traits>
@@ -108,4 +108,4 @@ Task<ScopeOutcome<BodyResult<Fn>>> run_scoped(Fn fn, ScopeSpec spec) {
 
 }  // namespace coro::detail
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_SCOPE_RUNNER_HPP
+#endif  // YADDNSC_CORO_DETAIL_SCOPE_RUNNER_HPP

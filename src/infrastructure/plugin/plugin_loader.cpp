@@ -16,8 +16,8 @@
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/util/format.hpp>
 
-#include "infrastructure/plugin/abi_string.h"
-#include "infrastructure/plugin/async_cleanup.h"
+#include "infrastructure/plugin/async/cleanup.h"
+#include "infrastructure/plugin/detail/abi_string.h"
 #include "infrastructure/plugin/shared_library.h"
 #include "support/fmt.hpp"
 
@@ -91,22 +91,21 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
     sync.validate = resolve_entry<decltype(yaddnsc_driver_validate)>(module.library_, "yaddnsc_driver_validate");
 
     AsyncEntryPoints async;
-    async.create =
-        resolve_entry<decltype(yaddnsc_driver_async_create)>(module.library_, "yaddnsc_driver_async_create");
+    async.create = resolve_entry<decltype(yaddnsc_driver_async_create)>(module.library_, "yaddnsc_driver_async_create");
     async.destroy =
         resolve_entry<decltype(yaddnsc_driver_async_destroy)>(module.library_, "yaddnsc_driver_async_destroy");
-    async.begin = resolve_entry<decltype(yaddnsc_driver_update_async_begin)>(
-        module.library_, "yaddnsc_driver_update_async_begin");
-    async.resume = resolve_entry<decltype(yaddnsc_driver_update_async_resume)>(
-        module.library_, "yaddnsc_driver_update_async_resume");
+    async.begin = resolve_entry<decltype(yaddnsc_driver_update_async_begin)>(module.library_,
+                                                                             "yaddnsc_driver_update_async_begin");
+    async.resume = resolve_entry<decltype(yaddnsc_driver_update_async_resume)>(module.library_,
+                                                                               "yaddnsc_driver_update_async_resume");
     async.validate =
         resolve_entry<decltype(yaddnsc_driver_async_validate)>(module.library_, "yaddnsc_driver_async_validate");
 
     const bool sync_complete = sync.create != nullptr && sync.destroy != nullptr && sync.update != nullptr;
-    const bool any_sync = sync.create != nullptr || sync.destroy != nullptr || sync.update != nullptr ||
-                          sync.validate != nullptr;
-    const bool async_complete = async.create != nullptr && async.destroy != nullptr && async.begin != nullptr &&
-                                async.resume != nullptr;
+    const bool any_sync =
+        sync.create != nullptr || sync.destroy != nullptr || sync.update != nullptr || sync.validate != nullptr;
+    const bool async_complete =
+        async.create != nullptr && async.destroy != nullptr && async.begin != nullptr && async.resume != nullptr;
     const bool any_async = async.create != nullptr || async.destroy != nullptr || async.begin != nullptr ||
                            async.resume != nullptr || async.validate != nullptr;
 
@@ -149,11 +148,11 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
                         raw_descriptor->struct_size, YADDNSC_ABI_VERSION_PREFIX_SIZE, ABI_INCOMPATIBLE_HINT)));
     }
     if (raw_descriptor->abi_major != YADDNSC_DRIVER_ABI_MAJOR) {
-        return std::unexpected(make_error(
-            plugin::PluginError::Code::ABI_MISMATCH,
-            fmt::format("Driver '{}' reports ABI {}.{}, but this host implements ABI {}.x. {}", path,
-                        raw_descriptor->abi_major, raw_descriptor->abi_minor, YADDNSC_DRIVER_ABI_MAJOR,
-                        ABI_INCOMPATIBLE_HINT)));
+        return std::unexpected(
+            make_error(plugin::PluginError::Code::ABI_MISMATCH,
+                       fmt::format("Driver '{}' reports ABI {}.{}, but this host implements ABI {}.x. {}", path,
+                                   raw_descriptor->abi_major, raw_descriptor->abi_minor, YADDNSC_DRIVER_ABI_MAJOR,
+                                   ABI_INCOMPATIBLE_HINT)));
     }
     if (!yaddnsc_abi_provides(YADDNSC_DRIVER_ABI_MAJOR, YADDNSC_DRIVER_ABI_MINOR, raw_descriptor->abi_major,
                               raw_descriptor->abi_minor)) {
@@ -164,11 +163,10 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
                                    YADDNSC_DRIVER_ABI_MINOR, HOST_TOO_OLD_HINT)));
     }
     if (raw_descriptor->struct_size < YADDNSC_DRIVER_DESCRIPTOR_MIN_SIZE) {
-        return std::unexpected(
-            make_error(plugin::PluginError::Code::ABI_MISMATCH,
-                       fmt::format("Driver '{}' descriptor struct_size {} is below the ABI 1.0 baseline {}. {}", path,
-                                   raw_descriptor->struct_size, YADDNSC_DRIVER_DESCRIPTOR_MIN_SIZE,
-                                   ABI_INCOMPATIBLE_HINT)));
+        return std::unexpected(make_error(
+            plugin::PluginError::Code::ABI_MISMATCH,
+            fmt::format("Driver '{}' descriptor struct_size {} is below the ABI 1.0 baseline {}. {}", path,
+                        raw_descriptor->struct_size, YADDNSC_DRIVER_DESCRIPTOR_MIN_SIZE, ABI_INCOMPATIBLE_HINT)));
     }
     if (raw_descriptor->magic != YADDNSC_DRIVER_MAGIC) {
         return std::unexpected(
@@ -240,11 +238,11 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
                         path, module.descriptor_.abi_minor, ABI_INCOMPATIBLE_HINT)));
     }
     if (!async_complete) {
-        return std::unexpected(make_error(
-            plugin::PluginError::Code::MISSING_SYMBOL,
-            fmt::format("Driver '{}' does not export a complete async execution group "
-                        "(async_create/async_destroy/update_async_begin/update_async_resume). {}",
-                        path, ABI_INCOMPATIBLE_HINT)));
+        return std::unexpected(
+            make_error(plugin::PluginError::Code::MISSING_SYMBOL,
+                       fmt::format("Driver '{}' does not export a complete async execution group "
+                                   "(async_create/async_destroy/update_async_begin/update_async_resume). {}",
+                                   path, ABI_INCOMPATIBLE_HINT)));
     }
     module.entries_ = std::move(async);
     return module;

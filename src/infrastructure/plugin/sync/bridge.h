@@ -41,8 +41,8 @@
 // There is no slack-based assumption that loop timer processing happens first.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_BRIDGE_H
-#define YADDNSC_INFRASTRUCTURE_PLUGIN_BRIDGE_H
+#ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_SYNC_BRIDGE_H
+#define YADDNSC_INFRASTRUCTURE_PLUGIN_SYNC_BRIDGE_H
 
 #include <atomic>
 #include <chrono>
@@ -60,7 +60,6 @@
 #include "coro/host.hpp"
 #include "coro/notification.hpp"
 #include "coro/task.hpp"
-#include "domain/error/error.h"
 #include "infrastructure/http/types.h"
 
 namespace coro {
@@ -108,44 +107,6 @@ struct BridgeCall {
     /// Written before posting; immutable afterwards. Never registered directly
     /// on the loop clock: serve_exchange translates the remaining duration.
     std::chrono::steady_clock::time_point worker_deadline{};
-};
-
-/// One cycle owner: only cancelled crosses threads; all other fields are loop-only.
-/// The owner and worker retain leases until HTTP children and real work finish.
-struct CallState {
-    std::atomic<bool> cancelled{false};
-    coro::NurseryToken lifetime;
-    // The group owns HTTP children; tracking borrows without a cycle->call->cycle ring.
-    std::vector<std::weak_ptr<BridgeCall>> calls;
-    /// Owner-side events: cancel requests, worker completion, subscriber exit.
-    coro::Notification owner_changed;
-    /// Wakeup for the loop-side cancellation watcher. The protocol body also
-    /// notifies it when it stops, so the watcher re-checks sticky cancellation
-    /// on every stop as well as on every cancel request; the body owns the
-    /// single wait on owner_changed.
-    coro::Notification cancel_changed;
-    /// The owner published the cycle's result (or defect). Awaiting it consumes
-    /// one publication; cancellation of the subscriber's scope still wins.
-    coro::Notification result_ready;
-    std::expected<void, domain::DriverError> result;
-    std::exception_ptr error;
-    /// Worker-only until joined completion publishes it to the loop.
-    std::exception_ptr worker_error;
-    coro::CancelScope* worker_scope = nullptr;
-    bool subscriber_active = false;
-    bool error_observed = false;
-    bool plugin_cancelled = false;
-    bool worker_done = false;
-
-    /// Worker-only until joined completion; preserve the first host defect.
-    void record_worker_error(std::exception_ptr defect) noexcept {
-        if (!worker_error) {
-            worker_error = std::move(defect);
-        }
-    }
-
-    /// Loop-only signal; cancellation hooks may call this without allocation.
-    void request_cancel() noexcept;
 };
 
 namespace detail {
@@ -205,13 +166,6 @@ public:
     Bridge(Bridge&&) = delete;
     Bridge& operator=(Bridge&&) = delete;
 
-    /// Start an owned cycle in the long-lived root group. Loop thread only.
-    /// `state` must outlive the cycle; a submission failure is published to the
-    /// subscriber through the allocation-free notification before the error
-    /// propagates, so no caller can hang on a cycle that never started.
-    /// Allocation may throw; closed ingress throws std::logic_error.
-    void start_cycle(const std::shared_ptr<CallState>& state, coro::Task<void> cycle);
-
     /// Worker side: run `call` on the loop and return its answer. Blocks the
     /// calling thread; may be called from any thread.
     [[nodiscard]] std::expected<http::Response, BridgeError> exchange(std::shared_ptr<BridgeCall> call);
@@ -231,4 +185,4 @@ private:
 
 }  // namespace plugin
 
-#endif  // YADDNSC_INFRASTRUCTURE_PLUGIN_BRIDGE_H
+#endif  // YADDNSC_INFRASTRUCTURE_PLUGIN_SYNC_BRIDGE_H

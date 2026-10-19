@@ -27,8 +27,8 @@
 // submit_offload() and only loop.cpp names BS.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_CORO_LOOP_H
-#define YADDNSC_INFRASTRUCTURE_CORO_LOOP_H
+#ifndef YADDNSC_CORO_LOOP_H
+#define YADDNSC_CORO_LOOP_H
 
 #include <atomic>
 #include <cassert>
@@ -330,4 +330,4 @@ private:
 
 }  // namespace coro
 
-#endif  // YADDNSC_INFRASTRUCTURE_CORO_LOOP_H
+#endif  // YADDNSC_CORO_LOOP_H
