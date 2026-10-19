@@ -625,8 +625,11 @@ yaddnsc_status yaddnsc_driver_async_validate(yaddnsc_async_driver* driver, yaddn
 /* ── struct_size helpers and validation (C and C++) ───────────────────────*/
 
 /* Byte size covering `member` of `type` completely — the only legal test
- * for field visibility. All arithmetic is compile-time constant. */
-#define YADDNSC_SIZEOF_THROUGH(type, member) ((uint32_t) (offsetof(type, member) + sizeof(((type*) 0)->member)))
+ * for field visibility. All arithmetic is compile-time constant.
+ * A pointer-typed member is sized as the pointer itself, which is what the
+ * visibility test needs, so the pointer warning is suppressed here. */
+#define YADDNSC_SIZEOF_THROUGH(type, member) \
+    ((uint32_t) (offsetof(type, member) + sizeof(((type*) 0)->member)))  // NOLINT(bugprone-sizeof-expression)
 
 /* True when `field_end` (YADDNSC_SIZEOF_THROUGH of the field) is fully
  * covered by the supplied struct_size. */

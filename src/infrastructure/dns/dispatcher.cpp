@@ -275,7 +275,7 @@ coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispat
     // operations.
     if (const auto valid = validate_query_name(host, Util::type_to_record_type(kind)); !valid) {
         co_return std::unexpected(
-            domain::DnsErrorInfo{domain::DnsError::INVALID_QUERY, std::move(valid.error().reason)});
+            domain::DnsErrorInfo{domain::DnsError::INVALID_QUERY, valid.error().reason});
     }
 
     std::vector<Resolver*> all;

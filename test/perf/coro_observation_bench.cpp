@@ -42,7 +42,7 @@ void bm_ready_burst(benchmark::State& state) {
             coro::ManualClock clock;
             coro::Loop loop{clock};
             coro::run(loop, test::observe_ready_burst(settings, clock, measurement));
-            allocations += static_cast<double>(counter.count());
+            allocations += static_cast<double>(test::AllocationCounter::count());
         } catch (const std::exception& error) {
             state.SkipWithError(error.what());
             return;
@@ -86,7 +86,7 @@ void bm_payload_residency(benchmark::State& state) {
             const test::AllocationCounter counter;
             coro::Loop loop;
             coro::run(loop, test::observe_payload_residency(settings, measurement));
-            allocations = counter.count();
+            allocations = test::AllocationCounter::count();
         } catch (const std::exception& error) {
             state.SkipWithError(error.what());
             return;

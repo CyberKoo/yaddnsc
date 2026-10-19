@@ -1,5 +1,6 @@
 #include "cycle.h"
 
+#include <coroutine> // IWYU pragma: keep
 #include <stdexcept>
 
 #include <spdlog/spdlog.h>
@@ -9,7 +10,7 @@
 #include "coro/nursery.hpp"
 #include "coro/scope.hpp"
 #include "support/fmt.hpp"
-#include "yaddnsc/util/format.hpp"
+#include "yaddnsc/util/format.hpp" // IWYU pragma: keep
 
 namespace plugin {
 namespace {
@@ -42,7 +43,7 @@ coro::Task<void> own_cycle(std::shared_ptr<CallState> state, coro::Task<coro::Sc
     }
 }
 
-void start_cycle(coro::NurseryToken group_token, const std::shared_ptr<CallState>& state, coro::Task<void> owner) {
+void start_cycle(const coro::NurseryToken& group_token, const std::shared_ptr<CallState>& state, coro::Task<void> owner) {
     auto* group = group_token.get();
     if (group == nullptr) {
         throw std::logic_error("plugin cycle requires a live root group");

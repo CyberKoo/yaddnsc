@@ -18,7 +18,7 @@ void bm_reservation_pressure(benchmark::State& state) {
         coro::ManualClock clock;
         coro::Loop loop{clock};
         auto result = coro::run(loop, test::reservation_pressure_batch(children, mixed, cancel));
-        allocations += counter.count();
+        allocations += test::AllocationCounter::count();
         if (result.errors != 0) {
             state.SkipWithError("reservation pressure lost results, publication order or cancellation");
             break;

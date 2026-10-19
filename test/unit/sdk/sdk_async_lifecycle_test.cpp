@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <expected>
 #include <initializer_list>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -23,7 +24,9 @@
 
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/async_driver.hpp>
-#include <yaddnsc/sdk/detail/async_instance.hpp>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/sdk/driver_common.hpp>
+#include <yaddnsc/sdk/upstream_failure.hpp>
 
 namespace sdk = yaddnsc::sdk;
 
@@ -114,7 +117,8 @@ yaddnsc_event make_cancel_event(yaddnsc_error& error) {
 class ImmediateDriver final : public sdk::AsyncDriver {
 public:
     sdk::Task<sdk::Result> update(sdk::AsyncUpdateContext&) override { co_return {}; }
-    sdk::Result validate(std::string_view) const override { return {}; }
+
+    [[nodiscard]] sdk::Result validate(std::string_view) const override { return {}; }
 };
 
 class PendingDriver final : public sdk::AsyncDriver {
@@ -128,7 +132,8 @@ public:
         }
         co_return {};
     }
-    sdk::Result validate(std::string_view) const override { return {}; }
+
+    [[nodiscard]] sdk::Result validate(std::string_view) const override { return {}; }
 };
 
 }  // namespace

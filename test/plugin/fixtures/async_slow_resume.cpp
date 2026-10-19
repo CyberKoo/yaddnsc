@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <new>
 
 #include <yaddnsc/sdk/driver_abi.h>
@@ -24,7 +25,7 @@ constexpr yaddnsc_driver_descriptor DESCRIPTOR{
 };
 
 struct State {
-    const yaddnsc_async_services* services;
+    const yaddnsc_async_services* services = nullptr;
     uint64_t first = 0;
     uint64_t second = 0;
 };
@@ -87,12 +88,12 @@ extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_async_create(const yaddn
         write_error(error, YADDNSC_STATUS_INVALID_ARGUMENT);
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
-    auto* state = new (std::nothrow) State{services};
+    auto state = std::unique_ptr<State>{new (std::nothrow) State{services}};
     if (state == nullptr) {
         write_error(error, YADDNSC_STATUS_INTERNAL_ERROR);
         return YADDNSC_STATUS_INTERNAL_ERROR;
     }
-    *out = reinterpret_cast<yaddnsc_async_driver*>(state);  // NOLINT
+    *out = reinterpret_cast<yaddnsc_async_driver*>(state.release());  // NOLINT
     return YADDNSC_STATUS_OK;
 }
 

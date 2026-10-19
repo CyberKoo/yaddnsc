@@ -12,7 +12,7 @@
 
 #include "coro/host.hpp"
 #include "coro/notification.hpp"
-#include "coro/scope_outcome.hpp"
+#include "coro/scope_outcome.hpp"  // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
 #include "coro/task.hpp"
 #include "domain/error/error.h"
 
@@ -61,7 +61,7 @@ struct CallState {
 
 /// Root-group admission. Closed ingress throws; a spawn failure records and
 /// notifies the failure before rethrowing. Loop-thread only.
-void start_cycle(coro::NurseryToken group, const std::shared_ptr<CallState>& state, coro::Task<void> owner);
+void start_cycle(const coro::NurseryToken& group, const std::shared_ptr<CallState>& state, coro::Task<void> owner);
 
 /// Loop-only subscription. Borrows scope/state through its lifetime; arm before
 /// starting an owner. Waiting parks the caller itself, not an intermediate task,

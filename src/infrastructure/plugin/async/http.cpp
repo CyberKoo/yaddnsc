@@ -2,25 +2,41 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <coroutine>
 #include <cstdint>
+#include <deque>
 #include <exception>
 #include <expected>
+#include <map>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "coro/cancel_scope.h"
 #include "coro/cancelled.h"
+#include "coro/notification.hpp"
 #include "coro/now.hpp"
 #include "coro/nursery.hpp"
 #include "coro/scope.hpp"
 #include "infrastructure/http/client.h"
 #include "infrastructure/http/error.h"
+#include "infrastructure/http/types.h"
 #include "infrastructure/plugin/async/cycle_state.h"
+#include "infrastructure/plugin/async/services.h"
+#include "infrastructure/plugin/detail/cycle.h"
 
 namespace plugin::detail {
 namespace {
+
+/// Clears the operation's scope pointer when the cancellation scope exits.
+struct ScopeBorrow {
+    AsyncOp& op;
+    ~ScopeBorrow() noexcept { op.scope = nullptr; }
+};
 
 std::shared_ptr<AsyncEventPacket> make_http_event(uint64_t op_id, const http::Response& response) {
     auto packet = std::make_shared<AsyncEventPacket>();
@@ -84,10 +100,7 @@ coro::Task<void> run_async_http(AsyncResourcePtr resource, std::shared_ptr<Async
             auto scoped = co_await coro::with_cancel_scope(
                 [&res, op](coro::CancelScope& scope) -> coro::Task<std::expected<http::Response, http::Error>> {
                     op->scope = &scope;
-                    struct ScopeBorrow {
-                        AsyncOp& op;
-                        ~ScopeBorrow() noexcept { op.scope = nullptr; }
-                    } borrow{*op};
+                    ScopeBorrow borrow{*op};
                     if (res.stopping || op->canceled || res.state->cancelled.load(std::memory_order_acquire)) {
                         scope.cancel();
                     }
@@ -174,7 +187,7 @@ void cancel_all_async_ops(AsyncResources& res) {
     }
 }
 
-void apply_async_commands(AsyncResourcePtr resource, coro::Nursery& http_group, bool terminal) {
+void apply_async_commands(const AsyncResourcePtr& resource, coro::Nursery& http_group, bool terminal) {
     AsyncResources& res = *resource;
     if (terminal) {
         res.stopping = true;

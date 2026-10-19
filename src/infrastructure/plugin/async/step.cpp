@@ -3,9 +3,14 @@
 #include <atomic>
 #include <expected>
 
+#include "domain/error/error.h"
+#include "domain/update/driver_update_command.h"
 #include "infrastructure/plugin/async/cycle_state.h"
+#include "infrastructure/plugin/async/services.h"
 #include "infrastructure/plugin/detail/abi_result.h"
+#include "infrastructure/plugin/detail/cycle.h"
 #include "infrastructure/plugin/plugin_loader.h"
+#include "yaddnsc/sdk/driver_abi.h"
 
 namespace plugin::detail {
 
@@ -84,7 +89,7 @@ AsyncStepOutcome begin_async_step(AsyncResources& res) {
     return make_step_outcome(status, error);
 }
 
-AsyncStepOutcome resume_async_step(AsyncResources& res, std::shared_ptr<AsyncEventPacket> event) {
+AsyncStepOutcome resume_async_step(AsyncResources& res, const std::shared_ptr<AsyncEventPacket>& event) {
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     res.commands.clear();

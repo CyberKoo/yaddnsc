@@ -7,18 +7,23 @@
 #include <expected>
 #include <limits>
 #include <string_view>
+#include <type_traits>
 #include <utility>
+#include <vector>
 
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "coro/cancel_scope.h"
 #include "coro/cancelled.h"
+#include "coro/fwd.h"
 #include "coro/host.hpp"
+#include "coro/notification.hpp"
 #include "coro/nursery.hpp"
 #include "coro/offload.hpp"
 #include "coro/scope.hpp"
 #include "coro/with_nursery.hpp"
 #include "domain/error/error.h"
+#include "domain/update/driver_update_command.h"
 #include "infrastructure/plugin/detail/abi_result.h"
 #include "infrastructure/plugin/detail/abi_string.h"
 #include "infrastructure/plugin/detail/cycle.h"
@@ -230,7 +235,7 @@ coro::Task<void> make_cycle_owner(std::shared_ptr<CallState> state, Work work) {
 
 }  // namespace
 
-coro::Task<void> make_sync_update_owner(std::shared_ptr<CallState> state, std::shared_ptr<const PluginModule> module,
+coro::Task<void> make_sync_update_owner(const std::shared_ptr<CallState>& state, std::shared_ptr<const PluginModule> module,
                                         domain::DriverUpdateCommand command, std::shared_ptr<Bridge> bridge,
                                         const app::LoggerPort& logger) {
     return make_cycle_owner(
@@ -238,7 +243,7 @@ coro::Task<void> make_sync_update_owner(std::shared_ptr<CallState> state, std::s
                 state]() mutable { return run_update_task(module, command, *bridge, *logger, state); });
 }
 
-coro::Task<void> make_sync_validate_owner(std::shared_ptr<CallState> state, std::shared_ptr<const PluginModule> module,
+coro::Task<void> make_sync_validate_owner(const std::shared_ptr<CallState>& state, std::shared_ptr<const PluginModule> module,
                                           std::string driver_param_json, std::shared_ptr<Bridge> bridge,
                                           const app::LoggerPort& logger) {
     return make_cycle_owner(state, [module = std::move(module), param = std::move(driver_param_json),

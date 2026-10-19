@@ -15,6 +15,10 @@
 #include "coro/scope.hpp"
 #include "coro/task.hpp"
 
+namespace coro {
+class CancelScope;
+}  // namespace coro
+
 namespace plugin {
 struct CallState;
 
@@ -52,7 +56,7 @@ bool finish_async_step(CallState& state, std::string_view driver_name, const Asy
 /// Worker-only entry adapters; the joined return hands state back to the loop.
 [[nodiscard]] AsyncStepOutcome create_async_step(AsyncResources& res);
 [[nodiscard]] AsyncStepOutcome begin_async_step(AsyncResources& res);
-[[nodiscard]] AsyncStepOutcome resume_async_step(AsyncResources& res, std::shared_ptr<AsyncEventPacket> event);
+[[nodiscard]] AsyncStepOutcome resume_async_step(AsyncResources& res, const std::shared_ptr<AsyncEventPacket>& event);
 [[nodiscard]] AsyncStepOutcome destroy_async_step(AsyncResources& res);
 
 }  // namespace detail

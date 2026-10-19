@@ -21,6 +21,7 @@
 #include "infrastructure/plugin/shared_library.h"
 #include "support/fmt.hpp"
 
+struct yaddnsc_async_driver;
 struct yaddnsc_driver;
 
 namespace {
@@ -221,7 +222,7 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
     if (sync_complete) {
         if (module.descriptor_.abi_minor == 0) {
             // Legacy exception: the old sync path ignores extra async names.
-            module.entries_ = std::move(sync);
+            module.entries_ = sync;
             return module;
         }
         if (any_async) {
@@ -231,7 +232,7 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
                             "mode. {}",
                             path, ABI_INCOMPATIBLE_HINT)));
         }
-        module.entries_ = std::move(sync);
+        module.entries_ = sync;
         return module;
     }
 
@@ -255,7 +256,7 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
                                    "(async_create/async_destroy/update_async_begin/update_async_resume). {}",
                                    path, ABI_INCOMPATIBLE_HINT)));
     }
-    module.entries_ = std::move(async);
+    module.entries_ = async;
     return module;
 }
 

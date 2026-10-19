@@ -1,7 +1,9 @@
 #include "endpoint.h"
 
+#include <string_view>
 #include <utility>
 
+#include "domain/config/dns_config.h"
 #include "support/fmt.hpp"
 #include "yaddnsc/util/format.hpp"
 
@@ -51,7 +53,7 @@ std::expected<ResolverEndpoint, std::vector<std::string>> parse_resolver_endpoin
     } else if (server.port == 0) {
         errors.emplace_back("Classic DNS port must not be zero");
     } else {
-        return ResolverEndpoint{ResolverEndpoint::Kind::CLASSIC, std::move(*uri), server.port, std::move(literal)};
+        return ResolverEndpoint{ResolverEndpoint::Kind::CLASSIC, std::move(*uri), server.port, literal};
     }
     return std::unexpected(std::move(errors));
 }

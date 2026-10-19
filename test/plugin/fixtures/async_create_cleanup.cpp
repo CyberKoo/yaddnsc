@@ -1,6 +1,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <stdexcept>
 
 #include <yaddnsc/sdk/driver_abi.h>
@@ -54,10 +55,13 @@ extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_async_create(const yaddn
                                                                      yaddnsc_async_driver** out_driver,
                                                                      yaddnsc_error* error) {
     ++creates;
-    auto* driver = new yaddnsc_async_driver{};
+    auto owner = std::make_unique<yaddnsc_async_driver>();
+    owner->message.fill('m');
+    message_address = reinterpret_cast<uintptr_t>(owner->message.data());
+    yaddnsc_async_driver* driver = owner.release();
+    // The handle is published before the throws below: the host owns the
+    // driver on every path, including the ones that unwind.
     *out_driver = driver;
-    driver->message.fill('m');
-    message_address = reinterpret_cast<uintptr_t>(driver->message.data());
     if (scenario == 7) {
         throw std::runtime_error("async create threw after handle");
     }
@@ -111,8 +115,8 @@ extern "C" FIXTURE_EXPORT void yaddnsc_driver_async_destroy(yaddnsc_async_driver
         throw std::runtime_error("failed create destroy threw");
     }
     // Both overwrite and release: retaining the view fails even without ASan.
-    driver->message.fill('x');
-    delete driver;
+    std::unique_ptr<yaddnsc_async_driver> owner{driver};
+    owner->message.fill('x');
 }
 
 extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_update_async_begin(yaddnsc_async_driver*,

@@ -1,13 +1,19 @@
 #include <atomic>
 #include <chrono>
+#include <compare>
 #include <coroutine>
+#include <initializer_list>
 #include <memory>
 #include <stdexcept>
+#include <string>
+#include <utility>
 
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
-#include "coro/detail/wait_operation.h"
+#include "coro/detail/inbox_node.h"
+#include "coro/detail/nursery_join.hpp"
+#include "coro/detail/offload_job.h"
 #include "coro/host.hpp"
 
 namespace {
@@ -68,7 +74,10 @@ struct ArbitrationWait {
     ArbitrationWait(coro::CancelScope& target, int& calls, bool fail = false)
         : scope(target), cancellations(calls), fail_registration(fail) {}
 
-    bool await_ready() const noexcept { return false; }
+    // The coroutine protocol calls await_ready on the awaiter instance, so it
+    // stays a member function even though it reads no member.
+    // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+    [[nodiscard]] bool await_ready() const noexcept { return false; }
 
     template<typename Promise>
     void await_suspend(std::coroutine_handle<Promise> frame) {

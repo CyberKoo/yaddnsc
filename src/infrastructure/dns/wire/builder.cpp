@@ -95,7 +95,7 @@ public:
 
     void encode_name(std::string_view name) {
         if (auto encoded = try_encode_name(name); !encoded) {
-            throw DnsPacketException(std::move(encoded.error()));
+            throw DnsPacketException(encoded.error());
         }
     }
 

@@ -2,13 +2,18 @@
 // other test binaries. Only the calling thread's selected allocation fails.
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <coroutine>
 #include <cstddef>
+#include <deque>
 #include <exception>
+#include <expected>
 #include <functional>
 #include <initializer_list>
 #include <memory>
 #include <new>
+#include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -18,7 +23,8 @@
 #include "coro/detail/access.h"
 #include "coro/detail/fd_entry.h"
 #include "coro/detail/mutex_state.h"
-#include "coro/detail/offload_job.h"
+#include "coro/detail/nursery_join.hpp"
+#include "coro/detail/offload_admission.h"
 #include "coro/detail/timer_node.h"
 #include "coro/detail/wait_operation.h"
 #include "mocks/allocation_fault.h"
@@ -337,7 +343,7 @@ TEST(CoroAllocationFailure, RootAndInlineActivation_AllocateOnlyCoroutineFrames)
         {
             const test::AllocationCounter counter;
             value = coro::run(loop, allocation_chain(depth));
-            allocations = counter.count();
+            allocations = test::AllocationCounter::count();
         }
         record_frame_bytes = false;
         // All chain frames coexist at the leaf: their actual allocation sizes,
@@ -445,7 +451,7 @@ TEST(CoroAllocationFailure, RetiredEntries_InvalidHandlesRetainOnlyBookkeepingSt
             {
                 const test::AllocationCounter counter;
                 handles[index] = nursery.spawn(std::move(task));
-                allocations += counter.count();
+                allocations += test::AllocationCounter::count();
             }
             record_frame_bytes = false;
             retained_bytes += frame_bytes;  // Only entry+control block: frame was created earlier.

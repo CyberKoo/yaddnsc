@@ -16,7 +16,7 @@ struct AsyncEventPacket;
 /// Loop-only HTTP event pump. Commands have been copied on the worker and
 /// handed back by a joined step before admission. Retiring tasks keep shared
 /// resources alive; publication and cancellation never invoke plugin entries.
-void apply_async_commands(std::shared_ptr<AsyncResources> resource, coro::Nursery& http_group, bool terminal);
+void apply_async_commands(const std::shared_ptr<AsyncResources>& resource, coro::Nursery& http_group, bool terminal);
 void cancel_all_async_ops(AsyncResources& res);
 
 /// Independent watcher remains runnable while the protocol joins an ABI step.

@@ -6,8 +6,11 @@
 /// host supplies the async services table, so this file exercises only the C
 /// ABI contract, not the production host or the C++ SDK.
 
+#include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <new>
+#include <string>
 #include <string_view>
 
 #include <yaddnsc/sdk/driver_abi.h>
@@ -115,12 +118,12 @@ extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_async_create(
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, BAD_ARGUMENT);
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
-    auto* state = new (std::nothrow) AsyncState{services, 0, Phase::Initial};
+    auto state = std::unique_ptr<AsyncState>{new (std::nothrow) AsyncState{services, 0, Phase::Initial}};
     if (state == nullptr) {
         write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, BAD_ARGUMENT);
         return YADDNSC_STATUS_INTERNAL_ERROR;
     }
-    *out_driver = reinterpret_cast<yaddnsc_async_driver*>(state);  // NOLINT
+    *out_driver = reinterpret_cast<yaddnsc_async_driver*>(state.release());  // NOLINT
     return YADDNSC_STATUS_OK;
 }
 

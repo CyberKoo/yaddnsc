@@ -67,7 +67,7 @@ static void BM_inline_chain(benchmark::State& state) {
     for (auto _ : state) {
         const test::AllocationCounter counter;
         coro::run(inline_chain_bench(depth, operations));
-        allocations += counter.count();
+        allocations += test::AllocationCounter::count();
     }
     report_allocations(state, allocations, operations);
 }
@@ -80,7 +80,7 @@ static void BM_same_batch_fanout(benchmark::State& state) {
     for (auto _ : state) {
         const test::AllocationCounter counter;
         coro::run(same_batch_fanout(mode, FANOUT_ITERATIONS));
-        allocations += counter.count();
+        allocations += test::AllocationCounter::count();
     }
     report_allocations(state, allocations, FANOUT_ITERATIONS);
 }
@@ -96,7 +96,7 @@ static void BM_controlled_race(benchmark::State& state) {
         coro::ManualClock clock;
         coro::Loop loop{clock};
         out_of_order += static_cast<std::size_t>(coro::run(loop, controlled_race(children, RACE_ITERATIONS)));
-        allocations += counter.count();
+        allocations += test::AllocationCounter::count();
     }
     // The stagger is the premise of this benchmark: results that arrive in an
     // order other than the spawn order would make its numbers meaningless.
@@ -123,7 +123,7 @@ static void BM_destruct_overlay(benchmark::State& state) {
         coro::ManualClock clock;
         coro::Loop loop{clock};
         coro::run(loop, destruct_overlay(heavy, read_end.get(), write_end.get(), OVERLAY_ITERATIONS));
-        allocations += counter.count();
+        allocations += test::AllocationCounter::count();
     }
     report_allocations(state, allocations, OVERLAY_ITERATIONS);
 }
