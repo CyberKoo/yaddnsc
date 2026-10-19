@@ -178,5 +178,5 @@ int yaddnsc_c_abi_compile_smoke(void) {
            (get_descriptor != NULL) +
            (create != NULL) + (destroy != NULL) + (update_entry != NULL) + (validate != NULL) +
            (async_create != NULL) + (async_destroy != NULL) + (async_begin != NULL) + (async_resume != NULL) +
-           (async_validate != NULL) + describe(&described);
+           (async_validate != NULL) + (int)describe(&described);
 }

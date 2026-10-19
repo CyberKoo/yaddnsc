@@ -60,8 +60,8 @@ enum class Rcode : std::uint16_t {
 /// A single DNS question section entry.
 struct Question {
     std::string qname;
-    std::uint16_t qtype;
-    std::uint16_t qclass;
+    std::uint16_t qtype{0};
+    std::uint16_t qclass{0};
 };
 
 /// A single DNS resource record (answer, authority, or additional).
@@ -79,7 +79,7 @@ struct ResourceRecord {
 
 /// An EDNS0 option (code + data).
 struct EdnsOption {
-    std::uint16_t code;
+    std::uint16_t code{0};
     std::vector<std::uint8_t> data;
 };
 
@@ -95,18 +95,18 @@ struct EdnsInfo {
 /// Complete parsed DNS message, including EDNS0.
 struct ParsedMessage {
     // ── Header fields ──
-    std::uint16_t id;
-    bool qr;
-    std::uint8_t opcode;
-    bool aa;
-    bool tc;
-    bool rd;
-    bool ra;
+    std::uint16_t id{0};
+    bool qr{false};
+    std::uint8_t opcode{0};
+    bool aa{false};
+    bool tc{false};
+    bool rd{false};
+    bool ra{false};
 
-    std::uint16_t qdcount;
-    std::uint16_t ancount;
-    std::uint16_t nscount;
-    std::uint16_t arcount;
+    std::uint16_t qdcount{0};
+    std::uint16_t ancount{0};
+    std::uint16_t nscount{0};
+    std::uint16_t arcount{0};
 
     // ── Sections ──
     std::vector<Question> questions;
