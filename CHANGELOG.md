@@ -14,6 +14,9 @@ section here.
 - Parsing a URI during static initialization no longer risks an arithmetic
   fault: the scheme default-port table is constant-initialized, so the lookup
   is valid before any dynamic initializer runs regardless of link order.
+- Unregistering an fd revokes its pending callback in both readiness and
+  poll-failure dispatch, so removing another registration during a callback
+  cannot dispatch a stale context afterwards.
 
 ## [1.0.0-alpha.7] - 2026-10-17
 
