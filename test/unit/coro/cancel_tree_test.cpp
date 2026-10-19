@@ -9,7 +9,7 @@
 #include <sys/resource.h>
 
 #include "coro/cancel_scope.h"
-#include "coro/detail/access.h"
+#include "coro/detail/access.h"  // IWYU pragma: keep — arm() calls the inline link_subscription() defined here
 #include "coro/detail/wait_operation.h"
 
 namespace {

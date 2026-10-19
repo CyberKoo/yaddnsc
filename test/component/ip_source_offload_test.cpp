@@ -21,6 +21,7 @@
 #include <sys/socket.h>
 
 #include "coro/coro.h"
+#include "coro/detail/nursery_join.hpp"
 #include "domain/dns/record_kind.h"
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"

@@ -10,6 +10,7 @@
 // =============================================================================
 
 #include <string>
+#include <string_view>
 
 #include <gtest/gtest.h>
 #include <yaddnsc/util/url_decode.hpp>

@@ -8,6 +8,7 @@
 /// the async SDK are covered by their own tests.
 
 #include <cstdint>
+#include <expected>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -15,6 +16,7 @@
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
+#include "infrastructure/plugin/plugin_error.h"
 #include "infrastructure/plugin/plugin_loader.h"
 #include "infrastructure/plugin/shared_library.h"
 

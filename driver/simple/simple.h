@@ -5,6 +5,7 @@
 
 #include <glaze/json/generic_fwd.hpp>
 #include <yaddnsc/sdk/async_driver.hpp>
+#include <yaddnsc/sdk/driver_common.hpp>
 
 /// Simple HTTP GET driver for DNS record updates.
 ///

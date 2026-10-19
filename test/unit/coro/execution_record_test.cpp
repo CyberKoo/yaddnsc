@@ -3,22 +3,35 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <cstdlib>
+#include <expected>
+#include <functional>
+#include <initializer_list>
 #include <memory>
+#include <optional>
 #include <source_location>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <type_traits>
 #include <vector>
 
 #include <gtest/gtest.h>
+#include <poll.h>
 #include <unistd.h>
 
 #include "coro/coro.h"
 #include "coro/detail/access.h"
-#include "coro/detail/context_awaitables.h"
+#include "coro/detail/fd_entry.h"
+#include "coro/detail/nursery_join.hpp"
 #include "coro/detail/nursery_state.hpp"
 #include "coro/detail/pipe.h"
+#include "coro/detail/promise_base.h"
+#include "coro/detail/result_state.hpp"
+#include "coro/detail/timer_node.h"
+#include "coro/detail/wait_operation.h"
+#include "support/util/fd.hpp"
 
 namespace {
 static_assert(!std::is_move_constructible_v<coro::detail::ExecutionRecord>);
@@ -36,25 +49,27 @@ TEST(ExecutionRecord, RecordLayout_StaysWithinTheCostBudget) {
     EXPECT_EQ(sizeof(coro::detail::WaitOperation), 40U);
 }
 
+struct CompletionCounts {
+    int terminal = 0;
+    int retired = 0;
+
+    static void on_terminal(void* context, coro::detail::ExecutionRecord& record) noexcept {
+        EXPECT_EQ(record.phase(), coro::detail::ExecutionPhase::TERMINAL);
+        ++static_cast<CompletionCounts*>(context)->terminal;
+    }
+
+    static void on_retired(void* context, coro::detail::ExecutionRecord& record) noexcept {
+        EXPECT_EQ(record.phase(), coro::detail::ExecutionPhase::RETIRED);
+        ++static_cast<CompletionCounts*>(context)->retired;
+    }
+};
+
 TEST(ExecutionRecord, SharedCompletionRoles_KeepSeparateContextsAndPhases) {
-    struct Counts {
-        int terminal = 0;
-        int retired = 0;
-
-        static void on_terminal(void* context, coro::detail::ExecutionRecord& record) noexcept {
-            EXPECT_EQ(record.phase(), coro::detail::ExecutionPhase::TERMINAL);
-            ++static_cast<Counts*>(context)->terminal;
-        }
-
-        static void on_retired(void* context, coro::detail::ExecutionRecord& record) noexcept {
-            EXPECT_EQ(record.phase(), coro::detail::ExecutionPhase::RETIRED);
-            ++static_cast<Counts*>(context)->retired;
-        }
-    } first, second;
+    CompletionCounts first, second;
 
     coro::detail::ExecutionRecord a, b;
-    a.bind_completion<&Counts::on_terminal, &Counts::on_retired>(&first);
-    b.bind_completion<&Counts::on_terminal, &Counts::on_retired>(&second);
+    a.bind_completion<&CompletionCounts::on_terminal, &CompletionCounts::on_retired>(&first);
+    b.bind_completion<&CompletionCounts::on_terminal, &CompletionCounts::on_retired>(&second);
     for (auto* record : {&a, &b}) {
         record->mark_active();
         record->mark_terminal();
@@ -74,19 +89,21 @@ coro::Task<int> chain(int depth) {
     co_return 1 + co_await chain(depth - 1);
 }
 
+struct TraceCounts {
+    int batches = 0;
+    int resumes = 0;
+    int polls = 0;
+};
+
 TEST(ExecutionRecord, DeepInlineChain_AddsNoEmptyRetirementBatches) {
     for (const int depth : {0, 1, 8, 64, 512}) {
         coro::Loop loop;
 
-        struct Counts {
-            int batches = 0;
-            int resumes = 0;
-            int polls = 0;
-        } counts;
+        TraceCounts counts;
 
         loop.set_trace_sink(
             [](void* context, std::string_view message, const std::source_location&) noexcept {
-                auto& observed = *static_cast<Counts*>(context);
+                auto& observed = *static_cast<TraceCounts*>(context);
                 constexpr std::string_view PREFIX = "Drained ready queue, resumed ";
                 if (message.starts_with(PREFIX)) {
                     ++observed.batches;

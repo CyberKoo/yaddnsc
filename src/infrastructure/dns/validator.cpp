@@ -1,6 +1,7 @@
 #include "validator.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <span>

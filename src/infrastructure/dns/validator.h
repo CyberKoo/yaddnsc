@@ -8,7 +8,7 @@
 #include <string>
 
 #include "domain/error/dns_error_info.h"
-#include "infrastructure/dns/types.h"
+#include "infrastructure/dns/types.h"  // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
 
 /// Validate a DNS response against its request.
 ///

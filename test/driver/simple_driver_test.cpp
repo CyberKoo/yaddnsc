@@ -11,6 +11,7 @@
 //   - update returns UPSTREAM_REJECTED for 2xx responses with an empty body.
 // =============================================================================
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>

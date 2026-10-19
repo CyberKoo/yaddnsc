@@ -1,13 +1,17 @@
 #include <atomic>
+#include <coroutine>
 #include <cstdint>
 #include <exception>
+#include <memory>
+#include <string>
 #include <string_view>
 #include <utility>
 
 #include <yaddnsc/sdk/driver_abi.h>
 
-#include "coro/cancel_scope.h"
+#include "coro/notification.hpp"
 #include "coro/scope.hpp"
+#include "coro/task.hpp"
 #include "infrastructure/plugin/async/cleanup.h"
 #include "infrastructure/plugin/async/services.h"
 #include "infrastructure/plugin/async/step.h"
@@ -15,6 +19,14 @@
 #include "infrastructure/plugin/plugin_loader.h"
 
 #include "cycle.h"
+
+namespace app {
+class LoggerPort;
+}  // namespace app
+
+namespace coro {
+class CancelScope;
+}  // namespace coro
 
 namespace plugin {
 namespace {

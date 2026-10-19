@@ -30,11 +30,14 @@
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
-#include "coro/detail/nursery_state.hpp"
+#include "coro/detail/nursery_join.hpp"
 #include "coro/detail/wait_operation.h"
 
 namespace coro::detail {
 struct FdEntry;
+struct NurseryState;
+template<typename T>
+struct ChildEntry;
 struct PromiseBase;
 struct TimerNode;
 }  // namespace coro::detail

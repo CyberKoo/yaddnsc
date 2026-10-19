@@ -31,9 +31,9 @@
 #include "coro/coro.h"
 #include "coro/detail/access.h"
 #include "coro/detail/execution_record.h"
-#include "coro/detail/offload_job.h"
+#include "coro/detail/nursery_join.hpp"
+#include "coro/detail/offload_admission.h"
 #include "coro/detail/result_state.hpp"
-#include "coro/detail/task_promise.hpp"
 
 namespace {
 
@@ -430,6 +430,17 @@ TEST(Offload, Joined_AdmissionCancellation_SkipsWorkWithoutWaitingForBusyWorker)
     EXPECT_FALSE(ran);
 }
 
+struct Retirement {
+    const ReleaseOnExit& unblock;
+    bool retired = false;
+
+    static void on_retired(void* context, coro::detail::ExecutionRecord& record) noexcept {
+        auto& self = *static_cast<Retirement*>(context);
+        self.retired = record.phase() == coro::detail::ExecutionPhase::RETIRED;
+        self.unblock.release();
+    }
+};
+
 TEST(Offload, RootExit_PumpsInboxUntilAbandonedWorkersFinish) {
     coro::Loop loop;
     std::atomic<bool> callback{false};
@@ -442,16 +453,7 @@ TEST(Offload, RootExit_PumpsInboxUntilAbandonedWorkersFinish) {
     coro::detail::ExecutionRecord root_record;
     coro::detail::ResultState<void> root_result;
 
-    struct Retirement {
-        const ReleaseOnExit& unblock;
-        bool retired = false;
-
-        static void on_retired(void* context, coro::detail::ExecutionRecord& record) noexcept {
-            auto& self = *static_cast<Retirement*>(context);
-            self.retired = record.phase() == coro::detail::ExecutionPhase::RETIRED;
-            self.unblock.release();
-        }
-    } retirement{unblock};
+    Retirement retirement{unblock};
 
     auto worker = [&]() -> coro::Task<void> {
         co_await coro::offload([&] {

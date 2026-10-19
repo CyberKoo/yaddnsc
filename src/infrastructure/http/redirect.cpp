@@ -1,5 +1,7 @@
 #include "redirect.h"
 
+#include <cstdint>
+#include <expected>
 #include <string_view>
 #include <utility>
 

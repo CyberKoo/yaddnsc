@@ -1,25 +1,52 @@
 #include "cycle.h"
 
 #include <atomic>
+#include <coroutine>
+#include <deque>
 #include <exception>
 #include <expected>
+#include <map>
+#include <optional>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
-#include "coro/cancel_scope.h"
+#include "coro/fwd.h"
+#include "coro/notification.hpp"
 #include "coro/nursery.hpp"
 #include "coro/scope.hpp"
 #include "coro/with_nursery.hpp"
+#include "domain/error/error.h"
+#include "domain/update/driver_update_command.h"
+#include "infrastructure/http/types.h"
 #include "infrastructure/plugin/async/cleanup.h"
 #include "infrastructure/plugin/async/cycle_state.h"
 #include "infrastructure/plugin/async/http.h"
+#include "infrastructure/plugin/async/services.h"
 #include "infrastructure/plugin/async/step.h"
 #include "infrastructure/plugin/detail/abi_result.h"
 #include "infrastructure/plugin/detail/cycle.h"
 #include "infrastructure/plugin/plugin_loader.h"
+#include "yaddnsc/sdk/driver_abi.h"
+
+namespace coro {
+class CancelScope;
+}  // namespace coro
 
 namespace plugin::detail {
 namespace {
+
+/// Stops the resource on every body exit, including the early returns.
+struct StopGuard {
+    AsyncResources& r;
+    ~StopGuard() {
+        // Release the watcher and stop HTTP on every body exit.
+        r.stopping = true;
+        cancel_all_async_ops(r);
+        r.state->owner_changed.notify();
+        r.state->cancel_changed.notify();
+    }
+};
 
 bool finish_update_step(AsyncResources& res, const AsyncStepOutcome& outcome, std::string_view entry) {
     return finish_async_step(*res.state, res.module->descriptor().name, outcome, entry, res.command.fqdn);
@@ -38,16 +65,7 @@ coro::Task<void> async_cycle_body(AsyncResourcePtr resource) {
             resource,
             [](coro::Nursery& http_group, AsyncResourcePtr& shared) -> coro::Task<void> {
                 AsyncResources& r = *shared;
-                struct StopGuard {
-                    AsyncResources& r;
-                    ~StopGuard() {
-                        // Release the watcher and stop HTTP on every body exit.
-                        r.stopping = true;
-                        cancel_all_async_ops(r);
-                        r.state->owner_changed.notify();
-                        r.state->cancel_changed.notify();
-                    }
-                } stop_guard{r};
+                StopGuard stop_guard{r};
                 http_group.spawn_discard(watch_async_cancellation(shared));
                 auto create = co_await run_async_step([&r] { return create_async_step(r); });
                 if (!finish_update_step(r, create, "async create")) {

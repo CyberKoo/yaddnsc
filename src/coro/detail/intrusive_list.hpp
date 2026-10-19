@@ -30,9 +30,6 @@
 
 namespace coro::detail {
 
-template<typename Node>
-class IntrusiveList;
-
 /// List membership, embedded in the node it links. The containing node outlives
 /// every list the hook joins, and the hook must be unlinked before that node is
 /// destroyed. `Node` may be incomplete: only a pointer to it is stored.

@@ -21,8 +21,8 @@
 #include <memory>
 #include <utility>
 
-#include "coro/cancel_scope.h"
-#include "coro/detail/access.h"           // IWYU pragma: export
+#include "coro/cancel_scope.h"   // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
+#include "coro/detail/access.h"  // IWYU pragma: export
 #include "coro/detail/nursery_state.hpp"  // IWYU pragma: export
 #include "coro/detail/wait_operation.h"   // IWYU pragma: export
 #include "coro/nursery.hpp"

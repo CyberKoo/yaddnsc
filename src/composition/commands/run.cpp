@@ -1,12 +1,14 @@
 #include "run.h"
 
 #include <cstdlib>
+#include <expected>
 #include <functional>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <memory>
+#include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 
-#include <expected>
 #include <spdlog/spdlog.h>
 
 #include "application/environment_validator.h"
@@ -15,7 +17,6 @@
 #include "application/tasks/main_loop.h"
 #include "cli/command.h"
 #include "composition/assembly.h"
-#include "coro/loop.h"
 #include "coro/run.hpp"
 #include "coro/stop_signals.h"
 #include "coro/task.hpp"
@@ -29,9 +30,11 @@
 #include "infrastructure/ip_source/system_network_interfaces.h"
 #include "infrastructure/logging/spdlog_logger.h"
 #include "infrastructure/plugin/driver_catalog.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "infrastructure/plugin/driver_gateway.h"
 #include "support/exception.h"
 
 namespace coro {
+class Loop;
 class Nursery;
 }  // namespace coro
 

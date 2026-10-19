@@ -23,6 +23,7 @@
 #include <gtest/gtest.h>
 
 #include "infrastructure/http/protocol/wire.h"
+#include "infrastructure/http/types.h"
 #include "infrastructure/uri/uri.h"
 
 namespace {

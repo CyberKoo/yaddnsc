@@ -7,6 +7,9 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::vector member complete; clangd sees no spelled use
+#include <yaddnsc/sdk/log.hpp>
+#include <yaddnsc/sdk/run_update.hpp>
+#include <yaddnsc/sdk/upstream_failure.hpp>
 
 #include <yaddnsc/sdk/async_driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>

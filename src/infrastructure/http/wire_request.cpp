@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cstddef>
 #include <expected>
 #include <map>
 #include <optional>
@@ -13,6 +14,7 @@
 #include <system_error>
 
 #include "infrastructure/http/protocol/field_chars.hpp"
+#include "infrastructure/http/types.h"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
 #include "support/string_util.hpp"  // IWYU pragma: keep — the StringUtil namespace alias lives here

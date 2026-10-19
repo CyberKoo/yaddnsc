@@ -9,16 +9,15 @@
 //
 
 #include <chrono>
+#include <coroutine>
 #include <cstddef>
 #include <exception>
+#include <expected>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-#include <coroutine>
-
-#include <expected>
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
@@ -342,6 +341,7 @@ TEST(ScopeNurseryPaths, SupervisorNursery_CancelledBodyWithChildFailure_ReportsC
 
     struct CancelSoon {
         coro::Nursery* group;
+
         [[nodiscard]] coro::Task<void> run() const {
             co_await coro::sleep_for(2ms);
             group->cancel();

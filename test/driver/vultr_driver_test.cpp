@@ -12,6 +12,7 @@
 //   - HTTP 401 is AUTHENTICATION_FAILED; HTTP 429 is RATE_LIMITED.
 // =============================================================================
 
+#include <cstdint>
 #include <initializer_list>
 #include <optional>
 #include <string>

@@ -23,7 +23,6 @@
 #include <utility>
 #include <vector>
 
-#include <stdint.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "infrastructure/plugin/plugin_loader.h"

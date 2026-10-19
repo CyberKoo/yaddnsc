@@ -1,6 +1,9 @@
 #include "redirect_exchange.h"
 
+#include <coroutine>
 #include <cstdint>
+#include <optional>
+#include <string_view>
 #include <utility>
 
 #include "infrastructure/http/error.h"

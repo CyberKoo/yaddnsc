@@ -8,14 +8,16 @@
 #include <chrono>
 #include <compare>
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <exception>
 #include <expected>
 #include <functional>
 #include <memory>
 #include <ratio>
-#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <utility>
+#include <vector>
 
 #include <spdlog/spdlog.h>
 

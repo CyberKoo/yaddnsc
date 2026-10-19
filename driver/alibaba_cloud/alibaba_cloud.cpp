@@ -6,9 +6,13 @@
 #include <expected>
 #include <optional>
 #include <random>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
+#include <yaddnsc/sdk/log.hpp>
+#include <yaddnsc/sdk/run_update.hpp>
+#include <yaddnsc/sdk/upstream_failure.hpp>
 
 #include <yaddnsc/sdk/async_driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>

@@ -6,8 +6,8 @@
 #include <string>
 
 #include "coro/task.hpp"
-#include "domain/update/driver_update_command.h"
-#include "infrastructure/http/types.h"
+#include "domain/update/driver_update_command.h"  // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
+#include "infrastructure/http/types.h"  // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
 
 class PluginModule;
 

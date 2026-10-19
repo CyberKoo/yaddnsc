@@ -2,8 +2,10 @@
 
 #include <string>
 
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/util/format.hpp>  // IWYU pragma: keep
+
 #include "support/fmt.hpp"
-#include "yaddnsc/util/format.hpp"
 
 namespace plugin::detail {
 

@@ -11,13 +11,13 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 #include <spdlog/spdlog.h>
-#include <sys/socket.h>
 
 #include "coro/cancelled.h"
 #include "coro/checkpoint.hpp"

@@ -21,9 +21,9 @@
 #include <string_view>
 
 #include <gtest/gtest.h>
-
-#include "yaddnsc/sdk/driver.hpp"
-#include "yaddnsc/sdk/driver_abi.h"
+#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/sdk/driver_common.hpp>
 
 namespace {
 

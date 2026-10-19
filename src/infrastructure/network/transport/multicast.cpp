@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 
 #include "domain/network/address_family.h"
+#include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/socket_ops.h"
 
 namespace net {

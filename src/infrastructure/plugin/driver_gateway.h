@@ -2,7 +2,7 @@
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_GATEWAY_H
 
 #include <chrono>
-#include <expected>
+#include <expected>  // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
 #include <memory>
 #include <string>
 #include <string_view>

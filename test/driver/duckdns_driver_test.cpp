@@ -11,6 +11,7 @@
 //   - update returns UPSTREAM_REJECTED for "KO", empty, or non-OK bodies.
 // =============================================================================
 
+#include <cstdint>
 #include <initializer_list>
 #include <optional>
 #include <string>

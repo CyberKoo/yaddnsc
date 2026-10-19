@@ -31,7 +31,7 @@
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
-#include "coro/detail/nursery_state.hpp"
+#include "coro/detail/nursery_join.hpp"
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
 #include "domain/network/address_family.h"

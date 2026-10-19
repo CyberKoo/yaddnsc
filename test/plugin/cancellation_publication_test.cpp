@@ -8,7 +8,6 @@
 #include <functional>
 #include <memory>
 #include <new>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -19,7 +18,9 @@
 
 #include "application/ports/log.h"
 #include "coro/coro.h"
+#include "coro/detail/nursery_join.hpp"
 #include "coro/host.hpp"
+#include "domain/error/error.h"
 #include "domain/update/driver_update_command.h"
 #include "infrastructure/http/types.h"
 #include "infrastructure/plugin/detail/cycle.h"

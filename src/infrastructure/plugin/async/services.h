@@ -14,7 +14,7 @@
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "infrastructure/http/types.h"
-#include "infrastructure/plugin/detail/cycle.h"
+#include "infrastructure/plugin/detail/cycle.h"  // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
 
 namespace app {
 class LoggerPort;

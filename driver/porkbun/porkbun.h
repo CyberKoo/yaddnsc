@@ -5,6 +5,7 @@
 #include <string_view>
 
 #include <yaddnsc/sdk/async_driver.hpp>
+#include <yaddnsc/sdk/driver_common.hpp>
 
 struct PorkbunParams;
 

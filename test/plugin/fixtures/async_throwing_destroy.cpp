@@ -2,7 +2,6 @@
 /// the C ABI. The host's async cleanup policy must be fatal because it can no
 /// longer prove the instance was released.
 
-#include <cstdint>
 #include <stdexcept>
 
 #include <yaddnsc/sdk/driver_abi.h>
@@ -51,13 +50,12 @@ extern "C" FIXTURE_EXPORT void yaddnsc_driver_async_destroy(yaddnsc_async_driver
 }
 
 extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_update_async_begin(yaddnsc_async_driver*,
-                                                                            const yaddnsc_update_request*,
-                                                                            yaddnsc_error*) {
+                                                                           const yaddnsc_update_request*,
+                                                                           yaddnsc_error*) {
     return YADDNSC_STATUS_OK;
 }
 
-extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_update_async_resume(yaddnsc_async_driver*,
-                                                                             const yaddnsc_event*,
-                                                                             yaddnsc_error*) {
+extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_update_async_resume(yaddnsc_async_driver*, const yaddnsc_event*,
+                                                                            yaddnsc_error*) {
     return YADDNSC_STATUS_OK;
 }

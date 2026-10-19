@@ -18,7 +18,6 @@
 #include "cli/presenter.h"
 #include "composition/assembly.h"
 #include "coro/fwd.h"
-#include "coro/loop.h"
 #include "coro/run.hpp"
 #include "coro/task.hpp"
 #include "coro/with_nursery.hpp"
@@ -35,6 +34,11 @@
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_gateway.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "support/exception.h"
+
+namespace coro {
+class Loop;
+class Nursery;
+}  // namespace coro
 
 namespace Composition {
 int execute_command(const Cli::DriverListCommand& command) {

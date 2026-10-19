@@ -1,6 +1,7 @@
 #include "coro/detail/intrusive_list.hpp"
 
 #include <memory>
+#include <string>
 #include <type_traits>
 #include <vector>
 

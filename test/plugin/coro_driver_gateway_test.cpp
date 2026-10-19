@@ -15,18 +15,17 @@
 #include <array>
 #include <atomic>
 #include <chrono>
-#include <compare>
 #include <condition_variable>
 #include <coroutine>
 #include <cstdint>
 #include <cstring>
 #include <expected>
+#include <functional>
 #include <future>
 #include <initializer_list>
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <ratio>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -44,7 +43,8 @@
 #include <unistd.h>
 
 #include "coro/coro.h"
-#include "coro/detail/nursery_state.hpp"
+#include "coro/detail/execution_record.h"
+#include "coro/detail/nursery_join.hpp"
 #include "domain/error/error.h"
 #include "domain/network/inet_address.h"
 #include "domain/update/driver_update_command.h"
@@ -716,6 +716,18 @@ TEST(Bridge, CancelBeforeScopePublication_DoesNotStartHttp) {
     EXPECT_EQ(call->live_scope, nullptr);
 }
 
+/// Releases the worker on every exit, including a failed assertion path.
+struct ReleaseWorker {
+    void (*release)();
+    ~ReleaseWorker() { release(); }
+};
+
+/// Clears the published scope pointer when the cancellation scope exits.
+struct ScopeBorrow {
+    coro::CancelScope*& slot;
+    ~ScopeBorrow() { slot = nullptr; }
+};
+
 TEST(Bridge, WorkerDeadline_CancelsAndDrainsWithoutAResponse) {
     PausedClock clock;
     coro::Loop loop{clock};
@@ -883,10 +895,7 @@ TEST_F(CoroDriverGatewayTest, CancellationStopsHttpBeforeSlowResumeReturnsAndDes
     coro::CancelScope* caller_scope = nullptr;
 
     auto control = [&]() -> coro::Task<void> {
-        struct ReleaseWorker {
-            void (*release)();
-            ~ReleaseWorker() { release(); }
-        } release_worker{release};
+        ReleaseWorker release_worker{release};
         co_await signals.resume_entered.wait();
         EXPECT_NE(caller_scope, nullptr);
         if (caller_scope != nullptr) {
@@ -913,10 +922,7 @@ TEST_F(CoroDriverGatewayTest, CancellationStopsHttpBeforeSlowResumeReturnsAndDes
                     *(owner = std::make_unique<plugin::DriverGateway>(catalog_, logger_, loop, group, options));
                 auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& caller) -> coro::Task<void> {
                     caller_scope = &caller;
-                    struct ScopeBorrow {
-                        coro::CancelScope*& slot;
-                        ~ScopeBorrow() { slot = nullptr; }
-                    } scope_borrow{caller_scope};
+                    ScopeBorrow scope_borrow{caller_scope};
                     group.spawn_discard(control());
                     [[maybe_unused]] auto result = co_await gateway.update("async_slow_resume", make_command("{}"));
                     ADD_FAILURE() << "cancelled subscriber must not consume an update result";

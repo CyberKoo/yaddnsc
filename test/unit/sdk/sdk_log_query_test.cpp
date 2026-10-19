@@ -14,12 +14,18 @@
 // =============================================================================
 
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
+#include <string>
 #include <string_view>
+#include <vector>
 
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/sdk/driver_common.hpp>
+#include <yaddnsc/sdk/format.hpp>
+#include <yaddnsc/sdk/log.hpp>
 
 namespace {
 

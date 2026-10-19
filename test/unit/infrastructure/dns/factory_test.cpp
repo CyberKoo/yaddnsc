@@ -9,7 +9,9 @@
 
 #include <algorithm>
 #include <expected>
+#include <initializer_list>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -21,6 +23,7 @@
 #include "domain/config/dns_config.h"
 #include "domain/config/runtime_config.h"
 #include "domain/error/error.h"
+#include "domain/network/inet_address.h"
 #include "infrastructure/config/config.h"
 #include "infrastructure/config/static_validator.h"
 #include "infrastructure/dns/endpoint.h"

@@ -10,7 +10,7 @@
 #include <spdlog/spdlog.h>
 
 #include "application/services.h"
-#include "application/tasks/main_loop.h"
+#include "application/tasks/main_loop.h"  // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
 #include "domain/config/runtime_config.h"
 #include "infrastructure/dns/policy.h"
 #include "infrastructure/http/types.h"

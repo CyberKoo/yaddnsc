@@ -3,7 +3,6 @@
 //
 #include "parser.h"
 
-#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <string>

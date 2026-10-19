@@ -47,18 +47,18 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
-#include <exception>
+#include <exception>  // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
 #include <expected>
 #include <future>
 #include <memory>
 #include <string>
-#include <utility>
-#include <vector>
+#include <utility>  // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
+#include <vector>   // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
 
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "coro/host.hpp"
-#include "coro/notification.hpp"
+#include "coro/notification.hpp"  // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
 #include "coro/task.hpp"
 #include "infrastructure/http/types.h"
 

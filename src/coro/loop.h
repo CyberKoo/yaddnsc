@@ -32,6 +32,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <coroutine>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -311,7 +312,6 @@ private:
     // the self-pipe; the loop thread steals the whole stack with one exchange
     // (an empty steal is a single atomic read, no lock) and dispatches FIFO.
     std::atomic<detail::InboxNode*> inbox_head_{nullptr};
-
 
     std::unique_ptr<Pool> pool_;
     unsigned pool_workers_ = default_offload_workers();

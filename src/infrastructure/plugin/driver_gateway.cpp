@@ -1,6 +1,8 @@
 #include "driver_gateway.h"
 
+#include <coroutine>
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -8,7 +10,11 @@
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "coro/cancel_scope.h"
+#include "coro/notification.hpp"
 #include "coro/scope.hpp"
+#include "coro/task.hpp"
+#include "domain/error/error.h"
+#include "domain/update/driver_update_command.h"
 #include "infrastructure/plugin/async/cycle.h"
 #include "infrastructure/plugin/detail/cycle.h"
 #include "infrastructure/plugin/driver_catalog.h"

@@ -1,20 +1,22 @@
 #include "normalizer.h"
 
-#include <glaze/glaze.hpp>
-#include <glaze/json/generic.hpp>
-#include <spdlog/spdlog.h>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <vector>
-#include <expected>
 
+#include <glaze/glaze.hpp>
+#include <glaze/json/generic.hpp>
+#include <spdlog/spdlog.h>
+
+#include "domain/config/dns_config.h"  // IWYU pragma: keep — push_back({…}) constructs domain::DnsServer; clangd sees no spelled use
+#include "domain/config/ip_source_kind.h"
 #include "domain/dns/record_kind.h"
 #include "infrastructure/config/bootstrap_dns.h"
 #include "infrastructure/config/config.h"
+
 #include "resolver_config.h"
-#include "domain/config/ip_source_kind.h"
-#include "domain/config/dns_config.h"  // IWYU pragma: keep — push_back({…}) constructs domain::DnsServer; clangd sees no spelled use
 
 namespace Config {
 

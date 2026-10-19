@@ -1,5 +1,6 @@
 #include "client.h"
 
+#include <coroutine>
 #include <utility>
 
 #include "infrastructure/http/redirect_exchange.h"

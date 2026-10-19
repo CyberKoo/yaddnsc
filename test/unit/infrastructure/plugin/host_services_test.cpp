@@ -33,6 +33,7 @@
 
 #include "application/ports/log.h"
 #include "coro/cancel_scope.h"
+#include "coro/fwd.h"
 #include "coro/loop.h"
 #include "coro/run.hpp"
 #include "coro/task.hpp"

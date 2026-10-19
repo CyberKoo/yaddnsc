@@ -2,7 +2,10 @@
 
 #include <cstdlib>
 #include <exception>
+#include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <variant>
 
 #include <spdlog/spdlog.h>

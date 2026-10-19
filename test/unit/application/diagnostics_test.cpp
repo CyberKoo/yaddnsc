@@ -1,7 +1,8 @@
-#include "application/config_validation.h"
 #include "application/diagnostics.h"
 
 #include <chrono>
+#include <coroutine>
+#include <expected>
 #include <new>
 #include <optional>
 #include <stdexcept>
@@ -10,12 +11,11 @@
 #include <utility>
 #include <vector>
 
-#include <coroutine>
-
-#include <expected>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "application/config_validation.h"
+#include "application/ports/driver_catalog.h"
 #include "application/ports/gateway.h"
 #include "application/ports/network_interfaces.h"
 #include "application/ports/resolver.h"
@@ -23,6 +23,8 @@
 #include "domain/config/runtime_config.h"
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error.h"
+#include "domain/error/dns_error_info.h"
+#include "domain/error/error.h"
 #include "domain/network/inet_address.h"
 #include "mocks/mock_ports.h"
 

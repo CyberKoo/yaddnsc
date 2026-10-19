@@ -6,6 +6,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <compare>
+
+#include "infrastructure/http/types.h"
 
 namespace http {
 namespace {

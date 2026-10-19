@@ -5,6 +5,7 @@
 #include "main_loop.h"
 
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <optional>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not

@@ -22,14 +22,13 @@
 #include "coro/task.hpp"
 #include "domain/error/dns_error_info.h"
 #include "infrastructure/dns/policy.h"
+#include "infrastructure/dns/resolver/resolver.h"
 
 namespace domain {
 enum class RecordKind;
 }  // namespace domain
 
 namespace dns {
-
-class Resolver;
 
 /// How a dispatcher uses its backends.
 enum class Strategy {

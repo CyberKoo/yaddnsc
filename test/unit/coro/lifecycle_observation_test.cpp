@@ -1,5 +1,8 @@
+#include <array>
 #include <chrono>
 #include <cstddef>
+#include <initializer_list>
+#include <string>
 
 #include <gtest/gtest.h>
 
@@ -7,6 +10,7 @@
 #include "coro/detail/pipe.h"
 #include "support/coro/burst_latency.hpp"
 #include "support/coro/payload_residency.hpp"
+#include "support/util/fd.hpp"
 
 TEST(CoroObservation, InBurstTimerAndIoWaitForWholeBatchExecutionAndRetirement) {
     for (const int children : {1, 64, 512}) {

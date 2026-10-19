@@ -6,8 +6,8 @@
 #include <string_view>
 
 #include <yaddnsc/sdk/driver.hpp>
-
-#include "yaddnsc/sdk/driver_abi.h"
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/sdk/driver_common.hpp>
 
 namespace {
 std::atomic<yaddnsc_status> destroy_status{YADDNSC_STATUS_OK};

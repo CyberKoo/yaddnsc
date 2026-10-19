@@ -24,6 +24,7 @@
 #include "coro/cancelled.h"
 #include "infrastructure/http/types.h"
 #include "infrastructure/plugin/detail/abi_string.h"
+#include "infrastructure/plugin/sync/bridge.h"
 
 namespace plugin {
 

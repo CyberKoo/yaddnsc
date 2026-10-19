@@ -9,6 +9,7 @@
 //   - update returns UPSTREAM_REJECTED for error / unparseable responses.
 // =============================================================================
 
+#include <cstdint>
 #include <initializer_list>
 #include <optional>
 #include <string>

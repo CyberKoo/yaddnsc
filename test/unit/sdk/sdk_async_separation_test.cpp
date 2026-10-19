@@ -3,17 +3,24 @@
 // services/context families must not convert, and each exchange shape must be
 // unusable through the other mode.
 
+#include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
 #include <concepts>
 
 #include <gtest/gtest.h>
-#include <yaddnsc/sdk/async_driver.hpp>
+
+// Both SDKs are included on purpose: the guard below only proves anything if
+// the async SDK is checked against the synchronous one.
+#include <yaddnsc/sdk/async_driver.hpp>  // IWYU pragma: keep
 #ifdef YADDNSC_SDK_DRIVER_HPP
 #error "Async SDK must not include synchronous driver entry machinery"
 #endif
-#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/driver.hpp>  // IWYU pragma: keep
+#include <yaddnsc/sdk/driver_common.hpp>
+#include <yaddnsc/sdk/log.hpp>
 
 namespace sdk = yaddnsc::sdk;
 

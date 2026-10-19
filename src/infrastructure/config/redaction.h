@@ -3,7 +3,7 @@
 
 #include <string>
 
-#include "infrastructure/config/config.h"
+#include "infrastructure/config/config.h"  // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
 
 namespace Config {
 

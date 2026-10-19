@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "domain/config/dns_config.h"
+#include "domain/config/dns_config.h"  // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
 #include "domain/network/inet_address.h"
 #include "infrastructure/uri/uri.h"
 

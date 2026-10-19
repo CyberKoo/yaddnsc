@@ -36,6 +36,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <initializer_list>
+#include <memory>
 #include <set>
 #include <string>
 #include <string_view>

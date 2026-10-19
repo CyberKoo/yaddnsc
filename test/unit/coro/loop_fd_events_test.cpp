@@ -34,6 +34,7 @@
 
 #include "coro/coro.h"
 #include "coro/detail/pipe.h"
+#include "support/util/fd.hpp"
 
 namespace {
 

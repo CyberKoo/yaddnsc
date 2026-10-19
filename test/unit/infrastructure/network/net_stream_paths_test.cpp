@@ -18,12 +18,12 @@
 #include <array>
 #include <atomic>
 #include <chrono>
-#include <compare>
 #include <coroutine>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <expected>
+#include <initializer_list>
 #include <memory>
 #include <mutex>
 #include <optional>

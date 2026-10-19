@@ -3,6 +3,8 @@
 // Pure parsing — no I/O beyond temp config files, no dispatch.
 // =============================================================================
 
+#include "cli/parser.h"
+
 #include <cstdlib>
 #include <initializer_list>
 #include <optional>
@@ -12,9 +14,9 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include "cli/command.h"
-#include "cli/parser.h"
 #include "fixtures/cli_test_support.h"
 #include "fixtures/sample_config.h"
 

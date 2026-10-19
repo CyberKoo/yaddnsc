@@ -21,6 +21,7 @@
 #include "coro/detail/fd_entry.h"
 #include "coro/detail/pipe.h"
 #include "mocks/allocation_fault.h"
+#include "support/util/fd.hpp"
 
 namespace {
 int next_write_error = 0;

@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <exception>
 #include <expected>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -25,7 +26,7 @@
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
-#include "coro/detail/nursery_state.hpp"
+#include "coro/detail/nursery_join.hpp"
 #include "support/coro/reservation_pressure.hpp"
 
 namespace {

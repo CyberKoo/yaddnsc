@@ -1,13 +1,13 @@
 #ifndef YADDNSC_INFRASTRUCTURE_CONFIG_DIAGNOSTICS_PARSE_DIAGNOSTIC_H
 #define YADDNSC_INFRASTRUCTURE_CONFIG_DIAGNOSTICS_PARSE_DIAGNOSTIC_H
 
-#include <stdint.h>
+#include <cstdint>
 #include <cstddef>
 #include <string>
 #include <string_view>
 
 namespace glz {
-enum struct error_code : uint32_t;
+enum struct error_code : std::uint32_t;
 }  // namespace glz
 
 namespace Config::Diagnostic {

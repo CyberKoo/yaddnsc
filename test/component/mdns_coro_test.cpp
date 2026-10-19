@@ -23,7 +23,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 #include <arpa/inet.h>
@@ -42,6 +41,7 @@
 #include "infrastructure/ip_source/result.h"
 #include "infrastructure/network/transport/socket_ops.h"
 #include "infrastructure/network/transport/udp_socket.h"
+#include "support/util/fd.hpp"
 #include "support/util/random_engine.hpp"
 
 using IpSourceError = domain::IpSourceError;

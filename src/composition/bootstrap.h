@@ -1,7 +1,7 @@
 #ifndef YADDNSC_COMPOSITION_BOOTSTRAP_H
 #define YADDNSC_COMPOSITION_BOOTSTRAP_H
 
-#include <spdlog/spdlog.h>
+#include <spdlog/spdlog.h>  // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
 
 #include "cli/command.h"
 

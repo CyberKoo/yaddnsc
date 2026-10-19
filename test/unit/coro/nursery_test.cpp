@@ -1,10 +1,15 @@
+#include <chrono>
+#include <coroutine>
+#include <exception>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
+#include "coro/detail/nursery_join.hpp"
 #include "coro/host.hpp"
 
 namespace {

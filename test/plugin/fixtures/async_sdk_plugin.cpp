@@ -2,9 +2,15 @@
 /// It proves the SDK entry macro emits the async group and that the host and
 /// SDK complete a begin/resume exchange cycle.
 
+#include <coroutine>
+#include <expected>
+#include <string>
 #include <string_view>
+#include <utility>
 
 #include <yaddnsc/sdk/async_driver.hpp>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/sdk/driver_common.hpp>
 
 namespace {
 

@@ -38,7 +38,7 @@
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
-#include "coro/detail/nursery_state.hpp"
+#include "coro/detail/nursery_join.hpp"
 #include "domain/network/inet_address.h"
 #include "infrastructure/http/error.h"
 #include "infrastructure/http/persistent_client.h"

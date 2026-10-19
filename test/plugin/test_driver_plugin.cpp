@@ -32,6 +32,8 @@
 #include <glaze/glaze.hpp>
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/sdk/driver_common.hpp>
+#include <yaddnsc/sdk/log.hpp>
 #include <yaddnsc/util/format.hpp>
 
 namespace glz {

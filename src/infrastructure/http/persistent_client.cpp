@@ -1,5 +1,6 @@
 #include "persistent_client.h"
 
+#include <coroutine>
 #include <cstdint>
 #include <stdexcept>
 #include <string_view>

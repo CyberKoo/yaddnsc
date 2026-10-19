@@ -25,7 +25,11 @@
 
 #include "coro/detail/forward_list.hpp"
 #include "coro/detail/intrusive_list.hpp"
-#include "coro/fwd.h"
+
+namespace coro {
+class CancelScope;
+class Loop;
+}  // namespace coro
 
 namespace coro::detail {
 

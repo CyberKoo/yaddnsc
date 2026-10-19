@@ -8,7 +8,7 @@
 #include <optional>
 
 #include "coro/time.h"
-#include "infrastructure/http/types.h"
+#include "infrastructure/http/types.h"  // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
 
 namespace http {
 

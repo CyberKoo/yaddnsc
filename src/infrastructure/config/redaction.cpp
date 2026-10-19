@@ -5,10 +5,14 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <glaze/glaze.hpp>
+#include <glaze/json/generic_fwd.hpp>
 #include <yaddnsc/util/format.hpp>
 
+#include "domain/config/dns_config.h"
+#include "infrastructure/config/config.h"
 #include "support/fmt.hpp"
 #include "support/redact.hpp"
 

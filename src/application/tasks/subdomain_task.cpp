@@ -5,13 +5,12 @@
 #include "subdomain_task.h"
 
 #include <chrono>
-#include <compare>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <exception>
-#include <string>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-
+#include <compare>    // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-
+#include <exception>
 #include <expected>
+#include <ratio>
+#include <string>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 #include "application/log_macros.h"
 #include "application/services.h"

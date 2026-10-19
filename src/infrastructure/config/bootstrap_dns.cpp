@@ -1,5 +1,6 @@
 #include "bootstrap_dns.h"
 
+#include <expected>
 #include <optional>
 #include <string>
 

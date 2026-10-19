@@ -24,6 +24,8 @@
 
 #include "coro/checkpoint.hpp"
 #include "coro/clock.h"
+#include "coro/fwd.h"
+#include "coro/host.hpp"
 #include "coro/loop.h"
 #include "coro/notification.hpp"
 #include "coro/offload.hpp"

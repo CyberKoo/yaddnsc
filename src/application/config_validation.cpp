@@ -4,9 +4,10 @@
 
 #include "config_validation.h"
 
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <algorithm>
 #include <chrono>
-#include <ranges>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <expected>
 #include <set>
 #include <string>
 #include <string_view>
@@ -16,6 +17,7 @@
 #include "application/ports/gateway.h"
 #include "coro/scope.hpp"
 #include "domain/config/runtime_config.h"
+#include "domain/error/error.h"
 #include "domain/fqdn.h"
 #include "support/fmt.hpp"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not

@@ -1,11 +1,15 @@
 #include "mdns.h"
 
 #include <chrono>
+#include <coroutine>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -27,6 +31,7 @@
 #include "infrastructure/ip_source/mdns_receive.h"
 #include "infrastructure/ip_source/mdns_response.h"
 #include "infrastructure/logging/level_enabled.h"
+#include "infrastructure/network/transport/datagram.h"
 #include "infrastructure/network/transport/multicast.h"
 #include "infrastructure/network/transport/udp_socket.h"
 #include "support/fmt.hpp"

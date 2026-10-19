@@ -1,14 +1,19 @@
 #include "factory.h"
 
+#include <expected>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 #include <spdlog/spdlog.h>
 
+#include "domain/config/dns_config.h"
 #include "domain/config/runtime_config.h"
+#include "domain/network/inet_address.h"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/dns/endpoint.h"
 #include "infrastructure/dns/resolver/classic.h"
@@ -16,6 +21,7 @@
 #include "infrastructure/dns/resolver/dot.h"
 #include "infrastructure/dns/resolver/resolver.h"
 #include "infrastructure/http/types.h"
+#include "infrastructure/uri/uri.h"
 #include "support/redact.hpp"
 
 #include "version.h"

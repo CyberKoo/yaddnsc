@@ -10,6 +10,7 @@
 //   - update returns UPSTREAM_REJECTED for non-200 error/empty bodies.
 // =============================================================================
 
+#include <cstdint>
 #include <initializer_list>
 #include <optional>
 #include <string>

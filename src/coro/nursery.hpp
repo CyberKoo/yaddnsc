@@ -10,7 +10,7 @@
 #include "coro/cancel_scope.h"
 #include "coro/detail/access.h"
 #include "coro/detail/nursery_join.hpp"
-#include "coro/detail/nursery_next_wait.hpp"
+#include "coro/detail/nursery_next_wait.hpp"  // IWYU pragma: export
 #include "coro/detail/nursery_state.hpp"
 #include "coro/detail/task_promise.hpp"  // IWYU pragma: export
 #include "coro/fwd.h"

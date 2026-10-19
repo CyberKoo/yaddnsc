@@ -10,7 +10,7 @@
 #include <utility>
 #include <variant>
 
-#include <stddef.h>
+#include <cstddef>
 
 #include "domain/network/address_family.h"
 
@@ -21,7 +21,7 @@ namespace domain {
 // ---------------------------------------------------------------------------
 class Inet4Address {
 public:
-    static constexpr size_t ADDR_LEN = 4;
+    static constexpr std::size_t ADDR_LEN = 4;
     using AddrType = std::array<std::uint8_t, ADDR_LEN>;
 
     /// Default-constructs 0.0.0.0 (unspecified).
@@ -75,7 +75,7 @@ private:
 // ---------------------------------------------------------------------------
 class Inet6Address {
 public:
-    static constexpr size_t ADDR_LEN = 16;
+    static constexpr std::size_t ADDR_LEN = 16;
     using AddrType = std::array<std::uint8_t, ADDR_LEN>;
 
     /// Default-constructs :: (unspecified).

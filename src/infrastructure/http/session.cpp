@@ -5,17 +5,16 @@
 #include "session.h"
 
 #include <algorithm>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <chrono>
 #include <compare>    // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <expected>
 #include <map>
-#include <optional>
 #include <span>
 #include <utility>
 #include <vector>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 #include "coro/cancelled.h"
+#include "coro/mutex_guard.hpp"
 #include "coro/now.hpp"
 #include "coro/scope.hpp"
 #include "domain/network/inet_address.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not

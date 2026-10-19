@@ -5,20 +5,20 @@
 #include "tcp_stream.h"
 
 #include <cerrno>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <expected>
 #include <optional>
 #include <span>
 #include <string>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <string_view>
 #include <utility>
 
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-
-#include <expected>
 #include <spdlog/spdlog.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 
-#include "coro/cancelled.h"
 #include "coro/cancel_scope.h"
+#include "coro/cancelled.h"
 #include "coro/scope.hpp"
 #include "coro/task.hpp"
 #include "infrastructure/network/transport/io_error.h"
