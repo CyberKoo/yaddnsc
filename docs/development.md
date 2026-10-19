@@ -419,10 +419,35 @@ python3 test/coverage_gate.py coverage.info            # add -v to list tracks
 - Every other TU is gated on **line coverage** (floor: 80%).
 
 A line-only tracefile is rejected, so the gate cannot pass silently without
-branch data. Both floors are ratchets — raise them with `--line-min` /
+branch data. A tracefile that lists the same source file more than once is
+rejected for the same reason: the gate keys files by path, so a repeated `SF:`
+would overwrite the earlier record and score only the last one, while `lcov`
+and Codecov aggregate every record. Such a file therefore reports as healthy
+here and publishes as something else entirely, so it is refused rather than
+scored.
+
+Both floors are ratchets — raise them with `--line-min` /
 `--branch-min` (and then the defaults) as coverage improves; never lower
 them. 80% remains the line-coverage target. A Codecov upload error can also
 fail the job.
+
+`lcov --list` in the CI report step is a debug aid, **not** a second source
+of truth. It runs with `--ignore-errors inconsistent` because that flag is
+required: GCC 14 reports branch records with a zero taken count on lines that
+did run (coroutine lowering leaves such edges behind), `lcov` classifies that
+as inconsistent, and without the override it refuses to print anything at all.
+The side effect is that `lcov`'s own aggregates degrade — on this codebase they
+read ~66% line, >100% function and 0% branch coverage — while the records it
+parsed are sound. `test/coverage_gate.py` reads those same raw records
+directly and Codecov does too; when the two disagree, the gate is right and
+the `lcov` listing is what is broken. A single file record makes the gap
+obvious: `src/support/util/validation.hpp` holds `LF:10 LH:10`, `FNF:1 FNH:1`
+and `BRF:10 BRH:7`, yet `lcov --list` reports it as 10% lines, 1000%
+functions and no branches.
+
+`fastcov` is pinned to the version the gate was baselined against, because an
+unpinned `pip install fastcov` can change how per-TU records are merged
+without any source change.
 
 ## Sanitizers
 

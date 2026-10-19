@@ -15,6 +15,12 @@ Tracks:
 The input tracefile must contain branch records (fastcov -b); a line-only
 file is rejected so the gate cannot silently pass without branch data.
 
+The tracefile must also carry each source file exactly once. This gate keys
+files by path, so a repeated SF: overwrites the earlier record and only the
+last is scored, while lcov and Codecov aggregate every record. A tracefile
+with duplicates therefore scores as healthy here and publishes as something
+else entirely, so duplicates are rejected rather than scored.
+
 Branch records must exclude the compiler-generated exceptional edges: every
 new/destructor/throw emits implicit EH branches that no test can reach, so
 including them makes C++ branch coverage non-comparable. Paths a test genuinely
@@ -35,11 +41,14 @@ COMMENT_RE = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
 
 def parse_tracefile(path):
     files = {}
+    duplicates = []
     current = None
     with open(path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
             if line.startswith("SF:"):
                 current = line[3:].strip()
+                if current in files:
+                    duplicates.append(current)
                 files[current] = {"lf": 0, "lh": 0, "br": 0, "brh": 0}
             elif current is None:
                 continue
@@ -52,7 +61,7 @@ def parse_tracefile(path):
                 files[current]["br"] += 1
                 if taken != "-" and int(taken) > 0:
                     files[current]["brh"] += 1
-    return files
+    return files, duplicates
 
 
 def is_coroutine_tu(path):
@@ -81,7 +90,7 @@ def main():
     args = parser.parse_args()
 
     try:
-        files = parse_tracefile(args.tracefile)
+        files, duplicates = parse_tracefile(args.tracefile)
     except OSError as exc:
         print(f"coverage-gate: cannot read {args.tracefile}: {exc}", file=sys.stderr)
         return 2
@@ -91,6 +100,24 @@ def main():
     if not any(v["br"] for v in files.values()):
         print(f"coverage-gate: {args.tracefile} has no branch records — regenerate with fastcov -b",
               file=sys.stderr)
+        return 2
+    if duplicates:
+        # This gate keys files by path, so a repeated SF: silently overwrites
+        # the earlier record and only the last one is ever scored. lcov and
+        # Codecov instead aggregate every record, so a tracefile carrying
+        # duplicates passes here while the published report disagrees. Scoring
+        # it would be meaningless — reject the file instead.
+        paths = sorted(set(duplicates))
+        print(f"coverage-gate: {len(duplicates)} repeated SF record(s) across "
+              f"{len(paths)} file(s) in {args.tracefile}", file=sys.stderr)
+        for path in paths[:10]:
+            print(f"  {path}", file=sys.stderr)
+        if len(paths) > 10:
+            print(f"  ... and {len(paths) - 10} more", file=sys.stderr)
+        print("coverage-gate: FAIL — this gate scores only the last record per path, "
+              "so duplicates read as healthy here while lcov and Codecov aggregate "
+              "every record and publish a different number. Regenerate the tracefile "
+              "so each source file appears exactly once.", file=sys.stderr)
         return 2
 
     coroutine_tus = [f for f in files if is_coroutine_tu(f)]

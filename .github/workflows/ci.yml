@@ -306,7 +306,9 @@ jobs:
         run: |
           python3 -m venv /tmp/cov-venv
           source /tmp/cov-venv/bin/activate
-          pip install -q fastcov
+          # Pinned: an unpinned fastcov can change how per-TU records are merged
+          # into one LCOV record per file, moving the numbers with no source change.
+          pip install -q fastcov==1.17
           # Anchor includes to this checkout, not third-party CPM headers.
           # -b excludes compiler-generated exceptional branches; keep the same
           # branch convention as the coverage gate's existing baseline.
@@ -314,6 +316,16 @@ jobs:
               -i "$(pwd)/src/" "$(pwd)/include/" "$(pwd)/driver/" \
               -e "/usr/" "*/generated/" \
               -b -o coverage.info --lcov
+          # --ignore-errors inconsistent is required here, not cosmetic. GCC 14
+          # reports branch records with a zero taken count on lines that did run
+          # (coroutine lowering leaves such edges behind), lcov calls that
+          # inconsistent, and without the override it refuses to print at all.
+          # The side effect is that lcov's own totals in this step are NOT
+          # trustworthy: on this codebase they degrade to ~66% line, >100%
+          # function and 0% branch coverage while the records it reads are sound.
+          # Read them as a debug aid only. test/coverage_gate.py below parses the
+          # raw records and is the single authority — when the two disagree, the
+          # gate is right and this listing is the thing that is broken.
           lcov --list coverage.info --ignore-errors inconsistent --rc lcov_branch_coverage=1
       - name: Coverage gate
         if: ${{ !cancelled() && steps.coverage-report.outcome == 'success' }}
