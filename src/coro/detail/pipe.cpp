@@ -4,6 +4,7 @@
 
 #include "pipe.h"
 
+#include <cerrno>
 #include <fcntl.h>
 #include <unistd.h>
 
