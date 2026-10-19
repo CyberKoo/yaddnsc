@@ -17,6 +17,10 @@ section here.
 - Unregistering an fd revokes its pending callback in both readiness and
   poll-failure dispatch, so removing another registration during a callback
   cannot dispatch a stale context afterwards.
+- Loading a driver that requires a newer ABI minor reports the host as the
+  outdated side even when the module exports no entry points the host knows:
+  the version handshake runs before the entry-point symbol check, so an
+  ABI 1.1 driver is no longer misreported as missing the v1 entry points.
 
 ## [1.0.0-alpha.7] - 2026-10-17
 

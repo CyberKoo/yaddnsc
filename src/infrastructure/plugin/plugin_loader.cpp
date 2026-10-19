@@ -56,23 +56,18 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
     PluginModule module;
     module.library_ = std::move(*library);
 
-    // 2. Resolve all required entry points.
+    // 2. Resolve the descriptor entry first: the version handshake decides
+    // whether this host can serve the plugin at all, so it precedes the
+    // entry-point checks. Without the descriptor entry no version can be
+    // read, and the rejection stays a plain missing-symbol one.
     module.get_descriptor_ =
         resolve_entry<decltype(yaddnsc_driver_get_descriptor)>(module.library_, "yaddnsc_driver_get_descriptor");
-    module.create_ = resolve_entry<decltype(yaddnsc_driver_create)>(module.library_, "yaddnsc_driver_create");
-    module.destroy_ = resolve_entry<decltype(yaddnsc_driver_destroy)>(module.library_, "yaddnsc_driver_destroy");
-    module.update_ = resolve_entry<decltype(yaddnsc_driver_update)>(module.library_, "yaddnsc_driver_update");
-    if (module.get_descriptor_ == nullptr || module.create_ == nullptr || module.destroy_ == nullptr ||
-        module.update_ == nullptr) {
+    if (module.get_descriptor_ == nullptr) {
         return std::unexpected(make_error(plugin::PluginError::Code::MISSING_SYMBOL,
                                           fmt::format("Driver '{}' does not export the required v1 entry "
                                                       "points (get_descriptor/create/destroy/update). {}",
                                                       path, ABI_INCOMPATIBLE_HINT)));
     }
-
-    // 2b. The OPTIONAL validate entry (optional since ABI 1.0): absence is
-    // not a load error. config test reports that driver_params was not checked.
-    module.validate_ = resolve_entry<decltype(yaddnsc_driver_validate)>(module.library_, "yaddnsc_driver_validate");
 
     // 3. Fetch the descriptor.
     const yaddnsc_driver_descriptor* raw_descriptor = nullptr;
@@ -152,7 +147,7 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
                                           fmt::format("Driver '{}' has unsupported descriptor capabilities", path)));
     }
 
-    // 7. Copy descriptor fields into host-owned storage.
+    // 9. Copy descriptor fields into host-owned storage.
     module.descriptor_ = DriverDescriptor{
         .name = std::string(plugin::detail::to_view(raw_descriptor->name)),
         .version = std::string(plugin::detail::to_view(raw_descriptor->version)),
@@ -162,6 +157,24 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
         .abi_major = raw_descriptor->abi_major,
         .abi_minor = raw_descriptor->abi_minor,
     };
+
+    // 10. Resolve the required execution entries only after the version
+    // handshake accepts the module: a plugin that needs a newer minor must be
+    // told apart from one that simply lacks the entries, whatever symbols it
+    // happens to export.
+    module.create_ = resolve_entry<decltype(yaddnsc_driver_create)>(module.library_, "yaddnsc_driver_create");
+    module.destroy_ = resolve_entry<decltype(yaddnsc_driver_destroy)>(module.library_, "yaddnsc_driver_destroy");
+    module.update_ = resolve_entry<decltype(yaddnsc_driver_update)>(module.library_, "yaddnsc_driver_update");
+    if (module.create_ == nullptr || module.destroy_ == nullptr || module.update_ == nullptr) {
+        return std::unexpected(make_error(plugin::PluginError::Code::MISSING_SYMBOL,
+                                          fmt::format("Driver '{}' does not export the required v1 entry "
+                                                      "points (create/destroy/update). {}",
+                                                      path, ABI_INCOMPATIBLE_HINT)));
+    }
+
+    // 11. The OPTIONAL validate entry (optional since ABI 1.0): absence is
+    // not a load error. config test reports that driver_params was not checked.
+    module.validate_ = resolve_entry<decltype(yaddnsc_driver_validate)>(module.library_, "yaddnsc_driver_validate");
 
     return module;
 }

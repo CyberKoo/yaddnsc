@@ -273,6 +273,19 @@ TEST(PluginLifecycle, LoaderRejectsNewerMinor) {
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("upgrade yaddnsc"));
 }
 
+TEST(PluginLifecycle, LoaderRejectsNewerMinorWithoutKnownEntryPoints) {
+    // A plugin for a newer minor whose execution entries this host does not
+    // know (e.g. an ABI 1.1 async driver) must be diagnosed through the
+    // version handshake — host too old — not as missing entry points.
+    auto module = PluginModule::load(NEWER_MINOR_NO_ENTRIES_FIXTURE);
+    ASSERT_FALSE(module.has_value());
+    EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr(NEWER_MINOR_NO_ENTRIES_FIXTURE));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("requires ABI 1.1"));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("this host provides 1.0"));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("upgrade yaddnsc"));
+}
+
 TEST(PluginLifecycle, LoaderRejectsBaselineBelowAbi10) {
     auto module = PluginModule::load(SHORT_DESCRIPTOR_FIXTURE);
     ASSERT_FALSE(module.has_value());

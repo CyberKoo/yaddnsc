@@ -28,10 +28,13 @@ struct DriverDescriptor {
 /// validated descriptor.
 ///
 /// Loading follows the ABI protocol order: dlopen(RTLD_NOW|RTLD_LOCAL) →
-/// resolve all required entry points → get_descriptor() → version prefix →
+/// resolve get_descriptor → get_descriptor() → version prefix →
 /// abi_major/abi_minor (`yaddnsc_abi_provides`) → minor baseline struct_size →
-/// magic, strings, and capability bits → copy descriptor fields. Only then
-/// may create() be called. The fifth entry (validate) is optional: it is
+/// magic, strings, and capability bits → copy descriptor fields → resolve the
+/// required execution entries. The version handshake precedes the entry-point
+/// checks, so a plugin that requires a newer minor is reported as a
+/// host-version mismatch, never as missing entry points. Only then may
+/// create() be called. The fifth entry (validate) is optional: it is
 /// dlsym-probed and simply stays nullptr when the plugin does not export it.
 ///
 /// @note Thread-safe for concurrent create/update/destroy calls (they only

@@ -22,7 +22,8 @@ add_sanitizer_flags(yaddnsc_test_driver_plugin)
 # Like yaddnsc_bad_driver_fixture these are intentionally minimal and not
 # sanitizer-instrumented.
 # ---------------------------------------------------------------------------
-foreach(fixture bad_revision newer_minor bad_magic missing_symbol small_descriptor short_descriptor)
+foreach(fixture bad_revision newer_minor bad_magic missing_symbol small_descriptor short_descriptor
+                newer_minor_no_entries)
     add_library(yaddnsc_fixture_${fixture} MODULE fixtures/${fixture}.cpp)
     set_target_properties(yaddnsc_fixture_${fixture} PROPERTIES PREFIX "" OUTPUT_NAME "${fixture}")
     target_include_directories(yaddnsc_fixture_${fixture} PRIVATE ${PROJECT_SOURCE_DIR}/include)
@@ -152,6 +153,7 @@ foreach(test_target test_plugin_abi_contract test_plugin_lifecycle)
         TEST_PLUGIN_PATH="$<TARGET_FILE:yaddnsc_test_driver_plugin>"
         BAD_REVISION_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_bad_revision>"
         NEWER_MINOR_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_newer_minor>"
+        NEWER_MINOR_NO_ENTRIES_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_newer_minor_no_entries>"
         BAD_MAGIC_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_bad_magic>"
         MISSING_SYMBOL_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_missing_symbol>"
         SMALL_DESCRIPTOR_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_small_descriptor>"
@@ -171,6 +173,7 @@ foreach(test_target test_plugin_abi_contract test_plugin_lifecycle)
         yaddnsc_test_driver_plugin
         yaddnsc_fixture_bad_revision
         yaddnsc_fixture_newer_minor
+        yaddnsc_fixture_newer_minor_no_entries
         yaddnsc_fixture_bad_magic
         yaddnsc_fixture_missing_symbol
         yaddnsc_fixture_small_descriptor
