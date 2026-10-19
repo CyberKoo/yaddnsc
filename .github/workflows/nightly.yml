@@ -153,8 +153,8 @@ jobs:
   # with matching clang-tidy and IWYU from the same distro release.
   # Enforcement boundaries: IWYU violations fail the build (-Xiwyu --error,
   # cmake/IWYU.cmake); compiler warnings fail via yaddnsc_warnings -Werror;
-  # clang-tidy diagnostics are reported but NOT promoted to errors (no
-  # WarningsAsErrors), though tidy execution/parse errors still fail.
+  # clang-tidy diagnostics fail as well, because .clang-tidy promotes every
+  # warning to an error (WarningsAsErrors: '*'); tidy parse errors fail too.
   # ----------------------------------------------------------------------
   linux-amd64-lint:
     needs: [should_run]
@@ -186,4 +186,7 @@ jobs:
           -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -fuse-ld=lld"
           -DCMAKE_MODULE_LINKER_FLAGS="-stdlib=libc++ -fuse-ld=lld"
       - name: Build (compile-only lint)
-        run: ninja -C build -j$(nproc)
+        # -k 0 keeps going past a failed target instead of stopping at the
+        # first one. The lint findings are the point of this job, and stopping
+        # at the first failure reported one of them while hiding the rest.
+        run: ninja -C build -j$(nproc) -k 0

@@ -513,10 +513,49 @@ guard_check("infrastructure must not use the application logging convenience mac
     ${PROJECT_SOURCE_DIR}/src/infrastructure/*.cpp)
 
 # ------------------------------------------------------------------------------
+# 13. C++ code does not use the deprecated C headers. The C++ spelling
+#     (<cstdint>, <cstddef>, ...) is the project convention; the C spelling
+#     puts the names in the global namespace and is what
+#     modernize-deprecated-headers rejects. That check only inspects the main
+#     file, so a header could keep the C spelling unnoticed — this check
+#     covers every translation unit.
+#
+#     Two exemptions, both deliberate:
+#       - the plugin C ABI header, which is compiled as C11 and must stay
+#         C-compatible (see check 4);
+#       - the frozen ABI baseline, which must not be edited.
+# ------------------------------------------------------------------------------
+set(DEPRECATED_C_HEADERS
+    "assert|complex|ctype|errno|fenv|float|inttypes|iso646|limits|locale|math|setjmp|signal|stdalign|stdarg|stdbool|stddef|stdint|stdio|stdlib|stdnoreturn|string|tgmath|time|uchar|wchar|wctype")
+file(GLOB_RECURSE cxx_translation_units
+    ${PROJECT_SOURCE_DIR}/src/*.h
+    ${PROJECT_SOURCE_DIR}/src/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/*.cpp
+    ${PROJECT_SOURCE_DIR}/include/*.h
+    ${PROJECT_SOURCE_DIR}/include/*.hpp
+    ${PROJECT_SOURCE_DIR}/driver/*.h
+    ${PROJECT_SOURCE_DIR}/driver/*.hpp
+    ${PROJECT_SOURCE_DIR}/driver/*.cpp
+    ${PROJECT_SOURCE_DIR}/test/*.h
+    ${PROJECT_SOURCE_DIR}/test/*.hpp
+    ${PROJECT_SOURCE_DIR}/test/*.cpp)
+foreach (f ${cxx_translation_units})
+    file(RELATIVE_PATH rel ${PROJECT_SOURCE_DIR} ${f})
+    if (rel MATCHES "^include/yaddnsc/sdk/driver_abi\\.h$" OR rel MATCHES "^test/plugin/abi_baseline/")
+        continue()
+    endif ()
+    file(STRINGS ${f} cxx_include_lines REGEX "^[ \t]*#[ \t]*include[ \t]*<(${DEPRECATED_C_HEADERS})\\.h>")
+    foreach (line ${cxx_include_lines})
+        string(STRIP "${line}" stripped)
+        set(violations "${violations}\n  ${rel}: C++ code must use the C++ header form, not the deprecated C header\n      ${stripped}")
+    endforeach ()
+endforeach ()
+
+# ------------------------------------------------------------------------------
 # Verdict
 # ------------------------------------------------------------------------------
 if (violations)
     message(FATAL_ERROR "Architecture guard violations:${violations}\n")
 endif ()
 
-message(STATUS "Architecture guard: OK (domain/coro/application/plugin/SDK/layering/concurrency/token/rules/logging checks passed)")
+message(STATUS "Architecture guard: OK (domain/coro/application/plugin/SDK/layering/concurrency/token/rules/logging/deprecated-C-header checks passed)")

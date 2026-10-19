@@ -725,5 +725,11 @@ still fail the build.
   `driver/*/*.{h,hpp}` recursively (including signing under the SDK tree).
   `xml_raii.hpp` is excluded when LibXml2 is unavailable. This is a
   default-build check, not coverage of every header in every configuration.
+- **Deprecated C headers**: the `architecture_guard` ctest rejects the C
+  spelling (`<stdint.h>` and friends) in every C++ translation unit under
+  `src/`, `include/`, `driver/`, and `test/` — clang-tidy's
+  `modernize-deprecated-headers` only inspects the main file, so this check
+  covers the rest. The plugin C ABI header (compiled as C11) and the frozen
+  ABI baseline copy are exempt.
 - **Editor feedback**: `.clangd` sets `UnusedIncludes` and `MissingIncludes`
   to `Strict`; editor diagnostics are not CI gates.
