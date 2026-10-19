@@ -152,7 +152,7 @@ namespace detail {
 /// spawn.
 struct BridgeState {
     http::Options options;
-    std::chrono::milliseconds wait_budget;
+    std::chrono::milliseconds wait_budget{0};
 };
 
 /// Loop side: perform the exchange and fulfil the promise on every path.
