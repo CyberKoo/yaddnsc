@@ -112,5 +112,6 @@ int yaddnsc_c_abi_compile_smoke(void) {
            yaddnsc_struct_has_field(update.struct_size, YADDNSC_UPDATE_REQUEST_MIN_SIZE) + (location.line > 0) +
            (response.status_code == 204) + (services.is_cancelled != NULL) + (get_descriptor != NULL) +
            (create != NULL) + (destroy != NULL) + (update_entry != NULL) + (validate != NULL) +
-           describe(&described);
+           (create != NULL) + (destroy != NULL) + (update_entry != NULL) + (validate != NULL) +
+           (int)describe(&described);
 }

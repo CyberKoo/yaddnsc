@@ -76,13 +76,26 @@ std::string format(std::format_string<Args...> fmt, Args&&... args) {
     return result;
 }
 
+namespace detail {
+
+/// Store one named argument. The name is read before the value is moved out
+/// of the argument: C++17 sequences the right operand of an assignment first,
+/// so moving inside the assignment would read the name after the move.
+template<typename Arg>
+void store_named(std::unordered_map<std::string, std::string>& values, Arg&& arg) {
+    const std::string name{arg.name};
+    values[name] = std::forward<Arg>(arg).value;
+}
+
+}  // namespace detail
+
 /// Named arguments use format_named; the last duplicate name wins.
 template<typename First, typename... Rest>
     requires std::same_as<std::decay_t<First>, NamedArg> && (std::same_as<std::decay_t<Rest>, NamedArg> && ...)
 std::string format(std::string_view fmt_, First&& first, Rest&&... rest) {
     std::unordered_map<std::string, std::string> m;
-    m[std::string(first.name)] = std::forward<First>(first).value;
-    ((m[std::string(rest.name)] = std::forward<Rest>(rest).value), ...);
+    detail::store_named(m, std::forward<First>(first));
+    (detail::store_named(m, std::forward<Rest>(rest)), ...);
     return format_named(fmt_, m);
 }
 
