@@ -266,6 +266,10 @@ add_loader_mode_fixture(yaddnsc_fixture_async_incomplete async_incomplete 1 0 0 
 add_loader_mode_fixture(yaddnsc_fixture_async_old_minor async_old_minor 0 0 1 0 0)
 add_loader_mode_fixture(yaddnsc_fixture_sync_legacy_extra_async sync_legacy_extra_async 0 1 0 1 0)
 add_loader_mode_fixture(yaddnsc_fixture_async_with_sync_validate async_with_sync_validate 1 0 1 0 1)
+# Version-handshake precedence: a newer descriptor minor must be diagnosed as
+# host-too-old whether the host knows the exported group (async) or not.
+add_loader_mode_fixture(yaddnsc_fixture_async_newer_minor async_newer_minor 2 0 1 0 0)
+add_loader_mode_fixture(yaddnsc_fixture_newer_minor_unknown_group newer_minor_unknown_group 2 0 0 0 0)
 
 target_compile_definitions(test_async_abi_contract PRIVATE
     SYNC_MINOR_ONE_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_sync_minor_one>"
@@ -273,14 +277,18 @@ target_compile_definitions(test_async_abi_contract PRIVATE
     ASYNC_INCOMPLETE_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_async_incomplete>"
     ASYNC_OLD_MINOR_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_async_old_minor>"
     SYNC_LEGACY_EXTRA_ASYNC_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_sync_legacy_extra_async>"
-    ASYNC_WITH_SYNC_VALIDATE_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_async_with_sync_validate>")
+    ASYNC_WITH_SYNC_VALIDATE_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_async_with_sync_validate>"
+    ASYNC_NEWER_MINOR_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_async_newer_minor>"
+    NEWER_MINOR_UNKNOWN_GROUP_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_newer_minor_unknown_group>")
 add_dependencies(test_async_abi_contract
     yaddnsc_fixture_sync_minor_one
     yaddnsc_fixture_async_mixed
     yaddnsc_fixture_async_incomplete
     yaddnsc_fixture_async_old_minor
     yaddnsc_fixture_sync_legacy_extra_async
-    yaddnsc_fixture_async_with_sync_validate)
+    yaddnsc_fixture_async_with_sync_validate
+    yaddnsc_fixture_async_newer_minor
+    yaddnsc_fixture_newer_minor_unknown_group)
 
 target_compile_definitions(test_coro_driver_gateway PRIVATE
     TEST_ASYNC_PLUGIN_PATH="$<TARGET_FILE:yaddnsc_fixture_async>")

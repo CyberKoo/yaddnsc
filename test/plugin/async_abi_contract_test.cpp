@@ -268,6 +268,28 @@ TEST(AsyncLoader, RejectsAsyncGroupWithSyncValidate) {
     EXPECT_NE(module.error().message.find("mixes"), std::string::npos);
 }
 
+TEST(AsyncLoader, AsyncOnlyGroupRequiringNewerMinorReportsHostTooOld) {
+    // An async-only module whose descriptor requires a newer minor names the
+    // host as the outdated side, not the plugin's symbol set.
+    auto module = PluginModule::load(std::string(ASYNC_NEWER_MINOR_FIXTURE));
+    ASSERT_FALSE(module.has_value());
+    EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
+    EXPECT_NE(module.error().message.find("requires ABI 1.2"), std::string::npos);
+    EXPECT_NE(module.error().message.find("this host provides 1.1"), std::string::npos);
+    EXPECT_NE(module.error().message.find("upgrade yaddnsc"), std::string::npos);
+}
+
+TEST(AsyncLoader, UnrecognizedGroupRequiringNewerMinorReportsHostTooOld) {
+    // A future execution mode resolves to no group this host knows; the
+    // version handshake must still win over the symbol check.
+    auto module = PluginModule::load(std::string(NEWER_MINOR_UNKNOWN_GROUP_FIXTURE));
+    ASSERT_FALSE(module.has_value());
+    EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
+    EXPECT_NE(module.error().message.find("requires ABI 1.2"), std::string::npos);
+    EXPECT_NE(module.error().message.find("this host provides 1.1"), std::string::npos);
+    EXPECT_NE(module.error().message.find("upgrade yaddnsc"), std::string::npos);
+}
+
 TEST(AsyncLoader, LegacySyncWithExtraAsyncNamesStaysSync) {
     auto module = PluginModule::load(std::string(SYNC_LEGACY_EXTRA_ASYNC_FIXTURE));
     ASSERT_TRUE(module.has_value()) << module.error().message;

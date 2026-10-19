@@ -50,13 +50,15 @@ using EntryPoints = std::variant<SyncEntryPoints, AsyncEntryPoints>;
 /// validated descriptor, and exactly one verified execution entry group.
 ///
 /// Loading follows the ABI protocol order: dlopen(RTLD_NOW|RTLD_LOCAL) →
-/// resolve the candidate entry symbols → get_descriptor() → version prefix →
+/// resolve get_descriptor → get_descriptor() → version prefix →
 /// abi_major/abi_minor (`yaddnsc_abi_provides`) → minor baseline struct_size →
 /// magic, strings, and capability bits → copy descriptor fields into host-owned
-/// storage → mode selection, which reads the just-copied abi_minor. Only then
-/// may the selected group be called. The sync validate and
-/// async validate entries are optional; a missing one leaves that mode's
-/// validate pointer null.
+/// storage → resolve the execution-group symbols → mode selection, which reads
+/// the just-copied abi_minor. The version handshake precedes the group checks,
+/// so a plugin that requires a newer minor is reported as a host-version
+/// mismatch, never as missing entry points. Only then may the selected group
+/// be called. The sync validate and async validate entries are optional; a
+/// missing one leaves that mode's validate pointer null.
 ///
 /// Mode selection is fixed at load. A complete sync group with minimum minor 0
 /// stays on the synchronous path even when async names are also exported. Async

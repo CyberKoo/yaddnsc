@@ -148,6 +148,11 @@ migration](docs/architecture.md#coroutine-lifecycle-migration) and
   still consumes the result, while cancellation releases only its reservation.
 - IP-source and driver request failures name the server by its path instead of
   printing the whole request URL, whose query can carry provider credentials.
+- Loading a driver that requires a newer ABI minor always reports the host as
+  the outdated side, even when the module exports no entry-point group the
+  host knows: the version handshake runs before the execution-group symbol
+  check, so such a module is no longer misreported as missing the v1 entry
+  points.
 
 ## [1.0.0-alpha.7] - 2026-10-17
 

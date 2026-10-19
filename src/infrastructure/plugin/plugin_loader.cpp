@@ -80,37 +80,13 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
     PluginModule module;
     module.library_ = std::move(*library);
 
-    // 2. Resolve the common descriptor entry and both candidate groups.
+    // 2. Resolve the descriptor entry first: the version handshake decides
+    // whether this host can serve the plugin at all, so it precedes the
+    // execution-group checks. Without the descriptor entry no version can be
+    // read, and the rejection stays a plain missing-symbol one.
     module.get_descriptor_ =
         resolve_entry<decltype(yaddnsc_driver_get_descriptor)>(module.library_, "yaddnsc_driver_get_descriptor");
-
-    SyncEntryPoints sync;
-    sync.create = resolve_entry<decltype(yaddnsc_driver_create)>(module.library_, "yaddnsc_driver_create");
-    sync.destroy = resolve_entry<decltype(yaddnsc_driver_destroy)>(module.library_, "yaddnsc_driver_destroy");
-    sync.update = resolve_entry<decltype(yaddnsc_driver_update)>(module.library_, "yaddnsc_driver_update");
-    sync.validate = resolve_entry<decltype(yaddnsc_driver_validate)>(module.library_, "yaddnsc_driver_validate");
-
-    AsyncEntryPoints async;
-    async.create = resolve_entry<decltype(yaddnsc_driver_async_create)>(module.library_, "yaddnsc_driver_async_create");
-    async.destroy =
-        resolve_entry<decltype(yaddnsc_driver_async_destroy)>(module.library_, "yaddnsc_driver_async_destroy");
-    async.begin = resolve_entry<decltype(yaddnsc_driver_update_async_begin)>(module.library_,
-                                                                             "yaddnsc_driver_update_async_begin");
-    async.resume = resolve_entry<decltype(yaddnsc_driver_update_async_resume)>(module.library_,
-                                                                               "yaddnsc_driver_update_async_resume");
-    async.validate =
-        resolve_entry<decltype(yaddnsc_driver_async_validate)>(module.library_, "yaddnsc_driver_async_validate");
-
-    const bool sync_complete = sync.create != nullptr && sync.destroy != nullptr && sync.update != nullptr;
-    const bool any_sync =
-        sync.create != nullptr || sync.destroy != nullptr || sync.update != nullptr || sync.validate != nullptr;
-    const bool async_complete =
-        async.create != nullptr && async.destroy != nullptr && async.begin != nullptr && async.resume != nullptr;
-    const bool any_async = async.create != nullptr || async.destroy != nullptr || async.begin != nullptr ||
-                           async.resume != nullptr || async.validate != nullptr;
-
-    // Keep the old missing-symbol path for a module with no usable group.
-    if (module.get_descriptor_ == nullptr || (!sync_complete && !any_async)) {
+    if (module.get_descriptor_ == nullptr) {
         return std::unexpected(make_error(plugin::PluginError::Code::MISSING_SYMBOL,
                                           fmt::format("Driver '{}' does not export the required v1 entry "
                                                       "points (get_descriptor/create/destroy/update). {}",
@@ -194,7 +170,7 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
                                           fmt::format("Driver '{}' has unsupported descriptor capabilities", path)));
     }
 
-    // 7. Copy descriptor fields into host-owned storage.
+    // 9. Copy descriptor fields into host-owned storage.
     module.descriptor_ = DriverDescriptor{
         .name = std::string(plugin::detail::to_view(raw_descriptor->name)),
         .version = std::string(plugin::detail::to_view(raw_descriptor->version)),
@@ -205,8 +181,43 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
         .abi_minor = raw_descriptor->abi_minor,
     };
 
-    // 8. Select exactly one execution group. The descriptor's minimum minor
-    // is a compatibility requirement, not a mode selector.
+    // 10. Resolve both candidate execution groups, then select exactly one.
+    // The descriptor's minimum minor is a compatibility requirement, not a
+    // mode selector.
+    SyncEntryPoints sync;
+    sync.create = resolve_entry<decltype(yaddnsc_driver_create)>(module.library_, "yaddnsc_driver_create");
+    sync.destroy = resolve_entry<decltype(yaddnsc_driver_destroy)>(module.library_, "yaddnsc_driver_destroy");
+    sync.update = resolve_entry<decltype(yaddnsc_driver_update)>(module.library_, "yaddnsc_driver_update");
+    sync.validate = resolve_entry<decltype(yaddnsc_driver_validate)>(module.library_, "yaddnsc_driver_validate");
+
+    AsyncEntryPoints async;
+    async.create = resolve_entry<decltype(yaddnsc_driver_async_create)>(module.library_, "yaddnsc_driver_async_create");
+    async.destroy =
+        resolve_entry<decltype(yaddnsc_driver_async_destroy)>(module.library_, "yaddnsc_driver_async_destroy");
+    async.begin = resolve_entry<decltype(yaddnsc_driver_update_async_begin)>(module.library_,
+                                                                             "yaddnsc_driver_update_async_begin");
+    async.resume = resolve_entry<decltype(yaddnsc_driver_update_async_resume)>(module.library_,
+                                                                               "yaddnsc_driver_update_async_resume");
+    async.validate =
+        resolve_entry<decltype(yaddnsc_driver_async_validate)>(module.library_, "yaddnsc_driver_async_validate");
+
+    const bool sync_complete = sync.create != nullptr && sync.destroy != nullptr && sync.update != nullptr;
+    const bool any_sync =
+        sync.create != nullptr || sync.destroy != nullptr || sync.update != nullptr || sync.validate != nullptr;
+    const bool async_complete =
+        async.create != nullptr && async.destroy != nullptr && async.begin != nullptr && async.resume != nullptr;
+    const bool any_async = async.create != nullptr || async.destroy != nullptr || async.begin != nullptr ||
+                           async.resume != nullptr || async.validate != nullptr;
+
+    // A module past the version handshake still needs one usable group.
+    if (!sync_complete && !any_async) {
+        return std::unexpected(make_error(plugin::PluginError::Code::MISSING_SYMBOL,
+                                          fmt::format("Driver '{}' does not export the required v1 entry "
+                                                      "points (create/destroy/update or a complete async "
+                                                      "execution group). {}",
+                                                      path, ABI_INCOMPATIBLE_HINT)));
+    }
+
     if (sync_complete) {
         if (module.descriptor_.abi_minor == 0) {
             // Legacy exception: the old sync path ignores extra async names.

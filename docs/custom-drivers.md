@@ -71,18 +71,21 @@ The ABI checks do not contain an untrusted plugin.
 
 The host verifies a driver before use:
 
-1. the driver exports `yaddnsc_driver_get_descriptor` and one complete
-   execution group;
+1. the driver exports `yaddnsc_driver_get_descriptor` — without it no version
+   can be read, and the rejection is a plain missing-symbol one;
 2. the descriptor's `struct_size` covers the 8-byte version prefix
    (`struct_size`, `abi_major`, `abi_minor`);
 3. `abi_major` is a major the host implements, and the host's minor is at
-   least the plugin's minor;
+   least the plugin's minor. This handshake runs before the entry-point
+   groups are checked, so a driver that requires a newer minor is always
+   told to upgrade yaddnsc, never misreported as missing entry points;
 4. `struct_size` covers that minor's baseline — the ABI 1.0 baseline for minor 0,
    the 1.1 baseline for minor 1;
 5. the descriptor's `magic` identifies a yaddnsc driver;
 6. the descriptor's string views and capability bits are valid. The version
    check runs before the capability check;
-7. exactly one execution group is selected (see [entry points](#entry-points)).
+7. the driver exports one complete execution group, and exactly one is
+   selected (see [entry points](#entry-points)).
    A module exporting symbols from both groups is rejected.
 
 The ABI 1.0 types are frozen.
