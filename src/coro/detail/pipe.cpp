@@ -4,7 +4,8 @@
 
 #include "pipe.h"
 
-#include <cerrno>
+#include <cerrno>  // IWYU pragma: keep — errno is used by the fallback path, which only platforms without pipe2() compile
+
 #include <fcntl.h>
 #include <unistd.h>
 
