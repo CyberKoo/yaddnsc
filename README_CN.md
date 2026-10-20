@@ -424,8 +424,12 @@ journalctl -u yaddnsc
 
 - [DNS 服务商驱动](DRIVERS_CN.md)
 - [自定义驱动与 ABI 兼容性](docs/custom-drivers.md)
-- [开发、测试与覆盖率](docs/development.md)
+- [插件 ABI 契约](docs/plugin-abi.md)
+- [开发与构建](docs/development.md)
+- [测试与覆盖率](docs/testing.md)
+- [CI 与静态分析](docs/ci.md)
 - [架构说明](docs/architecture.md)
+- [并发与 I/O 模型](docs/concurrency.md)
 - [文档索引](docs/README.md)
 
 ## 许可证

@@ -469,8 +469,12 @@ inaccessible to unrelated accounts.
 
 - [DNS provider drivers](DRIVERS.md)
 - [Custom drivers and ABI compatibility](docs/custom-drivers.md)
-- [Development, testing, and coverage](docs/development.md)
+- [Plugin ABI contract](docs/plugin-abi.md)
+- [Development and build](docs/development.md)
+- [Testing and coverage](docs/testing.md)
+- [CI and static analysis](docs/ci.md)
 - [Architecture notes](docs/architecture.md)
+- [Concurrency and I/O model](docs/concurrency.md)
 - [Documentation map](docs/README.md)
 
 ## License

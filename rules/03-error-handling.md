@@ -26,7 +26,7 @@
 | Internal contract / invariant violated | Assertion for diagnosis; explicit safe production failure policy where required. |
 | Failure aborts the current operation with no recovery responsibility inside its call chain | Exceptions may propagate to the designated operation boundary. |
 | Third-party or permitted deep internal implementation throws | Translate at the adapter/public module boundary into the documented error type. |
-| Cooperative cancellation | A control-flow exception outside the `std::exception` hierarchy, which only the responsible scope absorbs. See [Concurrency & I/O model](../docs/architecture.md#concurrency--io-model). |
+| Cooperative cancellation | A control-flow exception outside the `std::exception` hierarchy, which only the responsible scope absorbs. See [Concurrency & I/O model](../docs/concurrency.md#concurrency--io-model). |
 | Foreign-function boundary | Catch escaping C++ exceptions and convert to the boundary's status/error data. |
 
 - C++ result APIs **must** use `std::expected`, not new C-style status/`errno` conventions. C/system APIs and the plugin ABI **may** retain required status representations; adapters **must** preserve/capture their errors and translate as appropriate.

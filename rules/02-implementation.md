@@ -18,7 +18,7 @@ time-value and cancellation APIs. It **must not** reach implicit runtime
 context, loop or clock implementation objects, coroutine frames or wait
 registrations; runtime internals stay runtime-internal. Composition owns loop
 creation and the run entry point. The boundary, and the headers it admits, are
-described in [Architecture](../docs/architecture.md#coroutine-api-boundary).
+described in [Architecture](../docs/coroutine.md#coroutine-api-boundary).
 
 The include-level parts of these boundaries are checked by the `architecture_guard` test, registered with CTest and run in CI. It is a textual include/pattern check, not a full analysis: passing it is necessary, not sufficient, for the boundaries above.
 
@@ -52,7 +52,7 @@ The include-level parts of these boundaries are checked by the `architecture_gua
 - First-party production headers **must** use macro include guards derived from their path relative to the production source root: add the project's include-guard prefix, uppercase the path, replace path separators and the extension separator with underscores, and retain the extension letters. The same identifier **must** appear in `#ifndef`, `#define`, and the closing `#endif` comment. Test headers may follow their test-specific convention.
 - Use `"..."` for host-internal/generated headers, `<yaddnsc/sdk/...>` and `<yaddnsc/util/...>` for public headers, and `<...>` for standard/third-party headers.
 - A `.cpp` **normally** includes its own header first using the bare filename. Other host-internal includes **must** use paths relative to the source root, not `../` paths. Generated headers use their configured include-root-relative filenames.
-- Include order and formatting **must** follow `.clang-format`; actual checks are described in [Include hygiene](../docs/development.md#include-hygiene).
+- Include order and formatting **must** follow `.clang-format`; actual checks are described in [Include hygiene](../docs/ci.md#include-hygiene).
 - **Normally** use `.h` for declarations and small inline functions, `.hpp` for substantial template/header-only implementations, and `.cpp` for non-template implementations. Judge inline content by readability and compile-time dependencies, not a line-count threshold; do not rename existing files solely to enforce this preference.
 - Headers **must not** contain namespace-scope `using namespace` directives. Function-local literal namespace imports **may** be used; **prefer** avoiding them in headers when practical.
 
@@ -117,7 +117,7 @@ Formatting **must** follow `.clang-format`; naming **must** follow this table. A
 - **Prefer** small, cohesive parameter lists. More than four constructor parameters is a review signal, not an automatic limit. Related dependencies **may** use an `XxxPorts` / `XxxDeps` / `XxxServices` reference bundle; avoid general service locators or unused bundled dependencies.
 - Configuration **must** travel as cohesive domain slices or pre-built policy objects when forwarded across layers, rather than repeated unrelated strings/vectors. Adding a field should not require mechanically changing a long chain of signatures.
 - Cross-cutting policies **must** be assembled in the composition root and injected; downstream code **must not** independently re-derive the same policy.
-- A deadline **must** be part of the control flow around an operation rather than an argument passed down to it, so that cancellation reaches every await inside. Ports **must** be explicit dependencies, directly or through a cohesive bundle; global/singleton ports are prohibited. Where a foreign-function boundary exposes no cancellation concept, its deadline travels as a boundary argument — see [Concurrency & I/O model](../docs/architecture.md#concurrency--io-model).
+- A deadline **must** be part of the control flow around an operation rather than an argument passed down to it, so that cancellation reaches every await inside. Ports **must** be explicit dependencies, directly or through a cohesive bundle; global/singleton ports are prohibited. Where a foreign-function boundary exposes no cancellation concept, its deadline travels as a boundary argument — see [Concurrency & I/O model](../docs/concurrency.md#concurrency--io-model).
 
 ## Enums
 

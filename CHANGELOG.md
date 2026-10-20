@@ -14,7 +14,7 @@ The bundled drivers use the async execution protocol and therefore require a
 1.1 host, while their names and provider parameters are unchanged. Failed
 updates now report the provider's own error detail, and the driver package
 versions move to 1.1.0/2.1.0 (see Changed). Migration: [coroutine lifecycle
-migration](docs/architecture.md#coroutine-lifecycle-migration) and
+migration](docs/coroutine.md#coroutine-lifecycle-migration) and
 [custom drivers](docs/custom-drivers.md).
 
 ### Breaking

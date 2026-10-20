@@ -13,7 +13,7 @@ Driver cycles close HTTP admission before draining retiring requests. Late
 requests are cancelled/rejected; normal shutdown still waits for submitted
 plugin work and its resource cleanup. These rules concern neither provider
 parameters nor the plugin C ABI; see
-[cancellation and lifetime](docs/custom-drivers.md#cancellation-and-lifetime).
+[cancellation and lifetime](docs/plugin-abi.md#cancellation-and-lifetime).
 
 - A domain selects its driver through the `driver` field, using the
   configuration name listed below.

@@ -5,7 +5,7 @@
 ## Concurrency
 
 - Shared mutable state **must** have a defined synchronization strategy; public interfaces **must** document their thread-safety guarantees and caller obligations.
-- Concurrency **must** go through the project's coroutine runtime rather than raw threads, futures or thread pools. Blocking or CPU-bound work **must** leave the loop through the runtime's offload primitive. The thread model, the startup and foreign-function hand-offs that sit outside it, and the sanctioned blocking points are recorded in [Concurrency & I/O model](../docs/architecture.md#concurrency--io-model) and the [blocking-operation inventory](../docs/architecture.md#blocking-operation-inventory); what the guard does and does not prove about them lives in [Manual boundary review](../docs/architecture.md#manual-boundary-review).
+- Concurrency **must** go through the project's coroutine runtime rather than raw threads, futures or thread pools. Blocking or CPU-bound work **must** leave the loop through the runtime's offload primitive. The thread model, the startup and foreign-function hand-offs that sit outside it, and the sanctioned blocking points are recorded in [Concurrency & I/O model](../docs/concurrency.md#concurrency--io-model) and the [blocking-operation inventory](../docs/concurrency.md#blocking-operation-inventory); what the guard does and does not prove about them lives in [Manual boundary review](../docs/architecture.md#manual-boundary-review).
 - Waiting **must** be a cancellable await, so scope cancellation reaches it; a deadline **must** wrap the operation as a cancel scope rather than travel down as an I/O parameter. Signal handling **must** go through the runtime's signal facility rather than a dedicated thread.
 - **Prefer** explicit ownership and dependency injection over global mutable state. Global/singleton ports **must not** be introduced (see [Function & Constructor Signatures](02-implementation.md#function--constructor-signatures)).
 - If non-port process-wide state is unavoidable, initialization **may** use a function-local static (Meyers singleton) for one-time construction, or `std::call_once` for a separate initialization operation. Neither protects subsequent mutation. `constinit` guarantees static initialization, not immutability or thread safety; access to mutable state still **must** be synchronized.
@@ -18,16 +18,16 @@
 
 ## Testing
 
-- Tests **must** cover changed behavior and its failure paths. **Prefer** virtual interface-based mocks for external dependencies and integration tests for component boundaries. The framework, mocking approach and test naming convention are fixed for this project; see [Tests](../docs/development.md#tests).
-- Relevant tests **must** pass before merge; available suites, commands, and CI coverage are documented in [Development](../docs/development.md#tests).
-- **Normally** aim for at least **80% line coverage**, prioritizing meaningful branch coverage on critical paths rather than tests written only to raise the percentage. This is a quality target, **not an implemented percentage gate**; reporting and enforcement status live in [Coverage](../docs/development.md#coverage).
+- Tests **must** cover changed behavior and its failure paths. **Prefer** virtual interface-based mocks for external dependencies and integration tests for component boundaries. The framework, mocking approach and test naming convention are fixed for this project; see [Tests](../docs/testing.md#tests).
+- Relevant tests **must** pass before merge; available suites, commands, and CI coverage are documented in [Development](../docs/testing.md#tests).
+- **Normally** aim for at least **80% line coverage**, prioritizing meaningful branch coverage on critical paths rather than tests written only to raise the percentage. This is a quality target, **not an implemented percentage gate**; reporting and enforcement status live in [Coverage](../docs/testing.md#coverage).
 - Changes to the plugin ABI **must** follow the bump classification and minor-bump checklist in [Plugin ABI changes](../docs/development.md#plugin-abi-changes); the frozen ABI compatibility test **must** stay green, and the frozen baseline header **must not** be edited.
 
 ## Logging
 
 Diagnostic logging **must** use the project's centralized logging system. Each layer has exactly one designated entry point, tabulated in [Layers](../docs/architecture.md#layers); the facade requirement in [Components That Must Be Reused](02-implementation.md#components-that-must-be-reused) does not require injecting the application port into every layer. Ad-hoc loggers and diagnostic output via `std::cout`, `printf`, or `std::print` **must not** bypass this system. User-facing CLI output is presentation, not logging, and **must not** carry debug traces or internal-state warnings.
 
-The central production backend **must** supply timestamp, severity, source location, and message; SDK source locations **must** be forwarded through Host Services. A log call **must** return without blocking the calling (loop) thread: the backend is asynchronous and drained on its own thread (see [Concurrency & I/O model](../docs/architecture.md#concurrency--io-model)). See [Plugin boundary](../docs/architecture.md#plugin-boundary-v1) for ABI boundaries.
+The central production backend **must** supply timestamp, severity, source location, and message; SDK source locations **must** be forwarded through Host Services. A log call **must** return without blocking the calling (loop) thread: the backend is asynchronous and drained on its own thread (see [Concurrency & I/O model](../docs/concurrency.md#concurrency--io-model)). See [Plugin boundary](../docs/architecture.md#plugin-boundary-v1) for ABI boundaries.
 
 ### Severity Semantics
 
@@ -67,12 +67,12 @@ A log argument with non-trivial cost or side effects **must** be evaluated only 
 - **Prefer** clarity; optimization **normally** follows profiling that identifies a bottleneck. Performance claims **must** be supported by measurements.
 - Returning a named local eligible for NRVO **must not** use `return std::move(local)`, which prevents NRVO. An explicit move from a member or dereferenced owner **may** be appropriate when ownership transfer is intended and the source's remaining lifetime/use permits it.
 - **Prefer** `reserve()` when the final container size is known and preallocation is useful.
-- Critical-path changes **normally** include benchmarks in the dedicated suite. Historical trend tracking is a performance goal, not a claim of implemented baselines or regression gates; current benchmark/CI behavior is recorded in [CI and warning gates](../docs/development.md#ci-and-warning-gates).
+- Critical-path changes **normally** include benchmarks in the dedicated suite. Historical trend tracking is a performance goal, not a claim of implemented baselines or regression gates; current benchmark/CI behavior is recorded in [CI and warning gates](../docs/ci.md#ci-and-warning-gates).
 
 ## Cross-Platform Development
 
 - Platform-specific implementation **must** follow [Components That Must Be Reused](02-implementation.md#components-that-must-be-reused) and remain outside public headers. **Prefer** the standard library and `std::filesystem` when they meet requirements.
-- Platform-sensitive changes **must** identify affected supported targets and record validation performed or gaps requiring follow-up. Current platform jobs and their limitations are documented in [CI and warning gates](../docs/development.md#ci-and-warning-gates); their existence does not imply an all-platform merge gate.
+- Platform-sensitive changes **must** identify affected supported targets and record validation performed or gaps requiring follow-up. Current platform jobs and their limitations are documented in [CI and warning gates](../docs/ci.md#ci-and-warning-gates); their existence does not imply an all-platform merge gate.
 
 ## Version Control & Collaboration
 
@@ -96,8 +96,8 @@ A log argument with non-trivial cost or side effects **must** be evaluated only 
 
 ## Documentation Maintenance
 
-- Changes to behavior, APIs, dependencies, or build steps **must** update the relevant owner document in the same change; unrelated documentation **must not** be churned. See [Documentation ownership](../docs/architecture.md#documentation-ownership).
-- README files **must** be updated when a user-visible change affects their content, not for every internal change. Build/test/CI details belong in `docs/development.md`; provider parameters and SDK/ABI details belong in their respective owner documents.
+- Changes to behavior, APIs, dependencies, or build steps **must** update the relevant owner document in the same change; unrelated documentation **must not** be churned. See [Documentation ownership](../docs/README.md#documentation-ownership).
+- README files **must** be updated when a user-visible change affects their content, not for every internal change. Details owned by other documents (build/test/CI, provider parameters, SDK/ABI) belong in those owner documents, not the README.
 - When an affected document has language counterparts (e.g. `README.md` / `README_CN.md`, `DRIVERS.md` / `DRIVERS_CN.md`), all counterparts **must** be updated together with equivalent content. A language discrepancy is a documentation bug.
 - Adding, removing, or renaming a rules topic **must** update the relevant numbered rules file and the index in [`AGENTS.md`](../AGENTS.md) in the same change.
 - A normative rule states a discipline that holds in any C++ project. It **must not** name this project's source paths, layer directories, types, macros or budget constants; a rule that needs one states the principle and points at the owner document instead. Project facts — which layer owns which entry point, which framework a test tier uses, where a component lives — belong in `docs/`, so that a rename changes one document rather than every rule that mentions it. The `architecture_guard` check for this rule covers the path and symbol forms it can see; prose review covers the rest.
