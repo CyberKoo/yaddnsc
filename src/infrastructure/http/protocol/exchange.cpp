@@ -322,11 +322,6 @@ struct ChunkedBody {
         out.error = {ErrorCode::RESPONSE_PARSE_FAILED, "HTTP/1.0 response uses chunked encoding"};
         return out;
     }
-    if (has_transfer_encoding && !out.is_chunked) {
-        out.ok = false;
-        out.error = {ErrorCode::RESPONSE_PARSE_FAILED, "unsupported Transfer-Encoding (needs chunked)"};
-        return out;
-    }
     if (out.has_content_length && out.content_length > limits.max_body_bytes) {
         out.ok = false;
         out.error = {ErrorCode::BODY_TOO_LARGE, "Content-Length exceeds limit"};
