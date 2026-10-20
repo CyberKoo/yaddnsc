@@ -8,7 +8,9 @@
 #ifndef YADDNSC_CORO_DETAIL_NURSERY_CLAIMS_HPP
 #define YADDNSC_CORO_DETAIL_NURSERY_CLAIMS_HPP
 
+#include "coro/detail/execution_record.h"
 #include "coro/detail/nursery_state.hpp"
+#include "coro/detail/result_state.hpp"
 
 namespace coro::detail {
 

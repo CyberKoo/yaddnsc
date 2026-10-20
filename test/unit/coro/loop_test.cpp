@@ -2,7 +2,6 @@
 #include <coroutine>
 #include <functional>
 #include <initializer_list>
-#include <stdexcept>
 #include <string>
 #include <system_error>
 
@@ -57,12 +56,14 @@ TEST(FdWait, ClosedNonnegativeDescriptor_IsRejectedInBothDirections) {
         ASSERT_TRUE(write_end);
         const int fd = read_end.get();
         read_end.reset();
-        auto root = [fd, writable]() -> coro::Task<void> {
-            // A closed fd rejects through the contract error, not the value channel.
-            [[maybe_unused]] const std::error_code wait =
-                co_await (writable ? coro::wait_writable(fd) : coro::wait_readable(fd));
+        std::error_code observed{};
+        auto root = [fd, writable, &observed]() -> coro::Task<void> {
+            // A closed fd resolves through the error_code channel, like every
+            // other failure of the wait.
+            observed = co_await (writable ? coro::wait_writable(fd) : coro::wait_readable(fd));
         };
-        EXPECT_THROW(coro::run(loop, root()), std::invalid_argument);
+        EXPECT_NO_THROW(coro::run(loop, root()));
+        EXPECT_EQ(observed, std::make_error_code(std::errc::bad_file_descriptor));
     }
 }
 

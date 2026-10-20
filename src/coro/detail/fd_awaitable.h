@@ -79,8 +79,10 @@ public:
     /// Resolution: an empty error_code once the direction is ready, or the
     /// loop's poll errno when the event source itself failed the wait. A
     /// socket-level POLLERR with a healthy loop is left for the next syscall
-    /// on the fd to report. Cancellation throws `Cancelled`; a closed
-    /// descriptor is a contract defect and throws std::invalid_argument.
+    /// on the fd to report. Cancellation throws `Cancelled`. A descriptor that
+    /// was closed while the wait was parked resolves to
+    /// std::errc::bad_file_descriptor, so every failure of this wait arrives
+    /// through the same error_code channel.
     [[nodiscard]] std::error_code await_resume() {
         wait_.begin_resume();
         wait_.finish();
@@ -89,7 +91,7 @@ public:
             scope_->throw_if_cancelled();
         }
         if ((revents_ & POLLNVAL) != 0) {
-            throw std::invalid_argument("fd wait requires an open descriptor");
+            return std::make_error_code(std::errc::bad_file_descriptor);
         }
         if ((revents_ & POLLERR) != 0) {
             const int error = LoopAccess::poll_error(*loop_);

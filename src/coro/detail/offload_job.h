@@ -112,6 +112,7 @@ struct OffloadAwaitable {
     template<typename Promise>
     bool await_suspend(std::coroutine_handle<Promise> handle) {
         PromiseBase& promise = handle.promise();
+        assert(promise.exec != nullptr && "offload must be awaited inside coro::run");
         Loop* loop = promise.exec->loop();
         CancelScope* scope = promise.exec->scope();
         state->loop = loop;

@@ -43,6 +43,13 @@ coro::Task<AsyncStepOutcome> run_async_step(Fn fn) {
             co_return co_await coro::offload_joined(std::move(fn));
         });
     assert(outcome.has_value() && "shielded async step produced no value");
+    if (!outcome.has_value()) {
+        // The shielded scope absorbed its own cancellation and yielded no
+        // value. A release build must not unwind through the plugin ABI
+        // boundary, so the step is reported as cancelled instead.
+        co_return AsyncStepOutcome{.status = YADDNSC_STATUS_CANCELLED,
+                                   .message = "async step was cancelled before it produced a result"};
+    }
     co_return std::move(*outcome);
 }
 

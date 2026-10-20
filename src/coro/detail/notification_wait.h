@@ -7,6 +7,7 @@
 #ifndef YADDNSC_CORO_DETAIL_NOTIFICATION_WAIT_H
 #define YADDNSC_CORO_DETAIL_NOTIFICATION_WAIT_H
 
+#include <cassert>
 #include <coroutine>
 #include <stdexcept>
 
@@ -45,6 +46,7 @@ public:
     template<typename Promise>
     bool await_suspend(std::coroutine_handle<Promise> handle) {
         PromiseBase& promise = handle.promise();
+        assert(promise.exec != nullptr && "notification wait must be awaited inside coro::run");
         scope_ = promise.exec->scope();
         if (scope_ != nullptr && scope_->cancelled()) {
             return false;

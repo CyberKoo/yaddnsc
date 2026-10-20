@@ -171,6 +171,18 @@ std::expected<Uri, UriError> Uri::parse(std::string_view uri) {
         // so no parse_impl exit path can publish a disengaged port_.
         result->port_.emplace(0);
     }
+    if (result && result->is_ipv6_) {
+        // The RFC 3986 IP-literal spelling of an IPv6 host is not present
+        // verbatim in the raw text for a bare authority, so it is built once
+        // here. Precomputing it keeps get_host_literal() allocation-free and
+        // free of lazily mutated state.
+        std::string literal;
+        literal.reserve(result->host_.len + 2);
+        literal.push_back('[');
+        literal.append(result->view(result->host_));
+        literal.push_back(']');
+        result->host_bracketed_ = std::move(literal);
+    }
     return result;
 }
 
@@ -449,11 +461,7 @@ std::string_view Uri::get_host_literal() const noexcept {
     if (!is_ipv6_) {
         return view(host_);
     }
-    // Lazy-compute the bracketed form for IPv6 hosts.
-    if (host_bracketed_cache_.empty()) {
-        host_bracketed_cache_ = std::string{'['} + std::string(view(host_)) + ']';
-    }
-    return host_bracketed_cache_;
+    return host_bracketed_;
 }
 
 int Uri::get_port() const noexcept {

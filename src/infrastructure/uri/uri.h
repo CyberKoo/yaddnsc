@@ -42,9 +42,11 @@ enum class UriError {
 /// parse() does not support userinfo or network-path references ("//host").
 /// resolve() supports network-path references relative to an absolute base.
 ///
-/// Memory model: only raw_uri_ owns a string buffer; all other string-like
-/// fields are Slice offsets into it.  getters return string_views pointing
-/// into raw_uri_ — they are valid for the lifetime of the Uri object.
+/// Memory model: raw_uri_ owns the URI text and every string-like field is a
+/// Slice offset into it.  host_bracketed_ additionally owns the "[host]"
+/// spelling of an IPv6 host, which a bare IPv6 authority does not spell that
+/// way in the raw text.  getters return string_views pointing into those
+/// buffers — they are valid for the lifetime of the Uri object.
 class Uri {
 public:
     /// Parse a URI from its string representation.
@@ -66,7 +68,8 @@ public:
     /// The result owns its storage. Input is not trimmed and follows parse() validation.
     /// Returns INVALID_BASE_URI for a base without scheme/host, UNSUPPORTED_REFERENCE
     /// for non-authority scheme forms, or the corresponding parse error otherwise.
-    /// This method may run concurrently with other reads that do not mutate lazy caches.
+    /// The Uri holds no lazily mutated state, so this method may run concurrently
+    /// with the other accessors.
     [[nodiscard]] std::expected<Uri, UriError> resolve(std::string_view reference) const;
 
     /// Whether a query delimiter is present, including an explicitly empty query.
@@ -88,6 +91,8 @@ public:
     /// e.g. for "https://[::1]:8080/path" -> "[::1]"
     ///      for "https://example.com/path" -> "example.com"
     /// @return The host in RFC 3986 IP-literal form.
+    /// The bracketed spelling is computed once while parsing, so this accessor
+    /// neither allocates nor mutates the Uri and may be called concurrently.
     [[nodiscard]] std::string_view get_host_literal() const noexcept;
 
     /// Return the port number.
@@ -169,7 +174,7 @@ private:
     Slice path_;
     Slice query_string_;
     Slice body_;
-    mutable std::string host_bracketed_cache_;  ///< lazy "[host]" for IPv6
+    std::string host_bracketed_;  ///< "[host]" spelling of an IPv6 host; empty otherwise
 };
 
 #endif  // YADDNSC_INFRASTRUCTURE_URI_URI_H

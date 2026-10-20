@@ -23,7 +23,6 @@
 #include <coroutine>
 #include <functional>
 #include <source_location>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -116,7 +115,7 @@ TEST(FdWaitEvents, PeerHangup_RendersPollhupAndStaysReadiness) {
     EXPECT_TRUE(any_line_contains(tracing.recorder(), "ready:"));
 }
 
-TEST(FdWaitEvents, DescriptorClosedAfterRegistration_ThrowsAndRendersPollnval) {
+TEST(FdWaitEvents, DescriptorClosedAfterRegistration_ResolvesBadDescriptorAndRendersPollnval) {
     TracingLoop tracing;
     auto [read_end, write_end] = coro::detail::make_pipe();
     ASSERT_TRUE(read_end);
@@ -127,11 +126,13 @@ TEST(FdWaitEvents, DescriptorClosedAfterRegistration_ThrowsAndRendersPollnval) {
     // thread, which processes its inbox after this frame has registered the
     // descriptor. The next poll therefore reports POLLNVAL for it — no sleep,
     // no race on a timer.
-    auto root = [&tracing, fd]() -> coro::Task<void> {
+    std::error_code observed{};
+    auto root = [&tracing, fd, &observed]() -> coro::Task<void> {
         tracing.loop().post([fd] { ::close(fd); });
-        [[maybe_unused]] const std::error_code ec = co_await coro::wait_readable(fd);
+        observed = co_await coro::wait_readable(fd);
     };
-    EXPECT_THROW(coro::run(tracing.loop(), root()), std::invalid_argument);
+    EXPECT_NO_THROW(coro::run(tracing.loop(), root()));
+    EXPECT_EQ(observed, std::make_error_code(std::errc::bad_file_descriptor));
 
     EXPECT_TRUE(any_line_contains(tracing.recorder(), "POLLNVAL"))
         << "a descriptor closed under the loop must render as POLLNVAL";

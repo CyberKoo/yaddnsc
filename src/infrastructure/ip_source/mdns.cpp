@@ -46,13 +46,18 @@ constexpr std::size_t DISCARD_BURST = 32;
 constexpr std::size_t MDNS_RECV_BUF_SIZE = 65536;
 constexpr std::uint16_t QU_BIT = 0x8000;
 
+// The two mDNS group addresses are compile-time constants, so they are built
+// from their raw network-byte-order bytes rather than parsed at runtime: a
+// parse failure could not be reported here, and the addresses are part of the
+// protocol, not of the environment.
 [[nodiscard]] const domain::Inet4Address& group_v4() {
-    static const auto group = domain::Inet4Address::parse("224.0.0.251").value();
+    static const auto group = domain::Inet4Address::from_array({224, 0, 0, 251});
     return group;
 }
 
 [[nodiscard]] const domain::Inet6Address& group_v6() {
-    static const auto group = domain::Inet6Address::parse("ff02::fb").value();
+    static const auto group =
+        domain::Inet6Address::from_array({0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xfb});
     return group;
 }
 

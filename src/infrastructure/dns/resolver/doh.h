@@ -67,7 +67,7 @@ public:
     ///      defect, reported by the HTTP client as std::invalid_argument.
     DohResolver(const Uri& endpoint, http::Options options, Policy policy = {});
 
-    ~DohResolver();
+    ~DohResolver() override;
 
     DohResolver(const DohResolver&) = delete;
     DohResolver& operator=(const DohResolver&) = delete;

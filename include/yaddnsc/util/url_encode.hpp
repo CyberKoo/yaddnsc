@@ -27,10 +27,11 @@ namespace yaddnsc::util {
 
     for (auto const c : input) {
         auto const uc = static_cast<unsigned char>(c);
-        if (std::isalnum(uc) || uc == '-' || uc == '.' || uc == '_' || uc == '~') {
-            // unreserved character (RFC 3986 §2.3)
-            result += c;
-        } else if (c == '/' && !encode_slash) {
+        const bool unreserved = std::isalnum(uc) || uc == '-' || uc == '.' || uc == '_' || uc == '~';
+        // A '/' is preserved only when the caller encodes path segments
+        // separately, as the canonical URI in AWS SigV4 signing does.
+        const bool preserved_slash = c == '/' && !encode_slash;
+        if (unreserved || preserved_slash) {
             result += c;
         } else {
             result += '%';

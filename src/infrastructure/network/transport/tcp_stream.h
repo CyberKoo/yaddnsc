@@ -43,7 +43,7 @@ public:
     /// @param options  Connection-level options.
     TcpStream(domain::InetAddress address, std::uint16_t port, ConnectOptions options = {});
 
-    ~TcpStream();
+    ~TcpStream() override;
 
     TcpStream(const TcpStream&) = delete;
     TcpStream& operator=(const TcpStream&) = delete;

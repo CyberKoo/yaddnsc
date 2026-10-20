@@ -72,5 +72,12 @@ sanctioned, and every new one needs the same scrutiny:
 | plugin ABI cycle | offloaded — a synchronous cycle holds one worker, an asynchronous step holds none | the per-exchange budget |
 | log write | handed to the drain thread | a full queue discards the newest record |
 | CPU-intensive work | any offload call site | structurally bounded by the configuration |
+| poll-failure backoff | loop thread, inside the event source | at most 50 ms per impaired poll round, and only while the event source is already failing |
 
 Anything not listed here must leave the loop through the offload primitive.
+
+The poll-failure backoff is the one sanctioned point that cannot leave the
+loop: it paces the loop while the loop's own event source is impaired, so
+offloading it would move the pacing onto a worker that the failing source
+never wakes. The bound is the 50 ms cap in `src/coro/loop.cpp`; a signal that
+interrupts the sleep only shortens the round.

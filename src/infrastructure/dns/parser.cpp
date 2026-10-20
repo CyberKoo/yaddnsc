@@ -417,10 +417,10 @@ std::string dns::RecordParser::rdata_to_string(const ResourceRecord& rr, const s
 
         default: {
             const auto type_name = magic_enum::enum_name(static_cast<RecordType>(rr.type));
-            const auto type_str = type_name.empty() ? "?" : type_name.data();
-            throw DnsLookupException(fmt::format("DNS parsing: record type {} ({}) is not supported yet", type_str,
-                                                 static_cast<std::uint16_t>(rr.type)),
-                                     domain::DnsError::PARSE);
+            throw DnsLookupException(
+                fmt::format("DNS parsing: record type {} with code {} is not supported yet",
+                            type_name.empty() ? "?" : type_name, static_cast<std::uint16_t>(rr.type)),
+                domain::DnsError::PARSE);
         }
     }
 }
@@ -587,8 +587,8 @@ std::string dns::RecordParser::parse_record(size_t index) const {
 
     const auto& rr = msg.answers[index];
     [[maybe_unused]] const auto type_name = magic_enum::enum_name(static_cast<RecordType>(rr.type));
-    SPDLOG_TRACE(R"(Parsing DNS record #{}: type={} ({}), name="{}")", index,
-                 type_name.empty() ? "?" : type_name.data(), rr.type, rr.name);
+    SPDLOG_TRACE(R"(Parsing DNS record #{}: type={} with code {}, name="{}")", index,
+                 type_name.empty() ? "?" : type_name, rr.type, rr.name);
 
     return rdata_to_string(rr, wire_);
 }

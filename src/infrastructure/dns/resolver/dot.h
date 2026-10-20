@@ -82,7 +82,7 @@ public:
     /// @param options  Transport/TLS policy for the endpoint.
     DotResolver(std::string host, std::uint16_t port, EndpointOptions options);
 
-    ~DotResolver();
+    ~DotResolver() override;
 
     DotResolver(const DotResolver&) = delete;
     DotResolver& operator=(const DotResolver&) = delete;

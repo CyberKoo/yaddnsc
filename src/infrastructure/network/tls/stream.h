@@ -68,7 +68,7 @@ public:
     TlsStream(domain::InetAddress address, std::uint16_t port, std::shared_ptr<const TlsContext> context,
               ConnectOptions options = {}, TlsOptions tls_options = {});
 
-    ~TlsStream();
+    ~TlsStream() override;
 
     TlsStream(const TlsStream&) = delete;
     TlsStream& operator=(const TlsStream&) = delete;

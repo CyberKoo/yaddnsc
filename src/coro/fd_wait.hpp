@@ -8,7 +8,8 @@
 // without the fd ever becoming ready — when the loop's event source itself is
 // impaired (a poll() ENOMEM that persists), the wait resolves to the poll errno
 // instead of readiness, so callers fold it into their own operational error
-// channel.
+// channel. A descriptor closed while the wait was parked resolves to
+// std::errc::bad_file_descriptor through that same channel.
 //
 // This is the smallest increment the transport layer needs from the runtime: no
 // timeout parameter (a deadline is the caller's cancel scope), no reactor object
@@ -31,16 +32,18 @@
 namespace coro {
 
 /// Suspend until `fd` is readable (or reports EOF/error as readable).
-/// Resolves to an empty std::error_code on readiness, or to the loop's poll
-/// errno when the event source itself failed the wait; callers must branch on
-/// the result. Throws std::invalid_argument when `fd` is not an open descriptor.
+/// Resolves to an empty std::error_code on readiness, to the loop's poll
+/// errno when the event source itself failed the wait, or to
+/// std::errc::bad_file_descriptor when the descriptor was closed while the
+/// wait was parked; callers must branch on the result. Throws
+/// std::invalid_argument when `fd` is not a valid descriptor number.
 /// Precondition: awaited inside coro::run (see the header note).
 [[nodiscard]] inline auto wait_readable(int fd) noexcept {
     return detail::FdAwaitable::readable(fd);
 }
 
 /// Suspend until `fd` is writable. Same resolution contract as wait_readable.
-/// Throws std::invalid_argument when `fd` is not an open descriptor.
+/// Throws std::invalid_argument when `fd` is not a valid descriptor number.
 /// Precondition: awaited inside coro::run (see the header note).
 [[nodiscard]] inline auto wait_writable(int fd) noexcept {
     return detail::FdAwaitable::writable(fd);
