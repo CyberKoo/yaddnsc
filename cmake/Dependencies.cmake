@@ -64,7 +64,7 @@ endif ()
 # ---------------------------------------------------------------------------
 # CLI11 – command line parser
 # ---------------------------------------------------------------------------
-CPMAddPackage("gh:CLIUtils/CLI11@2.6.2")
+CPMAddPackage("gh:CLIUtils/CLI11@2.7.2")
 
 # ---------------------------------------------------------------------------
 # magic_enum – static reflection for enums (header-only)
@@ -74,7 +74,7 @@ CPMAddPackage("gh:Neargye/magic_enum@0.9.8")
 # ---------------------------------------------------------------------------
 # picohttpparser – HTTP request/response parser (C library)
 # ---------------------------------------------------------------------------
-CPMAddPackage("gh:h2o/picohttpparser@1.2")
+CPMAddPackage("gh:h2o/picohttpparser@1.4")
 if (picohttpparser_ADDED)
   add_library(picohttpparser STATIC ${picohttpparser_SOURCE_DIR}/picohttpparser.c)
   target_include_directories(picohttpparser PUBLIC ${picohttpparser_SOURCE_DIR})
