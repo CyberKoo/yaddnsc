@@ -8,8 +8,8 @@ target_include_directories(yaddnsc_plugin_abi INTERFACE
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
-configure_file(${PROJECT_SOURCE_DIR}/cmake/sdk_version.hpp.in
-    ${PROJECT_BINARY_DIR}/generated/sdk_include/yaddnsc/sdk/version.hpp @ONLY)
+configure_file("${PROJECT_SOURCE_DIR}/template/headers/sdk_version.hpp.in"
+    "${PROJECT_BINARY_DIR}/generated/sdk_include/yaddnsc/sdk/version.hpp" @ONLY)
 
 # SDK interface for driver plugins — the ONLY supported surface: the v1
 # C ABI plus the C++ helper layer (yaddnsc/sdk/*). Deliberately does NOT expose

@@ -198,7 +198,7 @@ endif ()
 
 include(CMakePackageConfigHelpers)
 configure_package_config_file(
-    ${CMAKE_SOURCE_DIR}/cmake/yaddnscConfig.cmake.in
+    ${CMAKE_SOURCE_DIR}/template/cmake/yaddnscConfig.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/yaddnscConfig.cmake
     INSTALL_DESTINATION ${YADDNSC_CMAKE_INSTALL_DIR}
 )
