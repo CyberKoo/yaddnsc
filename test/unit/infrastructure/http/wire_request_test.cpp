@@ -238,6 +238,24 @@ TEST(HttpWireRequestGuard, transferCodingAndTrailersAreRejected) {
     }
 }
 
+TEST(HttpWireRequestGuard, upgradeFailurePrecedesAMalformedField) {
+    // Headers are checked one at a time in wire order: the upgrade field sorts
+    // before the malformed one, so its rejection is the one reported.
+    auto wire = wire_with({"upgrade", "x"});
+    wire.headers.emplace("x-invalid", "value\r\nInjected: yes");
+
+    expect_wire_rejected(wire, ErrorCode::UNSUPPORTED_PROTOCOL, "HTTP protocol upgrade is not supported");
+}
+
+TEST(HttpWireRequestGuard, trailerFailurePrecedesAMalformedField) {
+    // Both candidate failures share INVALID_REQUEST, so only the message proves
+    // the trailer rule fired before the malformed field's generic check.
+    auto wire = wire_with({"trailer", "x"});
+    wire.headers.emplace("y-invalid", "value\r\nInjected: yes");
+
+    expect_wire_rejected(wire, ErrorCode::INVALID_REQUEST, "request transfer coding and trailers are not supported");
+}
+
 TEST(HttpWireRequestGuard, contentLengthMustBeNumeric) {
     for (const auto& value : {"abc", "", "1 2"}) {
         SCOPED_TRACE(value);

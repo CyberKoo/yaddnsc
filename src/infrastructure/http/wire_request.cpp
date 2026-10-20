@@ -48,6 +48,36 @@ namespace {
     });
 }
 
+enum class RequestField { OTHER, HOST, CONNECTION, CONTENT_LENGTH, TRANSFER_ENCODING, TRAILER, UPGRADE };
+
+struct RequestFieldState {
+    std::size_t hosts = 0;
+    std::size_t connections = 0;
+    std::optional<std::size_t> content_length;
+};
+
+[[nodiscard]] RequestField classify_request_field(const std::string_view name) noexcept {
+    if (StringUtil::iequals(name, "host")) {
+        return RequestField::HOST;
+    }
+    if (StringUtil::iequals(name, "connection")) {
+        return RequestField::CONNECTION;
+    }
+    if (StringUtil::iequals(name, "content-length")) {
+        return RequestField::CONTENT_LENGTH;
+    }
+    if (StringUtil::iequals(name, "transfer-encoding")) {
+        return RequestField::TRANSFER_ENCODING;
+    }
+    if (StringUtil::iequals(name, "trailer")) {
+        return RequestField::TRAILER;
+    }
+    if (StringUtil::iequals(name, "upgrade")) {
+        return RequestField::UPGRADE;
+    }
+    return RequestField::OTHER;
+}
+
 }  // namespace
 
 std::uint16_t default_port(const std::string_view scheme) noexcept {
@@ -99,42 +129,50 @@ std::expected<void, Error> validate_wire_request(const protocol::WireRequest& wi
         return std::unexpected(Error{ErrorCode::INVALID_REQUEST, "invalid HTTP request target"});
     }
 
-    std::size_t hosts = 0;
-    std::size_t connections = 0;
-    std::optional<std::size_t> content_length;
+    RequestFieldState state;
     for (const auto& [name, value] : wire.headers) {
+        const auto field = classify_request_field(name);
         if (!protocol::is_token(name) || !protocol::is_field_value(value) ||
-            (StringUtil::iequals(name, "connection") && !protocol::valid_token_list(value))) {
+            (field == RequestField::CONNECTION && !protocol::valid_token_list(value))) {
             return std::unexpected(Error{ErrorCode::INVALID_REQUEST, "invalid HTTP request header"});
         }
-        if (StringUtil::iequals(name, "upgrade") ||
-            (StringUtil::iequals(name, "connection") && protocol::has_token(value, "upgrade"))) {
-            return std::unexpected(Error{ErrorCode::UNSUPPORTED_PROTOCOL, "HTTP protocol upgrade is not supported"});
-        }
-        if (StringUtil::iequals(name, "transfer-encoding") || StringUtil::iequals(name, "trailer")) {
-            return std::unexpected(
-                Error{ErrorCode::INVALID_REQUEST, "request transfer coding and trailers are not supported"});
-        }
-        if (StringUtil::iequals(name, "host")) {
-            ++hosts;
-        }
-        if (StringUtil::iequals(name, "connection")) {
-            ++connections;
-        }
-        if (StringUtil::iequals(name, "content-length")) {
-            if (content_length) {
+        switch (field) {
+            case RequestField::UPGRADE:
                 return std::unexpected(
-                    Error{ErrorCode::INVALID_REQUEST, "conflicting HTTP framing or routing headers"});
+                    Error{ErrorCode::UNSUPPORTED_PROTOCOL, "HTTP protocol upgrade is not supported"});
+            case RequestField::CONNECTION:
+                if (protocol::has_token(value, "upgrade")) {
+                    return std::unexpected(
+                        Error{ErrorCode::UNSUPPORTED_PROTOCOL, "HTTP protocol upgrade is not supported"});
+                }
+                ++state.connections;
+                break;
+            case RequestField::TRANSFER_ENCODING:
+            case RequestField::TRAILER:
+                return std::unexpected(
+                    Error{ErrorCode::INVALID_REQUEST, "request transfer coding and trailers are not supported"});
+            case RequestField::HOST:
+                ++state.hosts;
+                break;
+            case RequestField::CONTENT_LENGTH: {
+                if (state.content_length) {
+                    return std::unexpected(
+                        Error{ErrorCode::INVALID_REQUEST, "conflicting HTTP framing or routing headers"});
+                }
+                std::size_t parsed{};
+                const auto [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), parsed);
+                if (value.empty() || ec != std::errc{} || ptr != value.data() + value.size()) {
+                    return std::unexpected(Error{ErrorCode::INVALID_REQUEST, "invalid HTTP Content-Length"});
+                }
+                state.content_length = parsed;
+                break;
             }
-            std::size_t parsed{};
-            const auto [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), parsed);
-            if (value.empty() || ec != std::errc{} || ptr != value.data() + value.size()) {
-                return std::unexpected(Error{ErrorCode::INVALID_REQUEST, "invalid HTTP Content-Length"});
-            }
-            content_length = parsed;
+            case RequestField::OTHER:
+                break;
         }
     }
-    if (hosts > 1 || connections > 1 || (content_length && *content_length != (wire.body ? wire.body->size() : 0))) {
+    if (state.hosts > 1 || state.connections > 1 ||
+        (state.content_length && *state.content_length != (wire.body ? wire.body->size() : 0))) {
         return std::unexpected(Error{ErrorCode::INVALID_REQUEST, "conflicting HTTP framing or routing headers"});
     }
     return {};
