@@ -14,6 +14,7 @@
 
 #include <yaddnsc/sdk/async_driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/sdk/driver_common.hpp>
 #include <yaddnsc/sdk/form_encode.hpp>
 #include <yaddnsc/sdk/format.hpp>
 #include <yaddnsc/sdk/redact.hpp>

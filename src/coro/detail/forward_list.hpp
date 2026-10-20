@@ -35,6 +35,12 @@
 #include <exception>
 #include <type_traits>
 
+// IWYU attributes the test TUs' ForwardHook/ForwardList template arguments
+// (std::coroutine_handle, test-local structs) back to this header. It must not
+// provide them: the arguments belong to each instantiating TU.
+// IWYU pragma: no_include <coroutine>
+// IWYU pragma: no_forward_declare Node
+
 namespace coro::detail {
 
 template<typename Target>

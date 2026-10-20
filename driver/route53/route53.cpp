@@ -5,10 +5,15 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include <yaddnsc/sdk/async_driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/sdk/driver_common.hpp>
 #include <yaddnsc/sdk/format.hpp>
+#include <yaddnsc/sdk/log.hpp>
+#include <yaddnsc/sdk/run_update.hpp>
+#include <yaddnsc/sdk/upstream_failure.hpp>
 
 #include "config.hpp"
 #include "sigv4.h"

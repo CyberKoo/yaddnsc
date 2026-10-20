@@ -14,12 +14,16 @@
 //   - HTTP 403 is AUTHENTICATION_FAILED.
 // =============================================================================
 
+#include <cstdint>
 #include <format>
 #include <initializer_list>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
+
+// C++ TUs use <cstdint>; IWYU suggests the C twin for UINT16_C.
+// IWYU pragma: no_include <stdint.h>
 
 #include <glaze/glaze.hpp>
 #include <glaze/json/generic_fwd.hpp>

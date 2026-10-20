@@ -1,6 +1,7 @@
 #include "sigv4.h"
 
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>

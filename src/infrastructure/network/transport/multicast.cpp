@@ -9,10 +9,12 @@
 #include <sys/socket.h>
 
 #include "domain/network/address_family.h"
-#include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/socket_ops.h"
 
 namespace net {
+
+enum class IoError;
+
 namespace {
 
 void set_int_option(int fd, int level, int option, int value) {

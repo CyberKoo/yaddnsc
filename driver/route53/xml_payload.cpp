@@ -7,7 +7,9 @@
 #include <utility>
 #include <vector>
 
-#include <libxml/tree.h>
+#include <libxml/parser.h>
+#include <libxml/xmlmemory.h>
+#include <libxml/xmlstring.h>
 #include <yaddnsc/sdk/xml_raii.hpp>
 
 namespace route53 {
