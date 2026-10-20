@@ -292,6 +292,55 @@ TEST(HttpExchangeResponseBody, oneShotOverloadCarriesNothingForward) {
 }
 
 // ---------------------------------------------------------------------------
+// 205 Reset Content: the framing must declare a zero-length body, and the
+// framing it used is consumed so the stream stays aligned
+// ---------------------------------------------------------------------------
+
+TEST(HttpExchangeResetContent, contentLengthZeroIsAccepted) {
+    const auto response = run_exchange("HTTP/1.1 205 Reset Content\r\nContent-Length: 0\r\n\r\n", get_to());
+
+    ASSERT_TRUE(response.has_value());
+    EXPECT_EQ(response->status, 205);
+    EXPECT_TRUE(response->text().empty());
+    EXPECT_TRUE(response->framing.self_delimiting);
+}
+
+TEST(HttpExchangeResetContent, emptyChunkedBodyIsAccepted) {
+    const auto response =
+        run_exchange("HTTP/1.1 205 Reset Content\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n", get_to());
+
+    ASSERT_TRUE(response.has_value());
+    EXPECT_TRUE(response->text().empty());
+    EXPECT_TRUE(response->framing.self_delimiting);
+}
+
+TEST(HttpExchangeResetContent, closeDelimitedEmptyBodyIsAccepted) {
+    const auto response = run_exchange("HTTP/1.1 205 Reset Content\r\nConnection: close\r\n\r\n", get_to());
+
+    ASSERT_TRUE(response.has_value());
+    EXPECT_TRUE(response->text().empty());
+    EXPECT_TRUE(response->framing.connection_close);
+    EXPECT_TRUE(response->framing.self_delimiting);
+}
+
+TEST(HttpExchangeResetContent, nonEmptyBodyIsRejected) {
+    // Whatever framing a 205 announces, it must not carry a single byte.
+    expect_response_rejected("HTTP/1.1 205 Reset Content\r\nContent-Length: 3\r\n\r\nabc",
+                             ErrorCode::RESPONSE_PARSE_FAILED, "205 response has a non-empty body");
+    expect_response_rejected("HTTP/1.1 205 Reset Content\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n",
+                             ErrorCode::RESPONSE_PARSE_FAILED, "205 response has a non-empty body");
+    expect_response_rejected("HTTP/1.1 205 Reset Content\r\nConnection: close\r\n\r\nx",
+                             ErrorCode::RESPONSE_PARSE_FAILED, "205 response has a non-empty body");
+}
+
+TEST(HttpExchangeResetContent, missingFramingIsRejected) {
+    // Without a length, chunked coding, or a close, there is no boundary that
+    // could prove the body is empty.
+    expect_response_rejected("HTTP/1.1 205 Reset Content\r\n\r\n", ErrorCode::RESPONSE_PARSE_FAILED,
+                             "205 response lacks zero-length framing");
+}
+
+// ---------------------------------------------------------------------------
 // chunk coding: the RFC 9112 size line
 // ---------------------------------------------------------------------------
 

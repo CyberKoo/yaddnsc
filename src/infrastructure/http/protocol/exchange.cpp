@@ -52,6 +52,7 @@ struct HeaderOutcome {
     std::size_t content_length = 0;
     bool has_content_length = false;
     bool is_chunked = false;
+    bool has_transfer_encoding = false;
     bool connection_close = false;
     bool connection_keep_alive = false;
     std::optional<unsigned> keep_alive_max;
@@ -211,6 +212,80 @@ struct ChunkedBody {
     return trailers;
 }
 
+enum class ResponseField {
+    OTHER,
+    CONTENT_LENGTH,
+    CONNECTION,
+    KEEP_ALIVE,
+    TRANSFER_ENCODING,
+};
+
+[[nodiscard]] ResponseField classify_response_field(const std::string_view name) noexcept {
+    if (StringUtil::iequals(name, "content-length")) {
+        return ResponseField::CONTENT_LENGTH;
+    }
+    if (StringUtil::iequals(name, "connection")) {
+        return ResponseField::CONNECTION;
+    }
+    if (StringUtil::iequals(name, "keep-alive")) {
+        return ResponseField::KEEP_ALIVE;
+    }
+    if (StringUtil::iequals(name, "transfer-encoding")) {
+        return ResponseField::TRANSFER_ENCODING;
+    }
+    return ResponseField::OTHER;
+}
+
+[[nodiscard]] std::expected<void, Error> apply_content_length(const std::string_view value, HeaderOutcome& out) {
+    const auto trimmed = StringUtil::trim(value);
+    std::size_t size = 0;
+    const auto [ptr, ec] = std::from_chars(trimmed.data(), trimmed.data() + trimmed.size(), size);
+    if (trimmed.empty() || ec != std::errc{} || ptr != trimmed.data() + trimmed.size()) {
+        return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED, "invalid Content-Length header"});
+    }
+    if (out.has_content_length && out.content_length != size) {
+        // Conflicting duplicate Content-Length — a smuggling vector.
+        return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED, "conflicting Content-Length headers"});
+    }
+    out.content_length = size;
+    out.has_content_length = true;
+    return {};
+}
+
+[[nodiscard]] std::expected<void, Error> apply_connection(const std::string_view value, HeaderOutcome& out) {
+    if (!valid_token_list(value)) {
+        return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED, "invalid Connection header"});
+    }
+    out.connection_close |= has_token(value, "close");
+    out.connection_keep_alive |= has_token(value, "keep-alive");
+    return {};
+}
+
+[[nodiscard]] std::expected<void, Error> apply_keep_alive(const std::string_view value, HeaderOutcome& out) {
+    if (const auto max = keep_alive_parameter(value, "max")) {
+        out.keep_alive_max = max;
+    }
+    if (const auto timeout = keep_alive_parameter(value, "timeout")) {
+        out.keep_alive_timeout = timeout;
+    }
+    return {};
+}
+
+[[nodiscard]] std::expected<void, Error> apply_transfer_encoding(const std::string_view value, HeaderOutcome& out) {
+    if (out.has_transfer_encoding) {
+        return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED, "multiple Transfer-Encoding headers"});
+    }
+    // Only the single `chunked` coding is implemented: accepting
+    // `gzip, chunked` without decoding gzip corrupts the representation
+    // and is a smuggling hazard.
+    if (!StringUtil::iequals(StringUtil::trim(value), "chunked")) {
+        return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED, "unsupported Transfer-Encoding"});
+    }
+    out.has_transfer_encoding = true;
+    out.is_chunked = true;
+    return {};
+}
+
 /// Parse the accumulated bytes as response headers in a single pass.
 [[nodiscard]] HeaderOutcome parse_headers(const std::string_view buffer, const Limits& limits) {
     HeaderOutcome out;
@@ -242,7 +317,6 @@ struct ChunkedBody {
     out.minor_version = minor_version;
     out.header_end = static_cast<std::size_t>(parsed);
 
-    bool has_transfer_encoding = false;
     for (std::size_t i = 0; i < header_count; ++i) {
         const auto name = std::string_view(headers[i].name, headers[i].name_len);
         const auto value = std::string_view(headers[i].value, headers[i].value_len);
@@ -252,54 +326,27 @@ struct ChunkedBody {
             return out;
         }
 
-        if (StringUtil::iequals(name, "content-length")) {
-            const auto trimmed = StringUtil::trim(value);
-            std::size_t size = 0;
-            const auto [ptr, ec] = std::from_chars(trimmed.data(), trimmed.data() + trimmed.size(), size);
-            if (trimmed.empty() || ec != std::errc{} || ptr != trimmed.data() + trimmed.size()) {
-                out.ok = false;
-                out.error = {ErrorCode::RESPONSE_PARSE_FAILED, "invalid Content-Length header"};
-                return out;
-            }
-            if (out.has_content_length && out.content_length != size) {
-                // Conflicting duplicate Content-Length — a smuggling vector.
-                out.ok = false;
-                out.error = {ErrorCode::RESPONSE_PARSE_FAILED, "conflicting Content-Length headers"};
-                return out;
-            }
-            out.content_length = size;
-            out.has_content_length = true;
-        } else if (StringUtil::iequals(name, "connection")) {
-            if (!valid_token_list(value)) {
-                out.ok = false;
-                out.error = {ErrorCode::RESPONSE_PARSE_FAILED, "invalid Connection header"};
-                return out;
-            }
-            out.connection_close |= has_token(value, "close");
-            out.connection_keep_alive |= has_token(value, "keep-alive");
-        } else if (StringUtil::iequals(name, "keep-alive")) {
-            if (const auto max = keep_alive_parameter(value, "max")) {
-                out.keep_alive_max = max;
-            }
-            if (const auto timeout = keep_alive_parameter(value, "timeout")) {
-                out.keep_alive_timeout = timeout;
-            }
-        } else if (StringUtil::iequals(name, "transfer-encoding")) {
-            if (has_transfer_encoding) {
-                out.ok = false;
-                out.error = {ErrorCode::RESPONSE_PARSE_FAILED, "multiple Transfer-Encoding headers"};
-                return out;
-            }
-            has_transfer_encoding = true;
-            // Only the single `chunked` coding is implemented: accepting
-            // `gzip, chunked` without decoding gzip corrupts the representation
-            // and is a smuggling hazard.
-            if (!StringUtil::iequals(StringUtil::trim(value), "chunked")) {
-                out.ok = false;
-                out.error = {ErrorCode::RESPONSE_PARSE_FAILED, "unsupported Transfer-Encoding"};
-                return out;
-            }
-            out.is_chunked = true;
+        std::expected<void, Error> applied{};
+        switch (classify_response_field(name)) {
+            case ResponseField::CONTENT_LENGTH:
+                applied = apply_content_length(value, out);
+                break;
+            case ResponseField::CONNECTION:
+                applied = apply_connection(value, out);
+                break;
+            case ResponseField::KEEP_ALIVE:
+                applied = apply_keep_alive(value, out);
+                break;
+            case ResponseField::TRANSFER_ENCODING:
+                applied = apply_transfer_encoding(value, out);
+                break;
+            case ResponseField::OTHER:
+                break;
+        }
+        if (!applied) {
+            out.ok = false;
+            out.error = std::move(applied.error());
+            return out;
         }
 
         out.headers.emplace(std::string(name), std::string(StringUtil::trim(value)));
@@ -312,7 +359,7 @@ struct ChunkedBody {
         out.error = {ErrorCode::RESPONSE_PARSE_FAILED, "conflicting Connection directives"};
         return out;
     }
-    if (out.has_content_length && has_transfer_encoding) {
+    if (out.has_content_length && out.has_transfer_encoding) {
         out.ok = false;
         out.error = {ErrorCode::RESPONSE_PARSE_FAILED, "response mixes Content-Length and Transfer-Encoding"};
         return out;
@@ -461,6 +508,68 @@ struct ChunkedBody {
     }
 }
 
+enum class BodyFraming {
+    ABSENT,
+    ZERO_LENGTH,
+    FIXED,
+    CHUNKED,
+    UNTIL_EOF,
+};
+
+// Only these three statuses and HEAD carry no body here: 1xx was consumed
+// above and 101 was just rejected, so neither can reach this decision.
+[[nodiscard]] BodyFraming body_framing(const HeaderOutcome& headers, const Method method) noexcept {
+    if (headers.status == 205) {
+        return BodyFraming::ZERO_LENGTH;
+    }
+    if (method == Method::HEAD || headers.status == 204 || headers.status == 304) {
+        return BodyFraming::ABSENT;
+    }
+    if (headers.has_content_length) {
+        return BodyFraming::FIXED;
+    }
+    if (headers.is_chunked) {
+        return BodyFraming::CHUNKED;
+    }
+    return BodyFraming::UNTIL_EOF;
+}
+
+// 205 must announce a zero-length body; consume whatever framing it
+// used so the window stays aligned for the next exchange.
+[[nodiscard]] coro::Task<std::expected<ChunkedBody, Error>> read_zero_length_body(net::Stream& stream,
+                                                                                  ReadWindow& window,
+                                                                                  const HeaderOutcome& headers,
+                                                                                  const Limits& limits,
+                                                                                  const std::string_view context) {
+    if (headers.has_content_length && headers.content_length != 0) {
+        co_return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED, "205 response has a non-empty body"});
+    }
+    if (headers.is_chunked) {
+        auto chunked = co_await read_chunked_body(stream, window, limits, context);
+        if (!chunked) {
+            co_return std::unexpected(std::move(chunked.error()));
+        }
+        if (!chunked->body.empty()) {
+            co_return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED, "205 response has a non-empty body"});
+        }
+        co_return chunked;
+    }
+    if (headers.has_content_length) {
+        co_return ChunkedBody{};
+    }
+    if (headers.connection_close) {
+        auto body = co_await read_until_eof(stream, window, limits);
+        if (!body) {
+            co_return std::unexpected(std::move(body.error()));
+        }
+        if (!body->empty()) {
+            co_return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED, "205 response has a non-empty body"});
+        }
+        co_return ChunkedBody{};
+    }
+    co_return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED, "205 response lacks zero-length framing"});
+}
+
 }  // namespace
 
 coro::Task<std::expected<RawResponse, Error>> exchange(net::Stream& stream, const WireRequest& request,
@@ -526,57 +635,37 @@ coro::Task<std::expected<RawResponse, Error>> exchange(net::Stream& stream, cons
     }
 
     // ── Read the body per framing ──
-    // Only these three statuses and HEAD carry no body here: 1xx was consumed
-    // above and 101 was just rejected, so neither can reach this decision.
-    const bool no_body =
-        request.method == Method::HEAD || headers.status == 204 || headers.status == 205 || headers.status == 304;
-
+    const auto framing = body_framing(headers, request.method);
     std::expected<std::string, Error> body = std::string{};
     std::multimap<std::string, std::string> trailers;
-    if (no_body) {
-        if (headers.status == 205) {
-            // 205 must announce a zero-length body; consume whatever framing it
-            // used so the window stays aligned for the next exchange.
-            if (headers.has_content_length && headers.content_length != 0) {
-                co_return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED, "205 response has a non-empty body"});
-            }
-            if (headers.is_chunked) {
-                auto chunked = co_await read_chunked_body(stream, window, limits, context);
-                if (!chunked) {
-                    co_return std::unexpected(std::move(chunked.error()));
-                }
-                if (!chunked->body.empty()) {
-                    co_return std::unexpected(
-                        Error{ErrorCode::RESPONSE_PARSE_FAILED, "205 response has a non-empty body"});
-                }
-                trailers = std::move(chunked->trailers);
-                body = std::string{};
-            } else if (headers.has_content_length) {
-                body = std::string{};
-            } else if (headers.connection_close) {
-                body = co_await read_until_eof(stream, window, limits);
-                if (body && !body->empty()) {
-                    co_return std::unexpected(
-                        Error{ErrorCode::RESPONSE_PARSE_FAILED, "205 response has a non-empty body"});
-                }
-            } else {
-                co_return std::unexpected(
-                    Error{ErrorCode::RESPONSE_PARSE_FAILED, "205 response lacks zero-length framing"});
-            }
-        } else {
+    switch (framing) {
+        case BodyFraming::ABSENT:
             body = std::string{};
+            break;
+        case BodyFraming::ZERO_LENGTH: {
+            auto chunked = co_await read_zero_length_body(stream, window, headers, limits, context);
+            if (!chunked) {
+                co_return std::unexpected(std::move(chunked.error()));
+            }
+            trailers = std::move(chunked->trailers);
+            body = std::string{};
+            break;
         }
-    } else if (headers.has_content_length) {
-        body = co_await read_fixed_body(stream, window, headers.content_length, context);
-    } else if (headers.is_chunked) {
-        auto chunked = co_await read_chunked_body(stream, window, limits, context);
-        if (!chunked) {
-            co_return std::unexpected(std::move(chunked.error()));
+        case BodyFraming::FIXED:
+            body = co_await read_fixed_body(stream, window, headers.content_length, context);
+            break;
+        case BodyFraming::CHUNKED: {
+            auto chunked = co_await read_chunked_body(stream, window, limits, context);
+            if (!chunked) {
+                co_return std::unexpected(std::move(chunked.error()));
+            }
+            body = std::move(chunked->body);
+            trailers = std::move(chunked->trailers);
+            break;
         }
-        body = std::move(chunked->body);
-        trailers = std::move(chunked->trailers);
-    } else {
-        body = co_await read_until_eof(stream, window, limits);
+        case BodyFraming::UNTIL_EOF:
+            body = co_await read_until_eof(stream, window, limits);
+            break;
     }
     if (!body) {
         co_return std::unexpected(std::move(body.error()));
@@ -593,7 +682,7 @@ coro::Task<std::expected<RawResponse, Error>> exchange(net::Stream& stream, cons
         .framing =
             {
                 .version = headers.minor_version == 0 ? HttpVersion::V1_0 : HttpVersion::V1_1,
-                .self_delimiting = no_body || headers.has_content_length || headers.is_chunked,
+                .self_delimiting = framing != BodyFraming::UNTIL_EOF,
                 .connection_close = headers.connection_close,
                 .keep_alive = headers.connection_keep_alive,
                 .max = headers.keep_alive_max,
