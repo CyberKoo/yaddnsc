@@ -9,7 +9,7 @@
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <exception>
 #include <expected>
-#include <ratio>
+#include <optional>
 #include <string>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 #include "application/log_macros.h"
@@ -47,6 +47,17 @@ coro::Duration next_delay(const UpdateCycleOutcome& outcome, int update_interval
     return std::chrono::seconds(update_interval);
 }
 
+[[nodiscard]] std::optional<coro::TimePoint> add_deadline(coro::TimePoint start, coro::Duration delay) noexcept {
+    const auto elapsed = start.time_since_epoch();
+    if (delay > coro::Duration::zero() && elapsed > coro::Duration::max() - delay) {
+        return std::nullopt;
+    }
+    if (delay < coro::Duration::zero() && elapsed < coro::Duration::min() - delay) {
+        return std::nullopt;
+    }
+    return coro::TimePoint{elapsed + delay};
+}
+
 }  // namespace
 
 coro::Task<void> subdomain_task(const domain::DomainConfig& domain, const domain::SubdomainConfig& subdomain,
@@ -74,11 +85,17 @@ coro::Task<void> subdomain_task(const domain::DomainConfig& domain, const domain
     coro::TimePoint last_force =
         force_interval > 0 ? co_await coro::current_time() - std::chrono::seconds(force_interval) : coro::TimePoint{};
 
+    // Scheduled cycle start; the plain interval advances it in whole steps
+    // instead of re-sampling the clock after each wake-up.
+    coro::TimePoint next_start = co_await coro::current_time();
+
     for (;;) {
-        // The interval is anchored at the cycle start: a slow cycle shortens
-        // the following wait and a cycle that overran its interval is followed
-        // by an immediate one, so the long-run cadence does not drift by the
-        // cycle duration.
+        // The plain interval is anchored at the scheduled cycle start, not at
+        // the time the timer actually fired: a slow cycle or a late wake-up
+        // shortens the following wait, so neither the cycle duration nor timer
+        // latency accumulates into the long-run cadence. A cycle that overran
+        // its interval is followed by an immediate one, and the schedule
+        // restarts there instead of catching up with a burst of cycles.
         const auto cycle_start = co_await coro::current_time();
         try {
             task.force_update = evaluate_force(force_interval, last_force, cycle_start);
@@ -92,19 +109,25 @@ coro::Task<void> subdomain_task(const domain::DomainConfig& domain, const domain
                 last_force = co_await coro::current_time();
             }
 
-            // Provider retry_after starts at failure; the plain interval starts
-            // at cycle_start, so a slow cycle shortens the following wait.
+            // Provider retry_after starts at failure and restarts the schedule
+            // there; the plain interval continues from the scheduled start.
             const auto delay =
                 outcome.timed_out ? std::chrono::seconds(update_interval) : next_delay(*outcome, update_interval);
             const bool anchored_at_failure =
                 !outcome.timed_out && !outcome->has_value() && outcome->error().retry_after_seconds > 0;
-            coro::Duration wait = delay;
-            if (!anchored_at_failure) {
-                const auto elapsed = co_await coro::current_time() - cycle_start;
-                wait = delay > elapsed ? delay - elapsed : coro::Duration{};
+            const auto now = co_await coro::current_time();
+            const auto schedule_from = anchored_at_failure ? now : next_start;
+            const auto deadline = add_deadline(schedule_from, delay);
+            if (!deadline) {
+                YLOG_ERROR(services.logger, "Update schedule for \"{}\" exhausted the timer range", task.fqdn);
+                co_return;
+            }
+            next_start = *deadline;
+            if (!anchored_at_failure && next_start < now) {
+                next_start = now;
             }
 
-            co_await coro::sleep_for(wait);
+            co_await coro::sleep_until(next_start);
             continue;
         } catch (const coro::Cancelled&) {
             YLOG_DEBUG(services.logger, "Subdomain task for \"{}\" stopped", task.fqdn);
@@ -122,7 +145,14 @@ coro::Task<void> subdomain_task(const domain::DomainConfig& domain, const domain
         // Preserve the former restart policy: a defect waits a full interval
         // and makes the next cycle forced when force updates are enabled.
         last_force = force_interval > 0 ? cycle_start - std::chrono::seconds(force_interval) : coro::TimePoint{};
-        co_await coro::sleep_for(std::chrono::seconds(update_interval));
+        const auto now = co_await coro::current_time();
+        const auto deadline = add_deadline(now, std::chrono::seconds(update_interval));
+        if (!deadline) {
+            YLOG_ERROR(services.logger, "Update schedule for \"{}\" exhausted the timer range", task.fqdn);
+            co_return;
+        }
+        next_start = *deadline;
+        co_await coro::sleep_until(next_start);
     }
 }
 

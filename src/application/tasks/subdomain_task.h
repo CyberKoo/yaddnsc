@@ -21,8 +21,8 @@ namespace app {
 
 struct Services;
 
-/// Drive one subdomain forever: update, sleep, repeat, until the enclosing
-/// scope is cancelled.
+/// Drive one subdomain until the enclosing scope is cancelled or the next
+/// update deadline cannot be represented by the clock.
 ///
 /// The force-update interval: the first cycle is forced when the interval is
 /// positive (the last forced publication starts one interval in the past), and
@@ -39,7 +39,8 @@ struct Services;
 /// instead of starting another cycle.
 /// Failure: a defect escaping an update cycle (e.g. an allocation failure) is
 /// logged and retried after one full update interval. The next cycle is forced
-/// when force updates are enabled, preserving the former restart policy.
+/// when force updates are enabled, preserving the former restart policy. If the
+/// clock cannot represent a future deadline, the task logs an error and returns.
 [[nodiscard]] coro::Task<void> subdomain_task(const domain::DomainConfig& domain,
                                               const domain::SubdomainConfig& subdomain, const Services& services);
 

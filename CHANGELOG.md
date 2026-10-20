@@ -153,6 +153,9 @@ migration](docs/coroutine.md#coroutine-lifecycle-migration) and
   host knows: the version handshake runs before the execution-group symbol
   check, so such a module is no longer misreported as missing the v1 entry
   points.
+- The update interval runs from each cycle's scheduled start rather than the
+  moment its timer fired, so timer wake-up latency no longer accumulates into
+  the long-run cadence.
 
 ## [1.0.0-alpha.7] - 2026-10-17
 
