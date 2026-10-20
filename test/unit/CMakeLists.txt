@@ -268,6 +268,11 @@ target_link_libraries(test_host_services PRIVATE yaddnsc_prod_all test_allocatio
 add_unit_test(async_services SOURCE infrastructure/plugin/async_services_test.cpp)
 target_link_libraries(test_async_services PRIVATE yaddnsc_prod_all)
 
+# async_services_host — the host side of the async services table: level and
+# method mapping, request validation and the operation-id bookkeeping.
+add_unit_test(async_services_host SOURCE infrastructure/plugin/async_services_host_test.cpp)
+target_link_libraries(test_async_services_host PRIVATE yaddnsc_prod_all)
+
 # bridge_branch — the Bridge ingress closure arms: closed-group start_cycle,
 # spawn / dispatch allocation failures, and the cancel() no-op arms
 add_unit_test(bridge_branch SOURCE infrastructure/plugin/bridge_branch_test.cpp)
@@ -515,6 +520,10 @@ add_unit_test(sdk_async_separation SOURCE sdk/sdk_async_separation_test.cpp)
 # sdk_async_lifecycle — async response ownership, one-shot validate and event
 # payload validation in the SDK instance.
 add_unit_test(sdk_async_lifecycle SOURCE sdk/sdk_async_lifecycle_test.cpp)
+
+# sdk_async_instance — the async instance's failure paths: host service table
+# compatibility, malformed event rejection and exception translation.
+add_unit_test(sdk_async_instance SOURCE sdk/sdk_async_instance_test.cpp)
 
 # driver_magic — the YADDNSC_DRIVER_MAGIC constant in the v1 ABI header
 add_unit_test(driver_magic SOURCE sdk/driver_magic_test.cpp)
