@@ -59,10 +59,8 @@ target_compile_definitions(test_cli PRIVATE
     TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver")
 # simple.so must be built before the test runs (dlopen dependency).
 add_dependencies(test_cli simple)
-# macOS + ASan + dlopen plugins: disable the ODR checker for the plugin's
-# vtables (same known false positive as test_driver_loader).
 set_tests_properties(test_cli PROPERTIES
-    ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
+    ENVIRONMENT "${YADDNSC_TEST_ASAN_OPTIONS}")
 
 # ============================================================================
 #  Coroutine transport (src/infrastructure/network/) — TCP echo, the shared Python

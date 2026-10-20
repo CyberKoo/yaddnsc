@@ -192,6 +192,28 @@ target_link_libraries(yaddnsc_prod_all INTERFACE
     yaddnsc_coro_plugin
 )
 
+# ---------------------------------------------------------------------------
+# YADDNSC_TEST_ASAN_OPTIONS — shared ASan runtime options for tests that
+# dlopen sanitizer-instrumented modules (drivers, plugin fixtures).
+#
+# - detect_odr_violation=0: ASan's ODR checker reports a plugin's vtables as
+#   duplicate-registration conflicts — a known false positive; a plugin is a
+#   separate module by design.
+# - report_globals=0 (macOS only): dlclose poisons the unloaded image's
+#   global redzones, and dyld reuses the address range for the next dlopen;
+#   registering that image runs libmacho's getsectiondata, whose intercepted
+#   strcmp/strncmp reads load commands whose shadow still carries the stale
+#   poison — a global-buffer-overflow false positive that aborts the test
+#   process. Apple ASan gates strcmp behind intercept_strcmp but exposes no
+#   switch for strncmp, so global-overflow reporting is disabled for these
+#   binaries instead.
+# ---------------------------------------------------------------------------
+set(YADDNSC_TEST_ASAN_OPTIONS "ASAN_OPTIONS=detect_odr_violation=0")
+if(APPLE)
+    string(APPEND YADDNSC_TEST_ASAN_OPTIONS ":report_globals=0")
+endif()
+string(APPEND YADDNSC_TEST_ASAN_OPTIONS ":detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
+
 # ============================================================================
 # Helper macro  add_unit_test(<name> [SOURCE <source>] [extra_sources ...])
 #

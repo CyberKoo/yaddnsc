@@ -245,12 +245,8 @@ target_compile_definitions(test_driver_catalog_capabilities PRIVATE
     NO_CAPS_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_no_caps>")
 add_dependencies(test_driver_catalog_capabilities yaddnsc_fixture_aaaa_only yaddnsc_fixture_no_caps)
 
-# macOS + ASan + dlopen plugins: ASan's ODR checker reports the driver's
-# vtables as duplicate-registration conflicts (known false positive; the
-# plugin is a separate module by design).  Disable ODR detection for this
-# test only, keeping the rest of the recommended ASAN_OPTIONS.
 set_tests_properties(test_driver_loader PROPERTIES
-    ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
+    ENVIRONMENT "${YADDNSC_TEST_ASAN_OPTIONS}")
 target_compile_definitions(test_driver_loader PRIVATE
     TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver"
     BAD_DRIVER_FIXTURE="$<TARGET_FILE:yaddnsc_bad_driver_fixture>")

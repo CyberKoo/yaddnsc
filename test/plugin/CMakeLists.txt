@@ -109,7 +109,7 @@ add_unit_test(plugin_lifecycle SOURCE plugin_lifecycle_test.cpp)
 add_unit_test(abi_freeze_compat SOURCE abi_freeze_compat_test.cpp)
 target_link_libraries(test_abi_freeze_compat PRIVATE yaddnsc_prod_all ${CMAKE_DL_LIBS})
 set_tests_properties(test_abi_freeze_compat PROPERTIES
-    ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
+    ENVIRONMENT "${YADDNSC_TEST_ASAN_OPTIONS}")
 target_compile_definitions(test_abi_freeze_compat PRIVATE
     FROZEN_V1_0_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_frozen_v1_0>")
 add_dependencies(test_abi_freeze_compat yaddnsc_fixture_frozen_v1_0)
@@ -120,7 +120,7 @@ add_dependencies(test_abi_freeze_compat yaddnsc_fixture_frozen_v1_0)
 add_unit_test(coro_driver_gateway SOURCE coro_driver_gateway_test.cpp)
 target_link_libraries(test_coro_driver_gateway PRIVATE yaddnsc_prod_all yaddnsc_coro_plugin ${CMAKE_DL_LIBS})
 set_tests_properties(test_coro_driver_gateway PROPERTIES
-    ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2"
+    ENVIRONMENT "${YADDNSC_TEST_ASAN_OPTIONS}"
     TIMEOUT 120)
 target_compile_definitions(test_coro_driver_gateway PRIVATE
     TEST_PLUGIN_PATH="$<TARGET_FILE:yaddnsc_test_driver_plugin>"
@@ -150,17 +150,15 @@ endforeach()
 add_unit_test(gateway_abi_contract SOURCE gateway_abi_contract_test.cpp)
 target_link_libraries(test_gateway_abi_contract PRIVATE yaddnsc_prod_all yaddnsc_coro_plugin ${CMAKE_DL_LIBS})
 set_tests_properties(test_gateway_abi_contract PROPERTIES
-    ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
+    ENVIRONMENT "${YADDNSC_TEST_ASAN_OPTIONS}")
 target_compile_definitions(test_gateway_abi_contract PRIVATE
     ABI_MISBEHAVE_PATH="$<TARGET_FILE:yaddnsc_fixture_abi_misbehave>")
 add_dependencies(test_gateway_abi_contract yaddnsc_fixture_abi_misbehave)
 
 foreach(test_target test_plugin_abi_contract test_plugin_lifecycle)
     target_link_libraries(${test_target} PRIVATE yaddnsc_prod_all ${CMAKE_DL_LIBS})
-    # macOS + ASan + dlopen plugins: disable the ODR checker for the plugin's
-    # vtables (same known false positive as test_driver_loader).
     set_tests_properties(${test_target} PROPERTIES
-        ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
+        ENVIRONMENT "${YADDNSC_TEST_ASAN_OPTIONS}")
     target_compile_definitions(${test_target} PRIVATE
         TEST_PLUGIN_PATH="$<TARGET_FILE:yaddnsc_test_driver_plugin>"
         BAD_REVISION_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_bad_revision>"
@@ -211,7 +209,7 @@ target_compile_definitions(test_plugin_cancellation_publication PRIVATE
 )
 add_dependencies(test_plugin_cancellation_publication yaddnsc_test_driver_plugin)
 set_tests_properties(test_plugin_cancellation_publication PROPERTIES
-    ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2"
+    ENVIRONMENT "${YADDNSC_TEST_ASAN_OPTIONS}"
     TIMEOUT 20)
 
 add_library(yaddnsc_fixture_phase_http MODULE fixtures/phase_http.cpp)
@@ -242,7 +240,7 @@ target_compile_definitions(test_async_abi_contract PRIVATE
     TEST_ASYNC_PLUGIN_PATH="$<TARGET_FILE:yaddnsc_fixture_async>")
 add_dependencies(test_async_abi_contract yaddnsc_fixture_async)
 set_tests_properties(test_async_abi_contract PROPERTIES
-    ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
+    ENVIRONMENT "${YADDNSC_TEST_ASAN_OPTIONS}")
 
 # ---------------------------------------------------------------------------
 # Loader mode-selection fixtures. One source, compiled with the descriptor
