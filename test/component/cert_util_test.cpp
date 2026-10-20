@@ -118,23 +118,24 @@ TEST(TlsTrustSnapshot, HashDirectory_LoadsAllIssuersAndAuxBeforeSourcesDisappear
     ASSERT_TRUE(context);
     ASSERT_EQ(X509_STORE_CTX_init(context.get(), store.get(), second.get(), nullptr), 1);
     EXPECT_EQ(X509_verify_cert(context.get()), 1);
-    const auto* objects = X509_STORE_get0_objects(store.get());
-    EXPECT_EQ(sk_X509_OBJECT_num(objects), 3);
-    bool aux_found = false;
-    for (int i = 0; i < sk_X509_OBJECT_num(objects); ++i) {
-        auto* object = sk_X509_OBJECT_value(objects, i);
-        if (X509_OBJECT_get_type(object) != X509_LU_X509) {
-            EXPECT_EQ(X509_OBJECT_get_type(object), X509_LU_CRL);
-            continue;
+    ComponentTest::with_store_objects(store.get(), [&](const auto* objects) {
+        EXPECT_EQ(sk_X509_OBJECT_num(objects), 3);
+        bool aux_found = false;
+        for (int i = 0; i < sk_X509_OBJECT_num(objects); ++i) {
+            auto* object = sk_X509_OBJECT_value(objects, i);
+            if (X509_OBJECT_get_type(object) != X509_LU_X509) {
+                EXPECT_EQ(X509_OBJECT_get_type(object), X509_LU_CRL);
+                continue;
+            }
+            X509* cert = X509_OBJECT_get0_X509(object);
+            if (X509_NAME_cmp(X509_get_subject_name(cert), X509_get_subject_name(first.get())) == 0) {
+                aux_found = true;
+                EXPECT_EQ(sk_ASN1_OBJECT_num(X509_get0_trust_objects(cert)), 1);
+                EXPECT_EQ(sk_ASN1_OBJECT_num(X509_get0_reject_objects(cert)), 1);
+            }
         }
-        X509* cert = X509_OBJECT_get0_X509(object);
-        if (X509_NAME_cmp(X509_get_subject_name(cert), X509_get_subject_name(first.get())) == 0) {
-            aux_found = true;
-            EXPECT_EQ(sk_ASN1_OBJECT_num(X509_get0_trust_objects(cert)), 1);
-            EXPECT_EQ(sk_ASN1_OBJECT_num(X509_get0_reject_objects(cert)), 1);
-        }
-    }
-    EXPECT_TRUE(aux_found);
+        EXPECT_TRUE(aux_found);
+    });
 }
 
 TEST(TlsTrustSnapshot, MissingEmptyOrMalformedIndexedSource_FailsClosed) {
@@ -157,7 +158,9 @@ TEST(TlsTrustSnapshot, HashSuffixGap_DoesNotIntroduceUnreachableTrustEntries) {
     const std::unique_ptr<X509_STORE, decltype(&X509_STORE_free)> store{X509_STORE_new(), &X509_STORE_free};
     ASSERT_TRUE(store);
     EXPECT_FALSE(net::detail::load_trust_directory(*store, directory.path()));
-    EXPECT_EQ(sk_X509_OBJECT_num(X509_STORE_get0_objects(store.get())), 0);
+    ComponentTest::with_store_objects(store.get(), [](const auto* objects) {
+        EXPECT_EQ(sk_X509_OBJECT_num(objects), 0);
+    });
 }
 
 TEST(TlsTrustSnapshot, BadIndexedEntryAlongsideValidRoot_RejectsWholeSnapshot) {
@@ -189,7 +192,9 @@ TEST(TlsTrustSnapshot, MisnamedCertificate_DoesNotExpandTrust) {
     const std::unique_ptr<X509_STORE, decltype(&X509_STORE_free)> store{X509_STORE_new(), &X509_STORE_free};
     ASSERT_TRUE(store);
     EXPECT_FALSE(net::detail::load_trust_directory(*store, directory.path()));
-    EXPECT_EQ(sk_X509_OBJECT_num(X509_STORE_get0_objects(store.get())), 0);
+    ComponentTest::with_store_objects(store.get(), [](const auto* objects) {
+        EXPECT_EQ(sk_X509_OBJECT_num(objects), 0);
+    });
 }
 
 TEST(TlsTrustSnapshot, EmptyDirectory_IsRejectedEvenWhenDestinationAlreadyContainsTrust) {
