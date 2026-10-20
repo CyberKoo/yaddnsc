@@ -14,6 +14,7 @@
 #include <system_error>
 
 #include "infrastructure/http/protocol/field_chars.hpp"
+#include "infrastructure/http/protocol/field_names.hpp"
 #include "infrastructure/http/types.h"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
@@ -26,10 +27,13 @@ namespace {
 
 /// The client owns these header fields: a user-supplied copy is discarded.
 [[nodiscard]] bool is_managed_header(const std::string_view name) noexcept {
-    return StringUtil::iequals(name, "host") || StringUtil::iequals(name, "content-length") ||
-           StringUtil::iequals(name, "content-type") || StringUtil::iequals(name, "connection") ||
-           StringUtil::iequals(name, "user-agent") || StringUtil::iequals(name, "transfer-encoding") ||
-           StringUtil::iequals(name, "trailer") || StringUtil::iequals(name, "upgrade");
+    return StringUtil::iequals(name, protocol::field::HOST) ||
+           StringUtil::iequals(name, protocol::field::CONTENT_LENGTH) ||
+           StringUtil::iequals(name, protocol::field::CONTENT_TYPE) ||
+           StringUtil::iequals(name, protocol::field::CONNECTION) ||
+           StringUtil::iequals(name, protocol::field::USER_AGENT) ||
+           StringUtil::iequals(name, protocol::field::TRANSFER_ENCODING) ||
+           StringUtil::iequals(name, protocol::field::TRAILER) || StringUtil::iequals(name, protocol::field::UPGRADE);
 }
 
 /// RFC 9112 §3.2: the target is origin-form ("/..."), or "*" for a server-wide
@@ -57,22 +61,22 @@ struct RequestFieldState {
 };
 
 [[nodiscard]] RequestField classify_request_field(const std::string_view name) noexcept {
-    if (StringUtil::iequals(name, "host")) {
+    if (StringUtil::iequals(name, protocol::field::HOST)) {
         return RequestField::HOST;
     }
-    if (StringUtil::iequals(name, "connection")) {
+    if (StringUtil::iequals(name, protocol::field::CONNECTION)) {
         return RequestField::CONNECTION;
     }
-    if (StringUtil::iequals(name, "content-length")) {
+    if (StringUtil::iequals(name, protocol::field::CONTENT_LENGTH)) {
         return RequestField::CONTENT_LENGTH;
     }
-    if (StringUtil::iequals(name, "transfer-encoding")) {
+    if (StringUtil::iequals(name, protocol::field::TRANSFER_ENCODING)) {
         return RequestField::TRANSFER_ENCODING;
     }
-    if (StringUtil::iequals(name, "trailer")) {
+    if (StringUtil::iequals(name, protocol::field::TRAILER)) {
         return RequestField::TRAILER;
     }
-    if (StringUtil::iequals(name, "upgrade")) {
+    if (StringUtil::iequals(name, protocol::field::UPGRADE)) {
         return RequestField::UPGRADE;
     }
     return RequestField::OTHER;

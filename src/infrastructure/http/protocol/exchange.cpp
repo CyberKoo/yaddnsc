@@ -24,6 +24,7 @@
 
 #include "infrastructure/http/error.h"
 #include "infrastructure/http/protocol/field_chars.hpp"
+#include "infrastructure/http/protocol/field_names.hpp"
 #include "infrastructure/http/protocol/read_window.h"
 #include "infrastructure/http/protocol/wire.h"
 #include "infrastructure/network/transport/stream.h"
@@ -77,9 +78,9 @@ struct HeaderOutcome {
 }
 
 [[nodiscard]] bool forbidden_trailer(const std::string_view name) noexcept {
-    return StringUtil::iequals(name, "content-length") || StringUtil::iequals(name, "transfer-encoding") ||
-           StringUtil::iequals(name, "host") || StringUtil::iequals(name, "connection") ||
-           StringUtil::iequals(name, "trailer") || StringUtil::iequals(name, "upgrade");
+    return StringUtil::iequals(name, field::CONTENT_LENGTH) || StringUtil::iequals(name, field::TRANSFER_ENCODING) ||
+           StringUtil::iequals(name, field::HOST) || StringUtil::iequals(name, field::CONNECTION) ||
+           StringUtil::iequals(name, field::TRAILER) || StringUtil::iequals(name, field::UPGRADE);
 }
 
 [[nodiscard]] std::optional<unsigned> keep_alive_parameter(const std::string_view value,
@@ -221,16 +222,16 @@ enum class ResponseField {
 };
 
 [[nodiscard]] ResponseField classify_response_field(const std::string_view name) noexcept {
-    if (StringUtil::iequals(name, "content-length")) {
+    if (StringUtil::iequals(name, field::CONTENT_LENGTH)) {
         return ResponseField::CONTENT_LENGTH;
     }
-    if (StringUtil::iequals(name, "connection")) {
+    if (StringUtil::iequals(name, field::CONNECTION)) {
         return ResponseField::CONNECTION;
     }
-    if (StringUtil::iequals(name, "keep-alive")) {
+    if (StringUtil::iequals(name, field::KEEP_ALIVE)) {
         return ResponseField::KEEP_ALIVE;
     }
-    if (StringUtil::iequals(name, "transfer-encoding")) {
+    if (StringUtil::iequals(name, field::TRANSFER_ENCODING)) {
         return ResponseField::TRANSFER_ENCODING;
     }
     return ResponseField::OTHER;
