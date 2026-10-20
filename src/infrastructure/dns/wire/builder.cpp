@@ -132,6 +132,69 @@ constexpr std::uint16_t OPT_RR_TYPE = 41;
                                       (aa ? FLAG_AA : 0) | (tc ? FLAG_TC : 0) | (rd ? FLAG_RD : 0) |
                                       (ra ? FLAG_RA : 0) | (rcode & 0x0F));
 }
+
+/// Serialize the additional section's EDNS0 OPT pseudo-record (RFC 6891):
+/// the validated version and payload size, the extended-RCODE/version/DO TTL,
+/// and the RDLENGTH-prefixed options.
+/// @param rcode  Query RCODE; bits 4..11 hold the upper eight bits of the
+///               12-bit extended RCODE and travel in the OPT TTL.
+/// @throws DnsPacketException on an unsupported EDNS version, a UDP payload
+///         size below 512, or options that overflow the 16-bit RDLENGTH field.
+void build_edns_opt(WireWriter& w, std::uint16_t udp_payload_size, std::uint8_t version, bool dnssec_ok,
+                    std::span<const EdnsOption> options, std::uint16_t rcode) {
+    // RFC 6891 §4: EDNS version MUST be 0.
+    if (version != 0) {
+        throw DnsPacketException(
+            fmt::format("EDNS version {} is not supported (only version 0 is valid)", static_cast<unsigned>(version)));
+    }
+
+    // RFC 6891 §6.1: UDP payload size MUST be ≥ 512.
+    if (udp_payload_size < 512) {
+        throw DnsPacketException(fmt::format("EDNS UDP payload size {} is too small (minimum 512)", udp_payload_size));
+    }
+
+    // Name: root (single zero byte).
+    w.encode_name("");
+
+    // Type: OPT (41).
+    w.write_uint16(OPT_RR_TYPE);
+
+    // Class: sender's UDP payload size.
+    w.write_uint16(udp_payload_size);
+
+    // TTL: extended RCODE | version | DO bit | Z
+    // bits 31-24: upper eight bits of the 12-bit RCODE
+    // bits 23-16: version
+    // bit 15:     DNSSEC OK (DO)
+    // bits 14-0:  Z (must be 0)
+    const auto ttl = static_cast<std::uint32_t>((static_cast<std::uint32_t>(rcode >> 4) << 24) |
+                                                (static_cast<std::uint32_t>(version) << 16) |
+                                                (dnssec_ok ? std::uint32_t{0x8000} : std::uint32_t{0}));
+    w.write_uint32(ttl);
+
+    // RDLENGTH and RDATA (options).
+    // Compute total option data size in a wide type: the wire field is
+    // 16 bits, so an oversized option set must fail instead of wrapping.
+    size_t rdlength = 0;
+    for (const auto& opt : options) {
+        rdlength += 4 + opt.data.size();
+    }
+    if (rdlength > 0xFFFF) {
+        throw DnsPacketException(fmt::format("EDNS options are too large ({} octets, max 65535)", rdlength));
+    }
+    w.write_uint16(static_cast<std::uint16_t>(rdlength));
+
+    // Write each option: code(2) + length(2) + data.
+    for (const auto& opt : options) {
+        if (opt.data.size() > 0xFFFF) {
+            throw DnsPacketException(
+                fmt::format("EDNS option {} data is too large ({} octets, max 65535)", opt.code, opt.data.size()));
+        }
+        w.write_uint16(opt.code);
+        w.write_uint16(static_cast<std::uint16_t>(opt.data.size()));
+        w.write_bytes(opt.data);
+    }
+}
 }  // anonymous namespace
 
 // ===========================================================================
@@ -253,61 +316,8 @@ std::vector<std::uint8_t> QueryBuilder::build() const {
     // ---- Additional section: EDNS0 OPT pseudo-record ----
     if (edns_.has_value()) {
         const auto& edns = *edns_;
-
-        // RFC 6891 §4: EDNS version MUST be 0.
-        if (edns.version != 0) {
-            throw DnsPacketException(fmt::format("EDNS version {} is not supported (only version 0 is valid)",
-                                                 static_cast<unsigned>(edns.version)));
-        }
-
-        // RFC 6891 §6.1: UDP payload size MUST be ≥ 512.
-        if (edns.udp_payload_size < 512) {
-            throw DnsPacketException(
-                fmt::format("EDNS UDP payload size {} is too small (minimum 512)", edns.udp_payload_size));
-        }
-
-        // Name: root (single zero byte).
-        w.encode_name("");
-
-        // Type: OPT (41).
-        w.write_uint16(OPT_RR_TYPE);
-
-        // Class: sender's UDP payload size.
-        w.write_uint16(edns.udp_payload_size);
-
-        // TTL: extended RCODE | version | DO bit | Z
-        // bits 31-24: upper eight bits of the 12-bit RCODE
-        // bits 23-16: version
-        // bit 15:     DNSSEC OK (DO)
-        // bits 14-0:  Z (must be 0)
-        const auto ttl =
-            static_cast<std::uint32_t>((static_cast<std::uint32_t>(std::to_underlying(rcode_) >> 4) << 24) |
-                                       (static_cast<std::uint32_t>(edns.version) << 16) |
-                                       (edns.dnssec_ok ? std::uint32_t{0x8000} : std::uint32_t{0}));
-        w.write_uint32(ttl);
-
-        // RDLENGTH and RDATA (options).
-        // Compute total option data size in a wide type: the wire field is
-        // 16 bits, so an oversized option set must fail instead of wrapping.
-        size_t rdlength = 0;
-        for (const auto& opt : edns.options) {
-            rdlength += 4 + opt.data.size();
-        }
-        if (rdlength > 0xFFFF) {
-            throw DnsPacketException(fmt::format("EDNS options are too large ({} octets, max 65535)", rdlength));
-        }
-        w.write_uint16(static_cast<std::uint16_t>(rdlength));
-
-        // Write each option: code(2) + length(2) + data.
-        for (const auto& opt : edns.options) {
-            if (opt.data.size() > 0xFFFF) {
-                throw DnsPacketException(
-                    fmt::format("EDNS option {} data is too large ({} octets, max 65535)", opt.code, opt.data.size()));
-            }
-            w.write_uint16(opt.code);
-            w.write_uint16(static_cast<std::uint16_t>(opt.data.size()));
-            w.write_bytes(opt.data);
-        }
+        build_edns_opt(w, edns.udp_payload_size, edns.version, edns.dnssec_ok, edns.options,
+                       std::to_underlying(rcode_));
     }
 
     return std::move(w).finish();

@@ -147,6 +147,11 @@ struct ServerResult {
     }
 }
 
+/// Use the same failure precedence as the dispatcher; positives are handled first.
+[[nodiscard]] domain::DnsErrorInfo best_error(const domain::DnsErrorInfo& first, const domain::DnsErrorInfo& second) {
+    return Util::error_priority(first.code) >= Util::error_priority(second.code) ? first : second;
+}
+
 /// Race a bounded set of servers, replacing each failed candidate immediately.
 /// Unlike Dispatcher, bootstrap returns typed addresses and never retries a
 /// server within this lookup. Both paths reuse the classic wire exchange.
@@ -180,9 +185,11 @@ struct ServerResult {
                                  Utils::redacted_uri_credentials(server.address), server.port, error.message);
                 }
                 const bool definitive = error.code == domain::DnsError::INVALID_QUERY;
-                if (!has_failure || Util::error_priority(error.code) > Util::error_priority(result.error.code)) {
+                if (!has_failure) {
                     result.error = std::move(error);
                     has_failure = true;
+                } else {
+                    result.error = best_error(result.error, error);
                 }
                 if (definitive) {
                     race.cancel();
@@ -193,11 +200,6 @@ struct ServerResult {
         });
     });
     co_return result;
-}
-
-/// Use the same failure precedence as the dispatcher; positives are handled first.
-[[nodiscard]] domain::DnsErrorInfo best_error(const domain::DnsErrorInfo& first, const domain::DnsErrorInfo& second) {
-    return Util::error_priority(first.code) >= Util::error_priority(second.code) ? first : second;
 }
 
 /// Attach the one fact a per-server error cannot carry: the name being

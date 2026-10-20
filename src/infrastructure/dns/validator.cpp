@@ -32,6 +32,52 @@ namespace {
         return std::unexpected(domain::DnsErrorInfo{domain::DnsError::INVALID_QUERY, error.what()});
     }
 }
+
+/// The in-answer CNAME chain (RFC 1034 §3.6.2) walked from the queried owner
+/// to the final endpoint.
+class CnameChain {
+public:
+    explicit CnameChain(std::string owner) : chain_{std::move(owner)} {}
+
+    /// Follow every alias hop the answers carry for the current owner.
+    /// @throws DnsLookupException (PARSE) on malformed or conflicting CNAME
+    ///         RDATA, on an overlong chain, and on a cycle.
+    void advance(const ParsedMessage& message, const std::span<const std::uint8_t> wire) {
+        for (;;) {
+            std::optional<std::string> target;
+            for (const auto& rr : message.answers) {
+                if (rr.qclass != static_cast<std::uint16_t>(RecordClass::IN) ||
+                    rr.type != static_cast<std::uint16_t>(RecordType::CNAME) || !name_matches(rr.name, chain_.back())) {
+                    continue;
+                }
+                size_t end = rr.rdata_offset;
+                auto next = decompress_name(wire, end);
+                const auto length = Utils::Bytes::read_u16_be(wire.subspan(rr.rdata_offset - 2));
+                if (end != rr.rdata_offset + length || (target && !name_matches(*target, next))) {
+                    throw DnsLookupException("Invalid or conflicting CNAME RDATA", domain::DnsError::PARSE);
+                }
+                target = std::move(next);
+            }
+            if (!target)
+                return;
+            // Bound both repeated answer scans and cycle checks on hostile packets.
+            // Sixteen alias hops cover ordinary DDNS/CDN names without unbounded work.
+            if (chain_.size() > 16) {
+                throw DnsLookupException("DNS CNAME chain exceeds 16 hops", domain::DnsError::PARSE);
+            }
+            if (std::ranges::any_of(chain_, [&target](const auto& name) { return name_matches(name, *target); })) {
+                throw DnsLookupException("DNS CNAME chain contains a cycle", domain::DnsError::PARSE);
+            }
+            chain_.push_back(std::move(*target));
+        }
+    }
+
+    /// The owners walked so far in hop order; the last entry is the endpoint.
+    [[nodiscard]] const std::vector<std::string>& chain() const noexcept { return chain_; }
+
+private:
+    std::vector<std::string> chain_;
+};
 }  // namespace
 
 std::expected<void, domain::DnsErrorInfo> validate_query(const std::span<const std::uint8_t> request) {
@@ -97,34 +143,9 @@ void select_answers(ParsedMessage& message, const std::span<const std::uint8_t> 
                     const std::optional<RecordType> type_filter) {
     if (host.empty())
         return;
-    std::vector<std::string> chain{present_name(host)};
-    for (;;) {
-        std::optional<std::string> target;
-        for (const auto& rr : message.answers) {
-            if (rr.qclass != static_cast<std::uint16_t>(RecordClass::IN) ||
-                rr.type != static_cast<std::uint16_t>(RecordType::CNAME) || !name_matches(rr.name, chain.back())) {
-                continue;
-            }
-            size_t end = rr.rdata_offset;
-            auto next = decompress_name(wire, end);
-            const auto length = Utils::Bytes::read_u16_be(wire.subspan(rr.rdata_offset - 2));
-            if (end != rr.rdata_offset + length || (target && !name_matches(*target, next))) {
-                throw DnsLookupException("Invalid or conflicting CNAME RDATA", domain::DnsError::PARSE);
-            }
-            target = std::move(next);
-        }
-        if (!target)
-            break;
-        // Bound both repeated answer scans and cycle checks on hostile packets.
-        // Sixteen alias hops cover ordinary DDNS/CDN names without unbounded work.
-        if (chain.size() > 16) {
-            throw DnsLookupException("DNS CNAME chain exceeds 16 hops", domain::DnsError::PARSE);
-        }
-        if (std::ranges::any_of(chain, [&target](const auto& name) { return name_matches(name, *target); })) {
-            throw DnsLookupException("DNS CNAME chain contains a cycle", domain::DnsError::PARSE);
-        }
-        chain.push_back(std::move(*target));
-    }
+    CnameChain cname{present_name(host)};
+    cname.advance(message, wire);
+    const auto& chain = cname.chain();
     if (type_filter && std::ranges::none_of(message.answers, [&chain, type_filter](const auto& rr) {
             return rr.qclass == static_cast<std::uint16_t>(RecordClass::IN) &&
                    rr.type == static_cast<std::uint16_t>(*type_filter) && name_matches(rr.name, chain.back());
