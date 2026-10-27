@@ -7,7 +7,7 @@ than repeat it. The plugin C ABI stability promise is defined in that same
 document. Release bodies on GitHub Releases are copied from the matching
 section here.
 
-## [1.0.0-rc.1] - Unreleased
+## [1.0.0-rc.1] - 2026-10-27
 
 ### Fixed
 
