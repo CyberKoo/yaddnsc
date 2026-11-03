@@ -7,6 +7,11 @@ than repeat it. The plugin C ABI stability promise is defined in that same
 document. Release bodies on GitHub Releases are copied from the matching
 section here.
 
+## [1.0.0] - 2026-11-03
+
+First stable release of the 1.0 line. The plugin C ABI is stable at version
+1.0. There are no code changes since 1.0.0-rc.1.
+
 ## [1.0.0-rc.1] - 2026-10-27
 
 ### Fixed

@@ -14,7 +14,7 @@ objects ever cross the `.so` boundary, so a driver does not need to share the
 host's exact standard-library internals. The two halves have different build
 requirements: `driver_abi.h` is plain C11 depending on nothing but
 `<stddef.h>` and `<stdint.h>`, so a driver written against that header alone
-needs no C++ at all — `test/sdk_consumer/c_abi_driver.cpp` is a complete one.
+needs no C++ at all — `test/sdk_consumer/c_abi_driver.c` is a complete one.
 The optional C++ helper layer needs a C++23 compiler. Either way the platform
 must be 64-bit and little-endian.
 
@@ -335,7 +335,7 @@ package, not the source tree.
 The SDK can be installed independently of the host so third-party drivers can build
 without the host sources. DEB packaging splits these files into two packages:
 `yaddnsc` (binary, bundled drivers, config, systemd unit, shell completions)
-and `yaddnsc-dev` (everything else below):
+and `yaddnsc-dev` (SDK headers, CMake metadata, helper headers, and examples):
 
 - headers: `<prefix>/include/yaddnsc/sdk/` (the C ABI + C++ helper layer) and
   `<prefix>/include/yaddnsc/util/` (shared string/format/URL utilities);
@@ -349,7 +349,8 @@ and `yaddnsc-dev` (everything else below):
 - standalone examples: `<prefix>/share/yaddnsc/examples` (C, HTTP, XML, crypto,
   a loader and installation checks). The development DEB does not depend on
   the same-version host runtime, and can be installed on SDK-only build machines;
-- bundled drivers: `${CMAKE_INSTALL_LIBDIR}/yaddnsc/drivers` (normally
+- runtime driver location (not part of `yaddnsc-dev`):
+  `${CMAKE_INSTALL_LIBDIR}/yaddnsc/drivers` (normally
   `<prefix>/lib/yaddnsc/drivers/`). That path is also the compiled-in default
   `driver_dir` (`YADDNSC_DEFAULT_DRIVER_DIR`), so an installed driver is found
   without any configuration.
@@ -536,9 +537,9 @@ status code rather than assuming the follow-up carried your credentials.
 
 Three deadlines bound the wire time:
 
-- 5s per host-service exchange. Expiry is `NETWORK_ERROR` with "timed out
-  after 5000ms" — it is the host's budget for the whole exchange, not
-  re-sent per redirect hop.
+- 5s per host-service exchange. Expiry is `NETWORK_ERROR` with "the API server
+  did not respond in time" — it is the host's budget for the whole exchange,
+  not re-sent per redirect hop.
 - 5s to connect per resolved address. An expired connect budget moves on to
   the next address instead of failing the exchange, so a multi-address host
   can take longer than 5s to fail.

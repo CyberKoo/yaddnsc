@@ -7,7 +7,7 @@
 ![Linux](https://img.shields.io/badge/Linux-glibc%20%7C%20musl-FCC624?logo=linux&logoColor=black)
 ![macOS](https://img.shields.io/badge/macOS-arm64-000000?logo=apple)
 
-> **发布状态：** 预发布阶段，最新版本见 [GitHub Releases](https://github.com/CyberKoo/yaddnsc/releases)。
+> **发布状态：** 稳定版，最新版本见 [GitHub Releases](https://github.com/CyberKoo/yaddnsc/releases)。
 > `master` 分支对应已发布版本，`dev` 分支汇集面向下一版本的变更，`v0.x` 分支继续支持
 > 旧工具链。驱动插件 ABI 为 v1（版本 1.0），**自 1.0.0 正式版起保持稳定**：基于 ABI 1.0 构建的插件可在任何
 > 实现 ABI 1.x 的宿主上加载运行。ABI 于 1.0.0-alpha.5 冻结：基于 alpha.5 及之后版本构建的插件已实现
@@ -38,8 +38,8 @@ yaddnsc 是一个动态 DNS 客户端。它按配置周期性地获取每条记�
 ## 功能特性
 
 - 通过一份 JSON 配置管理多个域名与多条记录。
-- 每条记录可独立设置记录类型（A/AAAA）、地址来源与更新间隔，并可配置周期性的强制
-  更新。
+- 每条记录可独立设置记录类型（A/AAAA）、地址来源与更新间隔；每个域名还可配置
+  周期性的强制更新。
 - 地址来源包括本地网络接口、HTTP(S) 端点与 mDNS。
 - 随附十二个以可加载模块形式提供的服务商驱动；亦可基于随安装的 SDK 开发第三方
   驱动。
@@ -68,10 +68,10 @@ yaddnsc 是一个动态 DNS 客户端。它按配置周期性地获取每条记�
 
 其余依赖由构建系统自动获取。
 
-Debian/Ubuntu：
+Debian/Ubuntu（以 Ubuntu 24.04 为例）：
 
 ```bash
-sudo apt install build-essential cmake pkg-config libssl-dev
+sudo apt install build-essential gcc-14 g++-14 cmake pkg-config libssl-dev
 ```
 
 macOS：
@@ -80,7 +80,8 @@ macOS：
 brew install cmake pkg-config openssl@3
 ```
 
-配置、构建并安装：
+配置、构建并安装。在 Ubuntu 24.04 上，请在配置命令前添加
+`CC=gcc-14 CXX=g++-14`，显式选择受支持的编译器：
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -389,8 +390,8 @@ yaddnsc run
 
 ## 以服务方式运行
 
-安装时若系统中存在 systemd 开发文件，则会安装相应的 systemd 单元；Debian 软件包
-始终包含该单元。单元在启动前校验配置，失败时自动重启，日志输出至 journal，并以
+若在 CMake 配置阶段检测到 systemd 开发文件，则会安装相应的 systemd 单元；Debian
+软件包始终包含该单元。单元在启动前校验配置，失败时自动重启，日志输出至 journal，并以
 动态分配的用户在受限权限下运行。
 
 ```bash
