@@ -59,19 +59,20 @@ that owns the relevant concern; keep the root file focused on loading order:
 
 1. `ProjectSetup.cmake` — C++ compilation environment, feature detection,
    user options, version information, sanitizers, and `GNUInstallDirs`.
-2. `GeneratedHeaders.cmake` — all six `configure_file` calls, after setup
-   has defined their input variables.
-3. `Dependencies.cmake` — third-party dependencies and wrapper targets.
+2. `Dependencies.cmake` — third-party dependencies and wrapper targets.
    GoogleTest and Google Benchmark remain in `test/`.
-4. `BuildOptions.cmake` — fmt, warnings, build_options, and internal_headers
+3. `BuildOptions.cmake` — fmt, warnings, build_options, and internal_headers
    interface targets, the production-module helper, and first-party IWYU
    activation after third-party targets have been created.
-5. `ProductionTargets.cmake` — all production modules, explicit source lists,
+4. `ProductionTargets.cmake` — all production modules, explicit source lists,
    and their dependency graph, using the shared interfaces and helper.
-6. `Executable.cmake` — main executable linking, sanitizer application,
+5. `Executable.cmake` — main executable linking, sanitizer application,
    Release stripping, and IPO.
-7. `PluginSdk.cmake` — SDK/XML/crypto handling and C ABI checks, which are built
+6. `PluginSdk.cmake` — SDK/XML/crypto handling and C ABI checks, which are built
    regardless of `YADDNSC_BUILD_TESTS`.
+7. `InstallRules.cmake` — install rules, exports, and packaging.
+8. `GeneratedHeaders.cmake` — its six generated-header `configure_file` calls,
+   after installation and packaging have defined the paths baked into them.
 
 Keep the configuration summary and Doxygen setup between `Executable.cmake`
 and `PluginSdk.cmake`. After the SDK, retain this order: `driver/`, `HeaderCheck.cmake`, `test/`, then `InstallRules.cmake`, preserving

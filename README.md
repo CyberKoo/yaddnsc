@@ -7,7 +7,7 @@
 ![Linux](https://img.shields.io/badge/Linux-glibc%20%7C%20musl-FCC624?logo=linux&logoColor=black)
 ![macOS](https://img.shields.io/badge/macOS-arm64-000000?logo=apple)
 
-> **Status:** pre-release — see [GitHub Releases](https://github.com/CyberKoo/yaddnsc/releases)
+> **Status:** stable — see [GitHub Releases](https://github.com/CyberKoo/yaddnsc/releases)
 > for the latest version. `master` tracks releases, `dev` accumulates changes
 > intended for the next one, and `v0.x` remains available for older toolchains.
 > The driver plugin ABI is v1, currently at **version 1.1**; its 1.0 layouts are
@@ -82,10 +82,10 @@ Requirements:
 
 All remaining dependencies are retrieved by the build system.
 
-Debian/Ubuntu:
+Debian/Ubuntu (Ubuntu 24.04 shown):
 
 ```bash
-sudo apt install build-essential cmake pkg-config libssl-dev
+sudo apt install build-essential gcc-14 g++-14 cmake pkg-config libssl-dev
 ```
 
 macOS:
@@ -94,7 +94,8 @@ macOS:
 brew install cmake pkg-config openssl@3
 ```
 
-Configure, build, and install:
+Configure, build, and install. On Ubuntu 24.04, prefix the configure command
+with `CC=gcc-14 CXX=g++-14` to select the supported compiler explicitly:
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -371,7 +372,7 @@ Without custom configuration, the resolver queries a single built-in server,
 
 Setting `use_custom_servers` to `true` replaces the built-in server with the
 configured list. At least one server must then be provided through `servers`;
-an empty custom resolver fails validation in both `run` and `config test`.
+an empty custom resolver fails validation in `run`, `config test`, and `dns resolve`.
 When `use_custom_servers` is `false`, the configured server list is ignored.
 
 The `address` of a server entry selects the protocol:
@@ -433,8 +434,8 @@ yaddnsc run
 
 ## Running as a Service
 
-A systemd unit is installed when the systemd development files are present at
-install time; the Debian package always includes it. The unit validates the
+A systemd unit is installed when the systemd development files are detected at
+configure time; the Debian package always includes it. The unit validates the
 configuration before starting, restarts on failure, logs to the journal, and
 runs with a dynamically allocated user under restricted privileges.
 

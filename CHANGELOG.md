@@ -157,6 +157,26 @@ migration](docs/coroutine.md#coroutine-lifecycle-migration) and
   moment its timer fired, so timer wake-up latency no longer accumulates into
   the long-run cadence.
 
+## [1.0.0] - 2026-11-03
+
+First stable release of the 1.0 line. The plugin C ABI is stable at version
+1.0. There are no code changes since 1.0.0-rc.1.
+
+## [1.0.0-rc.1] - 2026-10-27
+
+### Fixed
+
+- Parsing a URI during static initialization no longer risks an arithmetic
+  fault: the scheme default-port table is constant-initialized, so the lookup
+  is valid before any dynamic initializer runs regardless of link order.
+- Unregistering an fd revokes its pending callback in both readiness and
+  poll-failure dispatch, so removing another registration during a callback
+  cannot dispatch a stale context afterwards.
+- Loading a driver that requires a newer ABI minor reports the host as the
+  outdated side even when the module exports no entry points the host knows:
+  the version handshake runs before the entry-point symbol check, so an
+  ABI 1.1 driver is no longer misreported as missing the v1 entry points.
+
 ## [1.0.0-alpha.7] - 2026-10-17
 
 This revision keeps the plugin C ABI at **1.0** (frozen at 1.0.0-alpha.5;

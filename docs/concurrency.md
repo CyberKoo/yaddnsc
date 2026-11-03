@@ -21,6 +21,11 @@ first use and sized from the hardware, which is the single exit from the loop
 for blocking or CPU-bound work (plugin ABI cycles are its main user); and a
 log drain thread. A command that never offloads never spawns a worker.
 
+**Descriptor callbacks.** Unregistering a descriptor revokes any pending
+dispatch callback before its context may be destroyed, in both readiness
+dispatch and sustained poll-failure shedding. Registrations remain independent
+even when they share a callback and context.
+
 **Structured concurrency.** Tasks are lazy: awaiting one schedules the child
 through the ready queue and resumes the parent only after the child has fully
 retired — it is neither an inline call nor a cancellation checkpoint. Scopes
