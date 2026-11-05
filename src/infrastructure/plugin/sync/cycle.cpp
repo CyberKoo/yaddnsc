@@ -42,6 +42,25 @@ struct DestroyPhase {
     ~DestroyPhase() noexcept { context.set_phase(HostServicesContext::Phase::DESTROY); }
 };
 
+/// Successful handles are immediately adopted by the caller's DriverInstance.
+/// Failure text is copied here, before another ABI entry can invalidate it.
+template<typename MapFailure>
+std::expected<yaddnsc_driver*, domain::DriverError> create_driver(const PluginModule& module,
+                                                                  const yaddnsc_host_services& services,
+                                                                  MapFailure map_failure) {
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    yaddnsc_driver* handle = nullptr;
+    const auto status = module.create(services, &handle, error);
+    if (status == YADDNSC_STATUS_OK && handle != nullptr) {
+        return handle;
+    }
+    if (status == YADDNSC_STATUS_OK || !detail::has_valid_plugin_error(error, status)) {
+        return std::unexpected(detail::invalid_plugin_result(module.descriptor().name, "create"));
+    }
+    return std::unexpected(map_failure(status, detail::to_view(error.message)));
+}
+
 std::expected<void, domain::DriverError> run_update_task(const std::shared_ptr<const PluginModule>& module,
                                                          const domain::DriverUpdateCommand& command, Bridge& bridge,
                                                          const app::LoggerPort& logger,
@@ -53,22 +72,14 @@ std::expected<void, domain::DriverError> run_update_task(const std::shared_ptr<c
     }
     HostServicesContext context{bridge, logger, state};
     const auto services = context.make_services_v1_1();
-    yaddnsc_error error{};
-    error.struct_size = static_cast<uint32_t>(sizeof(error));
-    yaddnsc_driver* handle = nullptr;
-    const auto create_status = module->create(services.base, &handle, error);
-    if (create_status == YADDNSC_STATUS_OK && handle == nullptr) {
-        return std::unexpected(detail::invalid_plugin_result(driver_name, "create"));
-    }
-    if (create_status != YADDNSC_STATUS_OK) {
-        if (!detail::has_valid_plugin_error(error, create_status)) {
-            return std::unexpected(detail::invalid_plugin_result(driver_name, "create"));
-        }
-        return std::unexpected(
-            detail::map_error(create_status, detail::to_view(error.message), driver_name, command.fqdn));
+    const auto created = create_driver(*module, services.base, [&](yaddnsc_status status, std::string_view message) {
+        return detail::map_error(status, message, driver_name, command.fqdn);
+    });
+    if (!created) {
+        return std::unexpected(created.error());
     }
     // Error bytes are copied before destroy; contexts outlive the instance.
-    DriverInstance instance{module, handle};
+    DriverInstance instance{module, *created};
     DestroyPhase destroy_phase{context};
     const yaddnsc_update_request request{
         .struct_size = static_cast<uint32_t>(sizeof(request)),
@@ -80,7 +91,7 @@ std::expected<void, domain::DriverError> run_update_task(const std::shared_ptr<c
         .driver_param_json = {reinterpret_cast<const uint8_t*>(command.driver_params.data()),
                               command.driver_params.size()},
     };
-    error = {};
+    yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     context.set_phase(HostServicesContext::Phase::UPDATE);
     const auto status = instance.update(request, error);
@@ -107,22 +118,15 @@ std::expected<void, domain::DriverError> run_validate_cycle(const std::shared_pt
     }
     HostServicesContext context{bridge, logger, state};
     const auto services = context.make_services_v1_1();
-    yaddnsc_error error{};
-    error.struct_size = static_cast<uint32_t>(sizeof(error));
-    yaddnsc_driver* handle = nullptr;
-    const auto create_status = module->create(services.base, &handle, error);
-    if (create_status == YADDNSC_STATUS_OK && handle == nullptr) {
-        return std::unexpected(detail::invalid_plugin_result(driver_name, "create"));
+    const auto created = create_driver(*module, services.base, [&](yaddnsc_status status, std::string_view message) {
+        return detail::map_validate_error(status, message, driver_name);
+    });
+    if (!created) {
+        return std::unexpected(created.error());
     }
-    if (create_status != YADDNSC_STATUS_OK) {
-        if (!detail::has_valid_plugin_error(error, create_status)) {
-            return std::unexpected(detail::invalid_plugin_result(driver_name, "create"));
-        }
-        return std::unexpected(detail::map_validate_error(create_status, detail::to_view(error.message), driver_name));
-    }
-    DriverInstance instance{module, handle};
+    DriverInstance instance{module, *created};
     DestroyPhase destroy_phase{context};
-    error = {};
+    yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     const yaddnsc_string param{driver_param_json.data(), driver_param_json.size()};
     context.set_phase(HostServicesContext::Phase::VALIDATE);
@@ -235,17 +239,17 @@ coro::Task<void> make_cycle_owner(std::shared_ptr<CallState> state, Work work) {
 
 }  // namespace
 
-coro::Task<void> make_sync_update_owner(const std::shared_ptr<CallState>& state, std::shared_ptr<const PluginModule> module,
-                                        domain::DriverUpdateCommand command, std::shared_ptr<Bridge> bridge,
-                                        const app::LoggerPort& logger) {
+coro::Task<void> make_sync_update_owner(const std::shared_ptr<CallState>& state,
+                                        std::shared_ptr<const PluginModule> module, domain::DriverUpdateCommand command,
+                                        std::shared_ptr<Bridge> bridge, const app::LoggerPort& logger) {
     return make_cycle_owner(
         state, [module = std::move(module), command = std::move(command), bridge = std::move(bridge), logger = &logger,
                 state]() mutable { return run_update_task(module, command, *bridge, *logger, state); });
 }
 
-coro::Task<void> make_sync_validate_owner(const std::shared_ptr<CallState>& state, std::shared_ptr<const PluginModule> module,
-                                          std::string driver_param_json, std::shared_ptr<Bridge> bridge,
-                                          const app::LoggerPort& logger) {
+coro::Task<void> make_sync_validate_owner(const std::shared_ptr<CallState>& state,
+                                          std::shared_ptr<const PluginModule> module, std::string driver_param_json,
+                                          std::shared_ptr<Bridge> bridge, const app::LoggerPort& logger) {
     return make_cycle_owner(state, [module = std::move(module), param = std::move(driver_param_json),
                                     bridge = std::move(bridge), logger = &logger, state]() mutable {
         return run_validate_cycle(module, param, *bridge, *logger, state);

@@ -17,10 +17,11 @@
 #include <string_view>
 #include <system_error>
 #include <utility>
-#include <vector>  // IWYU pragma: keep — range-for over the std::vector returned by StringUtil::split; clangd sees no spelled use
+#include <vector>  // IWYU pragma: keep — range-for over the std::vector returned by split
 
 #include <picohttpparser.h>
 #include <spdlog/spdlog.h>
+#include <yaddnsc/util/string_util.hpp>
 
 #include "infrastructure/http/error.h"
 #include "infrastructure/http/protocol/field_chars.hpp"
@@ -29,9 +30,7 @@
 #include "infrastructure/http/protocol/wire.h"
 #include "infrastructure/network/transport/stream.h"
 #include "support/fmt.hpp"
-#include "support/string_util.hpp"  // IWYU pragma: keep — the StringUtil namespace alias lives here
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include "yaddnsc/util/string_util.hpp"
 
 namespace http::protocol {
 
@@ -78,22 +77,23 @@ struct HeaderOutcome {
 }
 
 [[nodiscard]] bool forbidden_trailer(const std::string_view name) noexcept {
-    return StringUtil::iequals(name, field::CONTENT_LENGTH) || StringUtil::iequals(name, field::TRANSFER_ENCODING) ||
-           StringUtil::iequals(name, field::HOST) || StringUtil::iequals(name, field::CONNECTION) ||
-           StringUtil::iequals(name, field::TRAILER) || StringUtil::iequals(name, field::UPGRADE);
+    return yaddnsc::util::iequals(name, field::CONTENT_LENGTH) ||
+           yaddnsc::util::iequals(name, field::TRANSFER_ENCODING) || yaddnsc::util::iequals(name, field::HOST) ||
+           yaddnsc::util::iequals(name, field::CONNECTION) || yaddnsc::util::iequals(name, field::TRAILER) ||
+           yaddnsc::util::iequals(name, field::UPGRADE);
 }
 
 [[nodiscard]] std::optional<unsigned> keep_alive_parameter(const std::string_view value,
                                                            const std::string_view wanted) {
-    for (const auto& parameter : StringUtil::split(value, ",")) {
-        const auto trimmed = StringUtil::trim(parameter);
+    for (const auto& parameter : yaddnsc::util::split(value, ",")) {
+        const auto trimmed = yaddnsc::util::trim(parameter);
         const auto equals = trimmed.find('=');
         if (equals == std::string_view::npos ||
-            !StringUtil::iequals(StringUtil::trim(trimmed.substr(0, equals)), wanted)) {
+            !yaddnsc::util::iequals(yaddnsc::util::trim(trimmed.substr(0, equals)), wanted)) {
             continue;
         }
         unsigned number{};
-        const auto field = StringUtil::trim(trimmed.substr(equals + 1));
+        const auto field = yaddnsc::util::trim(trimmed.substr(equals + 1));
         const auto [ptr, ec] = std::from_chars(field.data(), field.data() + field.size(), number);
         if (!field.empty() && ec == std::errc{} && ptr == field.data() + field.size()) {
             return number;
@@ -201,7 +201,7 @@ struct ChunkedBody {
         }
         for (std::size_t i = 0; i < field_count; ++i) {
             const auto name = std::string_view(fields[i].name, fields[i].name_len);
-            const auto value = StringUtil::trim(std::string_view(fields[i].value, fields[i].value_len));
+            const auto value = yaddnsc::util::trim(std::string_view(fields[i].value, fields[i].value_len));
             if (!is_token(name) || forbidden_trailer(name) || !is_field_value(value)) {
                 return std::unexpected(
                     Error{ErrorCode::RESPONSE_PARSE_FAILED, "malformed, forbidden, or unsafe chunked trailer"});
@@ -222,23 +222,23 @@ enum class ResponseField {
 };
 
 [[nodiscard]] ResponseField classify_response_field(const std::string_view name) noexcept {
-    if (StringUtil::iequals(name, field::CONTENT_LENGTH)) {
+    if (yaddnsc::util::iequals(name, field::CONTENT_LENGTH)) {
         return ResponseField::CONTENT_LENGTH;
     }
-    if (StringUtil::iequals(name, field::CONNECTION)) {
+    if (yaddnsc::util::iequals(name, field::CONNECTION)) {
         return ResponseField::CONNECTION;
     }
-    if (StringUtil::iequals(name, field::KEEP_ALIVE)) {
+    if (yaddnsc::util::iequals(name, field::KEEP_ALIVE)) {
         return ResponseField::KEEP_ALIVE;
     }
-    if (StringUtil::iequals(name, field::TRANSFER_ENCODING)) {
+    if (yaddnsc::util::iequals(name, field::TRANSFER_ENCODING)) {
         return ResponseField::TRANSFER_ENCODING;
     }
     return ResponseField::OTHER;
 }
 
 [[nodiscard]] std::expected<void, Error> apply_content_length(const std::string_view value, HeaderOutcome& out) {
-    const auto trimmed = StringUtil::trim(value);
+    const auto trimmed = yaddnsc::util::trim(value);
     std::size_t size = 0;
     const auto [ptr, ec] = std::from_chars(trimmed.data(), trimmed.data() + trimmed.size(), size);
     if (trimmed.empty() || ec != std::errc{} || ptr != trimmed.data() + trimmed.size()) {
@@ -279,7 +279,7 @@ enum class ResponseField {
     // Only the single `chunked` coding is implemented: accepting
     // `gzip, chunked` without decoding gzip corrupts the representation
     // and is a smuggling hazard.
-    if (!StringUtil::iequals(StringUtil::trim(value), "chunked")) {
+    if (!yaddnsc::util::iequals(yaddnsc::util::trim(value), "chunked")) {
         return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED, "unsupported Transfer-Encoding"});
     }
     out.has_transfer_encoding = true;
@@ -350,7 +350,7 @@ enum class ResponseField {
             return out;
         }
 
-        out.headers.emplace(std::string(name), std::string(StringUtil::trim(value)));
+        out.headers.emplace(std::string(name), std::string(yaddnsc::util::trim(value)));
     }
 
     // RFC 7230 §3.3.3: Content-Length and Transfer-Encoding are mutually

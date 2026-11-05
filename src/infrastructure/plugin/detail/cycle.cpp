@@ -1,16 +1,16 @@
 #include "cycle.h"
 
-#include <coroutine> // IWYU pragma: keep
+#include <coroutine>  // IWYU pragma: keep
 #include <stdexcept>
 
 #include <spdlog/spdlog.h>
+#include <yaddnsc/util/format.hpp>  // IWYU pragma: keep
 
 #include "coro/cancel_scope.h"
 #include "coro/cancelled.h"
 #include "coro/nursery.hpp"
 #include "coro/scope.hpp"
 #include "support/fmt.hpp"
-#include "yaddnsc/util/format.hpp" // IWYU pragma: keep
 
 namespace plugin {
 namespace {
@@ -43,13 +43,14 @@ coro::Task<void> own_cycle(std::shared_ptr<CallState> state, coro::Task<coro::Sc
     }
 }
 
-void start_cycle(const coro::NurseryToken& group_token, const std::shared_ptr<CallState>& state, coro::Task<void> owner) {
-    auto* group = group_token.get();
-    if (group == nullptr) {
-        throw std::logic_error("plugin cycle requires a live root group");
+void start_cycle(const coro::NurseryToken& nursery_token, const std::shared_ptr<CallState>& state,
+                 coro::Task<void> owner) {
+    auto* nursery = nursery_token.get();
+    if (nursery == nullptr) {
+        throw std::logic_error("plugin cycle requires a live root nursery");
     }
     try {
-        group->spawn_discard(std::move(owner));
+        nursery->spawn_discard(std::move(owner));
     } catch (...) {
         state->error = std::current_exception();
         state->result_ready.notify();

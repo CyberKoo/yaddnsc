@@ -8,6 +8,7 @@
 #include <utility>
 
 #include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/util/format.hpp>
 
 #include "coro/cancel_scope.h"
 #include "coro/notification.hpp"
@@ -22,7 +23,6 @@
 #include "infrastructure/plugin/sync/bridge.h"
 #include "infrastructure/plugin/sync/cycle.h"
 #include "support/fmt.hpp"
-#include "yaddnsc/util/format.hpp"
 
 namespace plugin {
 namespace {
@@ -51,14 +51,14 @@ namespace {
 }  // namespace
 
 DriverGateway::DriverGateway(const DriverCatalog& catalog, const app::LoggerPort& logger, coro::Loop& loop,
-                             coro::Nursery& bridge_group)
-    : DriverGateway(catalog, logger, loop, bridge_group, Options{}) {}
+                             coro::Nursery& cycle_nursery)
+    : DriverGateway(catalog, logger, loop, cycle_nursery, Options{}) {}
 
 DriverGateway::DriverGateway(const DriverCatalog& catalog, const app::LoggerPort& logger, coro::Loop& loop,
-                             coro::Nursery& bridge_group, Options options)
+                             coro::Nursery& cycle_nursery, Options options)
     : catalog_(catalog), logger_(logger), options_(std::move(options)),
-      bridge_(std::make_shared<Bridge>(loop, bridge_group, options_.http, options_.bridge_wait_budget)),
-      cycle_group_(coro::nursery_token(bridge_group)) {}
+      bridge_(std::make_shared<Bridge>(loop, cycle_nursery, options_.http, options_.bridge_wait_budget)),
+      cycle_nursery_(coro::nursery_token(cycle_nursery)) {}
 
 coro::Task<std::expected<void, domain::DriverError>> DriverGateway::update(std::string driver_name,
                                                                            domain::DriverUpdateCommand command) {
@@ -80,7 +80,7 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::update(std::
     auto& scope = co_await coro::current_scope();
     scope.throw_if_cancelled();
     const CycleSubscription subscription{*state, scope};
-    start_cycle(cycle_group_, state, std::move(owner));
+    start_cycle(cycle_nursery_, state, std::move(owner));
     co_await subscription.wait();
     co_return subscription.take_result(driver_name, fqdn);
 }
@@ -111,7 +111,7 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::validate_con
     auto& scope = co_await coro::current_scope();
     scope.throw_if_cancelled();
     const CycleSubscription subscription{*state, scope};
-    start_cycle(cycle_group_, state, std::move(owner));
+    start_cycle(cycle_nursery_, state, std::move(owner));
     co_await subscription.wait();
     co_return subscription.take_result(driver_name);
 }

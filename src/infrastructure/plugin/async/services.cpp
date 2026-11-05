@@ -9,64 +9,19 @@
 #include <string_view>
 #include <utility>
 
+#include <yaddnsc/sdk/driver_abi.h>
+
 #include "application/ports/log.h"
 #include "infrastructure/plugin/detail/abi_string.h"
 #include "infrastructure/plugin/detail/cycle.h"
-#include "yaddnsc/sdk/driver_abi.h"
+#include "infrastructure/plugin/detail/host_services.h"
 
 namespace plugin {
 
 namespace {
 
-[[nodiscard]] app::LogLevel to_log_level(yaddnsc_log_level level) noexcept {
-    switch (level) {
-        case YADDNSC_LOG_TRACE:
-            return app::LogLevel::TRACE;
-        case YADDNSC_LOG_DEBUG:
-            return app::LogLevel::DEBUG;
-        case YADDNSC_LOG_INFO:
-            return app::LogLevel::INFO;
-        case YADDNSC_LOG_WARN:
-            return app::LogLevel::WARN;
-        case YADDNSC_LOG_ERROR:
-            return app::LogLevel::ERROR;
-        default:
-            return app::LogLevel::INFO;
-    }
-}
-
-[[nodiscard]] std::optional<http::Method> to_http_method(yaddnsc_http_method method) noexcept {
-    switch (method) {
-        case YADDNSC_HTTP_GET:
-            return http::Method::GET;
-        case YADDNSC_HTTP_POST:
-            return http::Method::POST;
-        case YADDNSC_HTTP_PUT:
-            return http::Method::PUT;
-        case YADDNSC_HTTP_DELETE:
-            return http::Method::DELETE;
-        case YADDNSC_HTTP_PATCH:
-            return http::Method::PATCH;
-        case YADDNSC_HTTP_HEAD:
-            return http::Method::HEAD;
-        case YADDNSC_HTTP_OPTIONS:
-            return http::Method::OPTIONS;
-        default:
-            return std::nullopt;
-    }
-}
-
-void write_error(yaddnsc_error* out_error, yaddnsc_status status, std::string_view message) noexcept {
-    if (out_error == nullptr || out_error->struct_size < YADDNSC_ERROR_MIN_SIZE) {
-        return;
-    }
-    out_error->status = status;
-    out_error->retry_after_seconds = 0;
-    out_error->message = {message.data(), message.size()};
-    out_error->struct_size = out_error->struct_size < static_cast<uint32_t>(sizeof(yaddnsc_error))
-                                 ? out_error->struct_size
-                                 : static_cast<uint32_t>(sizeof(yaddnsc_error));
-}
+using detail::to_http_method;
+using detail::write_error;
 
 [[nodiscard]] bool valid_request(const yaddnsc_http_request& request) noexcept {
     // Never read a field outside the provider's declared prefix.
@@ -134,22 +89,12 @@ std::int32_t HostAsyncServicesContext::is_cancelled() const noexcept {
 
 void HostAsyncServicesContext::log(yaddnsc_log_level level, yaddnsc_string message,
                                    const yaddnsc_source_location* location) {
-    const app::LogLevel mapped = to_log_level(level);
-    if (!logger_.is_enabled(mapped)) {
-        return;
-    }
-    const std::string_view file =
-        (location != nullptr && location->file.data != nullptr) ? detail::to_view(location->file) : std::string_view{};
-    const int line = location != nullptr ? location->line : 0;
-    const std::string_view function = (location != nullptr && location->function.data != nullptr)
-                                          ? detail::to_view(location->function)
-                                          : std::string_view{};
-    logger_.log_explicit(mapped, detail::to_view(message), file, line, function);
+    detail::log_record(logger_, level, message, location);
 }
 
 std::int32_t HostAsyncServicesContext::log_enabled(yaddnsc_log_level level) const noexcept {
     try {
-        return logger_.is_enabled(to_log_level(level)) ? 1 : 0;
+        return logger_.is_enabled(detail::to_log_level(level)) ? 1 : 0;
     } catch (...) {
         return 1;
     }

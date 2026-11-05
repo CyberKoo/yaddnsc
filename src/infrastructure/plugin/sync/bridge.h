@@ -143,21 +143,21 @@ struct BridgeState {
 /// hold their Bridge share through exchange(); request coroutines hold immutable
 /// policy/call state independently. Submitted offloads finish before run returns.
 /// Failure: BridgeError carries the existing ABI status. A cancelled
-/// call/closed group is CANCELLED; deadline expiry or recoverable HTTP failure
+/// call/closed nursery is CANCELLED; deadline expiry or recoverable HTTP failure
 /// is NETWORK_ERROR. Defects are INTERNAL_ERROR.
 /// Thread safety: exchange() may be called from any worker thread; the loop-side
-/// coroutine and the spawn group are loop-thread only.
+/// coroutine and the nursery are loop-thread only.
 class Bridge {
 public:
     /// @param loop          Loop that runs the exchanges.
-    /// @param spawn_group   Structured scope for the loop-side coroutines; the
-    ///                      application binds its own root group here so bridge
+    /// @param nursery       Structured scope for the loop-side coroutines; the
+    ///                      application binds its own root nursery here so bridge
     ///                      work is never a detached task.
     /// @param options       HTTP policy for the loop-side client.
     /// @param wait_budget   Real-time budget for admission and I/O. The loop
     ///                      translates the remaining budget to its own clock;
     ///                      worker expiry cancels the loop-side request.
-    Bridge(coro::Loop& loop, coro::Nursery& spawn_group, http::Options options, std::chrono::milliseconds wait_budget);
+    Bridge(coro::Loop& loop, coro::Nursery& nursery, http::Options options, std::chrono::milliseconds wait_budget);
 
     ~Bridge();
 
@@ -179,7 +179,7 @@ public:
 
 private:
     coro::Loop* loop_;
-    coro::NurseryToken group_lifetime_;
+    coro::NurseryToken nursery_lifetime_;
     std::shared_ptr<const detail::BridgeState> state_;
 };
 

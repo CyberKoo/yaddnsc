@@ -61,7 +61,7 @@ struct CallState {
 
 /// Root-group admission. Closed ingress throws; a spawn failure records and
 /// notifies the failure before rethrowing. Loop-thread only.
-void start_cycle(const coro::NurseryToken& group, const std::shared_ptr<CallState>& state, coro::Task<void> owner);
+void start_cycle(const coro::NurseryToken& nursery, const std::shared_ptr<CallState>& state, coro::Task<void> owner);
 
 /// Loop-only subscription. Borrows scope/state through its lifetime; arm before
 /// starting an owner. Waiting parks the caller itself, not an intermediate task,

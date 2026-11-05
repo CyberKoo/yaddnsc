@@ -19,6 +19,7 @@
 #error "Async SDK must not include synchronous driver entry machinery"
 #endif
 #include <yaddnsc/sdk/driver.hpp>  // IWYU pragma: keep
+#include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/driver_common.hpp>
 #include <yaddnsc/sdk/log.hpp>
 
@@ -57,5 +58,12 @@ TEST(SdkAsyncSeparation, NullLoggingTargetsNeverEvaluateArguments) {
     int evaluations = 0;
     YADDNSC_SDK_LOG_DEBUG(nullptr, "{}", ++evaluations);
     YADDNSC_ASYNC_SDK_LOG_DEBUG(nullptr, "{}", ++evaluations);
+    int target_evaluations = 0;
+    int level_evaluations = 0;
+    YADDNSC_SDK_LOG((++target_evaluations, nullptr), (++level_evaluations, YADDNSC_LOG_DEBUG), "{}", ++evaluations);
+    YADDNSC_ASYNC_SDK_LOG((++target_evaluations, nullptr), (++level_evaluations, YADDNSC_LOG_DEBUG), "{}",
+                          ++evaluations);
+    EXPECT_EQ(target_evaluations, 2);
+    EXPECT_EQ(level_evaluations, 0);
     EXPECT_EQ(evaluations, 0);
 }

@@ -4,8 +4,9 @@
 #include <memory>
 #include <utility>
 
+#include <yaddnsc/sdk/driver_abi.h>
+
 #include "infrastructure/plugin/plugin_loader.h"
-#include "yaddnsc/sdk/driver_abi.h"
 
 /// DriverInstance — one live driver instance plus a lease on its module.
 ///

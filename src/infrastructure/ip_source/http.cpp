@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <spdlog/spdlog.h>
+#include <yaddnsc/util/string_util.hpp>
 
 #include "domain/error/error.h"
 #include "domain/network/address_family.h"
@@ -20,9 +21,7 @@
 #include "infrastructure/http/client.h"
 #include "infrastructure/http/error.h"
 #include "infrastructure/network/transport/options.h"
-#include "support/string_util.hpp"  // IWYU pragma: keep — the StringUtil namespace alias lives here
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include "yaddnsc/util/string_util.hpp"
 
 namespace ipsource {
 
@@ -53,7 +52,7 @@ coro::Task<Result> HttpIpSource::resolve() {
             domain::IpSourceError{code, http::failure_reason("IP source server", response.error())});
     }
 
-    auto address = domain::InetAddress::parse(StringUtil::trim(response->text()));
+    auto address = domain::InetAddress::parse(yaddnsc::util::trim(response->text()));
     if (!address.has_value()) {
         co_return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
                                                         "the IP source server did not return a valid IP address"});

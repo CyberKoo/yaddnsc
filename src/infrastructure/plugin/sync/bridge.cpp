@@ -20,6 +20,8 @@
 #include <vector>
 
 #include <spdlog/spdlog.h>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/util/format.hpp>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 #include "coro/cancel_scope.h"
 #include "coro/cancelled.h"
@@ -31,8 +33,6 @@
 #include "infrastructure/http/client.h"
 #include "infrastructure/http/error.h"
 #include "infrastructure/plugin/detail/cycle.h"
-#include "yaddnsc/sdk/driver_abi.h"
-#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace plugin {
 
@@ -175,9 +175,8 @@ coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::s
 
 }  // namespace detail
 
-Bridge::Bridge(coro::Loop& loop, coro::Nursery& spawn_group, http::Options options,
-               std::chrono::milliseconds wait_budget)
-    : loop_(&loop), group_lifetime_(coro::nursery_token(spawn_group)),
+Bridge::Bridge(coro::Loop& loop, coro::Nursery& nursery, http::Options options, std::chrono::milliseconds wait_budget)
+    : loop_(&loop), nursery_lifetime_(coro::nursery_token(nursery)),
       state_(std::make_shared<const detail::BridgeState>(detail::BridgeState{std::move(options), wait_budget})) {}
 
 Bridge::~Bridge() = default;
@@ -189,7 +188,7 @@ std::expected<http::Response, BridgeError> Bridge::exchange(std::shared_ptr<Brid
     // its own locals and the shared state, so the Bridge may be destroyed while
     // the worker is still blocked on an abandoned call.
     coro::Loop* const loop = loop_;
-    const auto lifetime = group_lifetime_;
+    const auto lifetime = nursery_lifetime_;
     const std::shared_ptr<const detail::BridgeState> state = state_;
     auto future = call->promise.get_future();
     call->worker_deadline = std::chrono::steady_clock::now() + state->wait_budget;

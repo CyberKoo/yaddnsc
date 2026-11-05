@@ -211,6 +211,7 @@ target_link_libraries(yaddnsc_plugin_infrastructure
 add_library(yaddnsc_coro_plugin STATIC
     src/infrastructure/plugin/driver_gateway.cpp
     src/infrastructure/plugin/detail/abi_result.cpp
+    src/infrastructure/plugin/detail/host_services.cpp
     src/infrastructure/plugin/detail/cycle.cpp
     src/infrastructure/plugin/sync/bridge.cpp
     src/infrastructure/plugin/sync/host_services.cpp

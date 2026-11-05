@@ -751,7 +751,7 @@ TEST(SdkHelpersTest, RunUpdateAcceptsCapturingCheckerAndPreservesDetailedResult)
     const std::string detail = "provider response missing record_id";
     auto result = RunUpdateProbe::run_update(
         context, "test", request,
-        [&](const yaddnsc::sdk::HttpResponse&, const yaddnsc::sdk::Services&) -> yaddnsc::sdk::Result {
+        [&](const yaddnsc::sdk::HttpResponse&, yaddnsc::sdk::Services&&) -> yaddnsc::sdk::Result {
             return std::unexpected(yaddnsc::sdk::Error{YADDNSC_STATUS_INVALID_RESPONSE, detail, 17});
         });
     ASSERT_FALSE(result);

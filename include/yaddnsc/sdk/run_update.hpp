@@ -1,10 +1,8 @@
 #ifndef YADDNSC_SDK_RUN_UPDATE_HPP
 #define YADDNSC_SDK_RUN_UPDATE_HPP
 
-/// Request rendering and upstream-rejection classification for the bundled
-/// update tails. Driver::run_update and AsyncDriver::run_update are the only
-/// consumers, and both mode headers include this file, so plugin sources keep
-/// seeing these helpers through their existing include path.
+/// Shared request logging and response handling for synchronous and
+/// asynchronous updates. Both mode headers re-export these helpers.
 ///
 /// The response helpers below carry the skeleton every bundled driver shares:
 /// the response body trace, the transient-status rejection and the fallback
@@ -12,11 +10,14 @@
 /// provider-specific branches.
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <source_location>
 #include <string>
 #include <string_view>
 #include <utility>
+
+#include <concepts>
 
 #include <yaddnsc/sdk/driver_common.hpp>
 #include <yaddnsc/sdk/format.hpp>
@@ -42,6 +43,57 @@ namespace yaddnsc::sdk {
                        request.content_type, method_name(request.method), redact::redact_url_query(request.url),
                        headers);
 }
+
+namespace detail {
+
+/// Keep rendering inside the level check, preserving the driver's call site.
+template<typename Services>
+inline void log_update_request(const Services& services, const UpdateRequest& params, std::string_view driver_name,
+                               const HttpRequest& request, std::source_location location) {
+    log_lazy([&] { return YADDNSC_LOG_DEBUG; }, [&] { return services; },
+             [&](const auto* target, yaddnsc_log_level level) {
+                 log_message(target, level, location.file_name(), static_cast<int32_t>(location.line()),
+                             location.function_name(),
+                             "Domain \"{}\" ({}) received DNS record update request from driver '{}', {}", params.fqdn,
+                             params.record_type, driver_name, format_request(request));
+             });
+}
+
+/// Non-coroutine update tail. Response storage stays with the caller throughout
+/// checker invocation; detailed Result errors and bool classification both survive.
+template<typename Services, typename Response, typename CheckResponse>
+[[nodiscard]] inline Result finish_update(const Services& services, const UpdateRequest& params, Response& response,
+                                          CheckResponse&& check_response, std::source_location location) {
+    if (!response) {
+        log_lazy([&] { return YADDNSC_LOG_WARN; }, [&] { return services; },
+                 [&](const auto* target, yaddnsc_log_level level) {
+                     log_message(target, level, location.file_name(), static_cast<int32_t>(location.line()),
+                                 location.function_name(), "Domain \"{}\" ({}) update failed: {}", params.fqdn,
+                                 params.record_type, response.error().message);
+                 });
+        return std::unexpected(
+            Error{response.error().status, response.error().message, response.error().retry_after_seconds});
+    }
+    auto checked = std::invoke(std::forward<CheckResponse>(check_response), *response, Services{services});
+    if (!checked) {
+        log_lazy([&] { return YADDNSC_LOG_WARN; }, [&] { return services; },
+                 [&](const auto* target, yaddnsc_log_level level) {
+                     log_message(target, level, location.file_name(), static_cast<int32_t>(location.line()),
+                                 location.function_name(), "Domain \"{}\" ({}) update rejected by upstream",
+                                 params.fqdn, params.record_type);
+                 });
+        if constexpr (std::same_as<decltype(checked), Result>) {
+            return checked;
+        }
+        const auto failure = classify_upstream_failure(*response);
+        return std::unexpected(Error{
+            failure.status, fmt::format("Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type),
+            failure.retry_after_seconds});
+    }
+    return {};
+}
+
+}  // namespace detail
 
 /// Log the upstream response body at TRACE level. The body is truncated to the
 /// log budget and formatted only when that level is enabled.

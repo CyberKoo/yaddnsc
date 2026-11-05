@@ -13,7 +13,14 @@ if(CLANG_TIDY_EXE)
     # incompatibilities between clang-tidy's clang frontend and GCC's
     # standard library headers (e.g. C++23 std::expected).
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY_EXE}")
+        # --extra-arg=-Wno-error demotes the compiler warnings that clang-tidy's
+        # own frontend re-reports (clang-diagnostic-*). The project compiles
+        # with -Werror, and that flag reaches clang-tidy through the shared
+        # compile command: without this override clang-tidy exits non-zero on
+        # the compiler's warnings and fails the build, duplicating what the
+        # real compile already enforces. Tidy findings themselves stay at
+        # warning severity through WarningsAsErrors in .clang-tidy.
+        set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY_EXE};--extra-arg=-Wno-error")
     else()
         message(STATUS "Clang-Tidy skipped (compiler is ${CMAKE_CXX_COMPILER_ID}, not Clang)")
     endif()

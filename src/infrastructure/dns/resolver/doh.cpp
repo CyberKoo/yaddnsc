@@ -15,6 +15,7 @@
 #include <vector>
 
 #include <spdlog/spdlog.h>
+#include <yaddnsc/util/string_util.hpp>
 
 #include "domain/error/dns_error.h"
 #include "infrastructure/dns/dns_packet_exception.h"
@@ -30,10 +31,8 @@
 #include "infrastructure/network/transport/options.h"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
-#include "support/string_util.hpp"
 #include "support/util/random.hpp"
 #include "yaddnsc/util/format.hpp"
-#include "yaddnsc/util/string_util.hpp"
 
 namespace dns {
 namespace {
@@ -104,13 +103,13 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DohRe
         }
         std::string_view content_type;
         for (const auto& [name, value] : response->headers_) {
-            if (StringUtil::iequals(name, "content-type")) {
+            if (yaddnsc::util::iequals(name, "content-type")) {
                 content_type = value;
                 break;
             }
         }
-        const auto media_type = StringUtil::trim(content_type.substr(0, content_type.find(';')));
-        if (!StringUtil::iequals(media_type, "application/dns-message")) {
+        const auto media_type = yaddnsc::util::trim(content_type.substr(0, content_type.find(';')));
+        if (!yaddnsc::util::iequals(media_type, "application/dns-message")) {
             // RFC 8484 §5.4: the endpoint answered, but not with DNS. Report
             // what it actually sent — a captive portal's text/html or an
             // absent header is the whole diagnosis.

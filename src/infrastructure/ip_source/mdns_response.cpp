@@ -8,7 +8,6 @@
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/parser.h"
 #include "infrastructure/dns/types.h"
-#include "support/string_util.hpp"  // IWYU pragma: keep — the StringUtil namespace alias lives here
 
 std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo> ipsource::parse_response(
     const std::span<const std::uint8_t> packet, const std::string_view hostname, const domain::RecordKind type) {

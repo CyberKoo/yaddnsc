@@ -24,6 +24,7 @@
 #include "coro/cancelled.h"
 #include "infrastructure/http/types.h"
 #include "infrastructure/plugin/detail/abi_string.h"
+#include "infrastructure/plugin/detail/host_services.h"
 #include "infrastructure/plugin/sync/bridge.h"
 
 namespace plugin {
@@ -45,60 +46,7 @@ namespace {
     return {storage.data(), size};
 }
 
-/// Write an error report honouring the caller-supplied capacity (same
-/// rules as the SDK side): fields are only written when fully covered,
-/// struct_size is written back as min(capacity, sizeof), and an unknown
-/// tail is never zeroed.
-void write_error(yaddnsc_error* out_error, yaddnsc_status status, std::string_view message,
-                 uint32_t retry_after_seconds = 0) noexcept {
-    if (out_error == nullptr || out_error->struct_size < YADDNSC_ERROR_MIN_SIZE) {
-        return;
-    }
-    out_error->status = status;
-    out_error->retry_after_seconds = retry_after_seconds;
-    out_error->message = yaddnsc_string{message.data(), message.size()};
-    out_error->struct_size = std::min(out_error->struct_size, static_cast<uint32_t>(sizeof(yaddnsc_error)));
-}
-
-[[nodiscard]] app::LogLevel to_log_level(yaddnsc_log_level level) noexcept {
-    switch (level) {
-        case YADDNSC_LOG_TRACE:
-            return app::LogLevel::TRACE;
-        case YADDNSC_LOG_DEBUG:
-            return app::LogLevel::DEBUG;
-        case YADDNSC_LOG_INFO:
-            return app::LogLevel::INFO;
-        case YADDNSC_LOG_WARN:
-            return app::LogLevel::WARN;
-        case YADDNSC_LOG_ERROR:
-            return app::LogLevel::ERROR;
-        default:
-            return app::LogLevel::INFO;
-    }
-}
-
-/// Map an ABI method constant onto the http verb; nullopt when the constant
-/// is not one of the eight defined methods.
-[[nodiscard]] std::optional<http::Method> to_http_method(yaddnsc_http_method method) noexcept {
-    switch (method) {
-        case YADDNSC_HTTP_GET:
-            return http::Method::GET;
-        case YADDNSC_HTTP_POST:
-            return http::Method::POST;
-        case YADDNSC_HTTP_PUT:
-            return http::Method::PUT;
-        case YADDNSC_HTTP_DELETE:
-            return http::Method::DELETE;
-        case YADDNSC_HTTP_PATCH:
-            return http::Method::PATCH;
-        case YADDNSC_HTTP_HEAD:
-            return http::Method::HEAD;
-        case YADDNSC_HTTP_OPTIONS:
-            return http::Method::OPTIONS;
-        default:
-            return std::nullopt;
-    }
-}
+using detail::write_error;
 
 }  // namespace
 
@@ -112,20 +60,7 @@ std::string_view HostServicesContext::arena_copy(std::string_view value) {
 
 void HostServicesContext::log(yaddnsc_log_level level, yaddnsc_string message,
                               const yaddnsc_source_location* location) {
-    const app::LogLevel log_level = to_log_level(level);
-    if (!logger_.is_enabled(log_level)) {
-        return;
-    }
-    // Contract: location must be non-null with non-empty file/function views
-    // and line > 0. Tolerate violations defensively — logging must never
-    // fail an update.
-    const std::string_view file =
-        (location != nullptr && location->file.data != nullptr) ? detail::to_view(location->file) : std::string_view{};
-    const int line = location != nullptr ? location->line : 0;
-    const std::string_view function = (location != nullptr && location->function.data != nullptr)
-                                          ? detail::to_view(location->function)
-                                          : std::string_view{};
-    logger_.log_explicit(log_level, detail::to_view(message), file, line, function);
+    detail::log_record(logger_, level, message, location);
 }
 
 void HostServicesContext::log_entry(void* context, yaddnsc_log_level level, yaddnsc_string message,
@@ -145,7 +80,7 @@ std::int32_t HostServicesContext::log_enabled_entry(void* context, yaddnsc_log_l
     }
     try {
         const auto* self = static_cast<HostServicesContext*>(context);
-        return self->logger_.is_enabled(to_log_level(level)) ? 1 : 0;
+        return self->logger_.is_enabled(detail::to_log_level(level)) ? 1 : 0;
     } catch (...) {
         // Best effort: an unusable query must not drop a log record.
         return 1;
@@ -195,7 +130,7 @@ yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request& re
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "request url must not be empty");
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
-    const auto method = to_http_method(request.method);
+    const auto method = detail::to_http_method(request.method);
     if (!method.has_value()) {
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "unknown http method");
         return YADDNSC_STATUS_INVALID_ARGUMENT;

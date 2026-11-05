@@ -3,6 +3,8 @@
 #include <atomic>
 #include <expected>
 
+#include <yaddnsc/sdk/driver_abi.h>
+
 #include "domain/error/error.h"
 #include "domain/update/driver_update_command.h"
 #include "infrastructure/plugin/async/cycle_state.h"
@@ -10,7 +12,6 @@
 #include "infrastructure/plugin/detail/abi_result.h"
 #include "infrastructure/plugin/detail/cycle.h"
 #include "infrastructure/plugin/plugin_loader.h"
-#include "yaddnsc/sdk/driver_abi.h"
 
 namespace plugin::detail {
 

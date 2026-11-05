@@ -35,8 +35,10 @@ by `ci.yml` path filters.
 - Linux arm64 Debug tests, Release builds with bundled/system spdlog (tests
   disabled), and the dedicated `Sanitizer` build/tests;
 - `linux-amd64-lint` — compile-only static analysis under upstream Clang
-  (no tests run): IWYU violations fail the build, compiler warnings fail via
-  `-Werror`, and clang-tidy diagnostics fail via `WarningsAsErrors: '*'`.
+  (no tests run): compiler warnings fail the build via `-Werror`; IWYU
+  findings are reported without `--error` and do not fail the build;
+  clang-tidy findings fail it only for the defect-prone families
+  (`bugprone-*`, `clang-analyzer-*`, `cert-*`), the rest are warnings.
   macOS uses AppleClang.
 
 Scheduled nightly builds run only when the recent-commit check passes; manual
@@ -80,18 +82,26 @@ roughly 150 entries across bugprone, clang-analyzer, cert, cppcoreguidelines,
 google, hicpp, misc, modernize, performance, readability and concurrency —
 including `bugprone-use-after-move` and `clang-analyzer-cplusplus.InnerPointer`,
 but not `readability-identifier-naming` or `clang-analyzer-cplusplus.Move`. It
-does not automatically enforce the naming rules. `WarningsAsErrors: '*'` turns
-every enabled diagnostic into a build failure, so the lint job gates on tidy
-findings; intentional constructs (ld `--wrap` symbol names, coroutine promise
-protocol methods, moved-from state assertions) are annotated in source with a
-check-named `NOLINT` and a reason. Tool execution/parsing errors may
-still fail the build.
+does not automatically enforce the naming rules.
+`WarningsAsErrors: 'bugprone-*,clang-analyzer-*,cert-*'` promotes only the
+defect-prone families to errors: a bugprone, clang-analyzer or cert finding
+fails the build, while the suggestion-style families (modernize, readability,
+performance, hicpp, google, misc) are reported at warning severity. That split
+keeps the checks that catch real defects fatal and takes the noisy,
+toolchain-version-dependent findings out of the gate. Intentional constructs
+(ld `--wrap` symbol names, coroutine promise protocol methods, moved-from state
+assertions) are annotated in source with a check-named `NOLINT` and a reason.
+clang-tidy is invoked with `--extra-arg=-Wno-error` so that the project's
+`-Werror`, which reaches it through the shared compile command, does not turn
+the compiler warnings it re-reports into a build failure — the real compile
+already enforces those. Tool execution/parsing errors may still fail the build.
 
 ## Include hygiene
 
 - **IWYU** (`cmake/IWYU.cmake`) is enabled by default only when the tool is
-  found and the compiler is upstream Clang, not GCC or AppleClang. It uses
-  `--error` to fail on violations and `.iwyu-mappings.imp` for mappings.
+  found and the compiler is upstream Clang, not GCC or AppleClang. It runs
+  without `--error`, so violations are reported but do not fail the build, and
+  it uses `.iwyu-mappings.imp` for mappings.
   Activation occurs after third-party targets are created; generated header-check
   translation units opt out. Disable locally with `-DYADDNSC_IWYU=OFF`.
   CI coverage comes from the nightly lint job (see above);

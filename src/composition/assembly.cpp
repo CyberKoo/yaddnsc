@@ -143,9 +143,9 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
 
 [[nodiscard]] std::unique_ptr<plugin::DriverGateway> make_driver_gateway(const DriverCatalog& catalog,
                                                                          const app::LoggerPort& logger,
-                                                                         coro::Loop& loop, coro::Nursery& bridge_group,
+                                                                         coro::Loop& loop, coro::Nursery& cycle_nursery,
                                                                          const http::Options& http_options) {
-    return std::make_unique<plugin::DriverGateway>(catalog, logger, loop, bridge_group,
+    return std::make_unique<plugin::DriverGateway>(catalog, logger, loop, cycle_nursery,
                                                    make_gateway_options(http_options));
 }
 

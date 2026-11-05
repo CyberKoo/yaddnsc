@@ -2,8 +2,8 @@
 #define YADDNSC_UTIL_STRING_UTIL_HPP
 
 /// Shared string utilities — the single implementation for both the host
-/// (via src/support/string_util.hpp) and driver plugins (via
-/// yaddnsc/sdk/string_util.hpp). Part of the installed public headers.
+/// and driver plugins (via yaddnsc/sdk/string_util.hpp). Part of the
+/// installed public headers.
 
 #include <algorithm>
 #include <array>

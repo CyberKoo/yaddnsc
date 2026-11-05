@@ -65,10 +65,16 @@ inline void log_message(const Table* services, yaddnsc_log_level level, std::str
     }  // Best-effort logging never fails a business operation.
 }
 
-template<typename GetLevel, typename GetServices, typename Log>
+template<typename NullTable = yaddnsc_host_services, typename GetLevel, typename GetServices, typename Log>
 inline void log_lazy(GetLevel&& get_level, GetServices&& get_services, Log&& log) noexcept {
     try {
-        const auto target = to_log_target(get_services());
+        const auto target = [&] {
+            if constexpr (std::is_null_pointer_v<std::remove_cvref_t<decltype(get_services())>>) {
+                return to_log_target(static_cast<const NullTable*>(get_services()));
+            } else {
+                return to_log_target(get_services());
+            }
+        }();
         if (target.services == nullptr || target.services->log == nullptr)
             return;
         const yaddnsc_log_level level = get_level();
@@ -85,27 +91,6 @@ inline void log_lazy(GetLevel&& get_level, GetServices&& get_services, Log&& log
         log(target.services, level);
     } catch (...) {
     }  // Includes lookup, argument evaluation and formatting.
-}
-
-template<typename... Args>
-inline void async_log_message(const yaddnsc_async_services* services, yaddnsc_log_level level, std::string_view file,
-                              int32_t line, std::string_view function, std::format_string<Args...> fmt,
-                              Args&&... args) noexcept {
-    log_message(services, level, file, line, function, fmt, std::forward<Args>(args)...);
-}
-
-template<typename GetLevel, typename GetServices, typename Log>
-inline void async_log_lazy(GetLevel&& get_level, GetServices&& get_services, Log&& log) noexcept {
-    log_lazy(
-        std::forward<GetLevel>(get_level),
-        [&] {
-            if constexpr (std::is_null_pointer_v<std::remove_cvref_t<decltype(get_services())>>) {
-                return static_cast<const yaddnsc_async_services*>(get_services());
-            } else {
-                return get_services();
-            }
-        },
-        std::forward<Log>(log));
 }
 
 }  // namespace yaddnsc::sdk::detail
@@ -125,14 +110,14 @@ inline void async_log_lazy(GetLevel&& get_level, GetServices&& get_services, Log
 #define YADDNSC_SDK_LOG_WARN(svc, ...) YADDNSC_SDK_LOG(svc, YADDNSC_LOG_WARN, __VA_ARGS__)
 #define YADDNSC_SDK_LOG_ERROR(svc, ...) YADDNSC_SDK_LOG(svc, YADDNSC_LOG_ERROR, __VA_ARGS__)
 
-#define YADDNSC_ASYNC_SDK_LOG(svc, level, ...)                                                                     \
-    [&](const char* yaddnsc_log_function) {                                                                        \
-        ::yaddnsc::sdk::detail::async_log_lazy(                                                                    \
-            [&]() { return static_cast<yaddnsc_log_level>(level); }, [&]() { return (svc); },                      \
-            [&](const yaddnsc_async_services* yaddnsc_log_services, yaddnsc_log_level yaddnsc_log_level_value) {   \
-                ::yaddnsc::sdk::detail::async_log_message(yaddnsc_log_services, yaddnsc_log_level_value, __FILE__, \
-                                                          __LINE__, yaddnsc_log_function, __VA_ARGS__);            \
-            });                                                                                                    \
+#define YADDNSC_ASYNC_SDK_LOG(svc, level, ...)                                                                         \
+    [&](const char* yaddnsc_log_function) {                                                                            \
+        ::yaddnsc::sdk::detail::log_lazy<yaddnsc_async_services>(                                                      \
+            [&]() { return static_cast<yaddnsc_log_level>(level); }, [&]() { return (svc); },                          \
+            [&](const yaddnsc_async_services* yaddnsc_log_services, yaddnsc_log_level yaddnsc_log_level_value) {       \
+                ::yaddnsc::sdk::detail::log_message(yaddnsc_log_services, yaddnsc_log_level_value, __FILE__, __LINE__, \
+                                                    yaddnsc_log_function, __VA_ARGS__);                                \
+            });                                                                                                        \
     }(__FUNCTION__)
 #define YADDNSC_ASYNC_SDK_LOG_TRACE(svc, ...) YADDNSC_ASYNC_SDK_LOG(svc, YADDNSC_LOG_TRACE, __VA_ARGS__)
 #define YADDNSC_ASYNC_SDK_LOG_DEBUG(svc, ...) YADDNSC_ASYNC_SDK_LOG(svc, YADDNSC_LOG_DEBUG, __VA_ARGS__)

@@ -38,11 +38,11 @@ public:
 
     /// Borrows catalog for the gateway lifetime. Logger and loop must outlive
     /// all submitted cycles, even abandoned ones, through coro::run drain.
-    /// bridge_group is the root nursery owning those cycles and their HTTP.
+    /// cycle_nursery is the root nursery owning those cycles and their HTTP.
     DriverGateway(const DriverCatalog& catalog, const app::LoggerPort& logger, coro::Loop& loop,
-                  coro::Nursery& bridge_group);
+                  coro::Nursery& cycle_nursery);
     DriverGateway(const DriverCatalog& catalog, const app::LoggerPort& logger, coro::Loop& loop,
-                  coro::Nursery& bridge_group, Options options);
+                  coro::Nursery& cycle_nursery, Options options);
 
     DriverGateway(const DriverGateway&) = delete;
     DriverGateway& operator=(const DriverGateway&) = delete;
@@ -76,7 +76,7 @@ private:
     const app::LoggerPort& logger_;
     Options options_;
     std::shared_ptr<Bridge> bridge_;
-    coro::NurseryToken cycle_group_;
+    coro::NurseryToken cycle_nursery_;
 };
 
 }  // namespace plugin

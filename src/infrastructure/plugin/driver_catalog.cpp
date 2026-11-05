@@ -1,22 +1,23 @@
 #include "driver_catalog.h"
 
-#include <spdlog/spdlog.h>
-#include <yaddnsc/util/format.hpp>
 #include <algorithm>
+#include <expected>
 #include <filesystem>
 #include <iterator>
 #include <utility>
 #include <vector>
-#include <expected>
+
+#include <spdlog/spdlog.h>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/util/format.hpp>
 
 #include "domain/dns/record_kind.h"
 #include "domain/error/error.h"
 #include "infrastructure/plugin/driver_not_found_exception.h"
+#include "infrastructure/plugin/plugin_error.h"
 #include "infrastructure/plugin/plugin_load_exception.h"
 #include "infrastructure/plugin/plugin_loader.h"
 #include "support/fmt.hpp"
-#include "infrastructure/plugin/plugin_error.h"
-#include "yaddnsc/sdk/driver_abi.h"
 
 namespace {
 [[nodiscard]] std::string_view get_driver_lib_name(std::string_view path) {

@@ -64,11 +64,11 @@ inline constexpr app::UpdatePolicy UPDATE_POLICY{.driver_validation_budget = CON
 /// coro::run returns.
 [[nodiscard]] std::unique_ptr<coro::Loop> make_traced_loop();
 /// The single driver-gateway recipe: one catalog, one logger, one loop and the
-/// shared HTTP policy. `bridge_group` owns the gateway's bridge children, so
+/// shared HTTP policy. `cycle_nursery` owns the gateway's cycle children, so
 /// the returned owner must live at least as long as that nursery.
 [[nodiscard]] std::unique_ptr<plugin::DriverGateway> make_driver_gateway(const DriverCatalog& catalog,
                                                                          const app::LoggerPort& logger,
-                                                                         coro::Loop& loop, coro::Nursery& bridge_group,
+                                                                         coro::Loop& loop, coro::Nursery& cycle_nursery,
                                                                          const http::Options& http_options);
 /// The process exit status for a finished run. The loop reports what happened;
 /// deciding what the process returns is the command handler's policy: only a

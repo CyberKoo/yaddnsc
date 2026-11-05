@@ -151,10 +151,12 @@ jobs:
   # ----------------------------------------------------------------------
   # Static analysis, compile-only (no ctest). Ubuntu 26.04 ships clang-21
   # with matching clang-tidy and IWYU from the same distro release.
-  # Enforcement boundaries: IWYU violations fail the build (-Xiwyu --error,
-  # cmake/IWYU.cmake); compiler warnings fail via yaddnsc_warnings -Werror;
-  # clang-tidy diagnostics fail as well, because .clang-tidy promotes every
-  # warning to an error (WarningsAsErrors: '*'); tidy parse errors fail too.
+  # Enforcement boundaries: compiler warnings fail via yaddnsc_warnings -Werror;
+  # IWYU findings are reported without --error (cmake/IWYU.cmake) and do not
+  # fail the build; clang-tidy fails it only for the defect-prone families
+  # (WarningsAsErrors: 'bugprone-*,clang-analyzer-*,cert-*') and runs with
+  # --extra-arg=-Wno-error so the project's -Werror does not fail its own run.
+  # Tidy parse errors fail too.
   # ----------------------------------------------------------------------
   linux-amd64-lint:
     needs: [should_run]

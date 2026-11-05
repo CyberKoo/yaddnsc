@@ -15,14 +15,13 @@
 #include <spdlog/spdlog.h>
 #include <sys/socket.h>
 #include <yaddnsc/util/format.hpp>
+#include <yaddnsc/util/string_util.hpp>
 
 #include "domain/error/dns_error.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/validator.h"
 #include "support/fmt.hpp"
-#include "support/string_util.hpp"
 #include "support/util/bytes.hpp"
-#include "yaddnsc/util/string_util.hpp"
 
 // =============================================================================
 // Internal constants
@@ -552,7 +551,7 @@ bool dns::name_matches(std::string_view first, std::string_view second) noexcept
         first.remove_suffix(1);
     if (second.ends_with('.'))
         second.remove_suffix(1);
-    return StringUtil::iequals(first, second);
+    return yaddnsc::util::iequals(first, second);
 }
 
 dns::Question dns::RecordParser::parse_question(const std::span<const std::uint8_t> data) {

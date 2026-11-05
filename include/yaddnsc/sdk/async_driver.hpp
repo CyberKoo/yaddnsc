@@ -12,7 +12,6 @@
 #include <cstdint>
 #include <exception>
 #include <expected>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <source_location>
@@ -22,8 +21,6 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
-
-#include <concepts>
 
 #include <yaddnsc/sdk/driver_common.hpp>
 #include <yaddnsc/sdk/log.hpp>
@@ -285,49 +282,10 @@ protected:
     static Task<Result> run_update(AsyncUpdateContext& context, std::string_view driver_name, HttpRequest request,
                                    CheckResponse check_response,
                                    std::source_location location = std::source_location::current()) {
-        const auto& params = context.request();
-        const auto file = location.file_name();
-        const auto line = static_cast<int32_t>(location.line());
-        const auto function = location.function_name();
-
-        detail::async_log_lazy([&] { return YADDNSC_LOG_DEBUG; }, [&] { return context.services(); },
-                               [&](const yaddnsc_async_services* services, yaddnsc_log_level level) {
-                                   detail::async_log_message(
-                                       services, level, file, line, function,
-                                       "Domain \"{}\" ({}) received DNS record update request from driver '{}', {}",
-                                       params.fqdn, params.record_type, driver_name, format_request(request));
-                               });
-
+        detail::log_update_request(context.services(), context.request(), driver_name, request, location);
         auto operation = context.exchange(request);
         auto response = co_await operation;
-        if (!response) {
-            const auto services = context.services();
-            detail::async_log_message(services.get(), YADDNSC_LOG_WARN, file, line, function,
-                                      "Domain \"{}\" ({}) update failed: {}", params.fqdn, params.record_type,
-                                      response.error().message);
-            co_return std::unexpected(
-                Error{response.error().status, response.error().message, response.error().retry_after_seconds});
-        }
-
-        auto checked = std::invoke(check_response, *response, context.services());
-        if (!checked) {
-            const auto services = context.services();
-            // Every checker form logs the rejection here, so the domain
-            // context stays in the log next to the provider detail the
-            // driver reported.
-            detail::async_log_message(services.get(), YADDNSC_LOG_WARN, file, line, function,
-                                      "Domain \"{}\" ({}) update rejected by upstream", params.fqdn,
-                                      params.record_type);
-            if constexpr (std::same_as<decltype(checked), Result>) {
-                co_return checked;
-            }
-            const auto failure = detail::classify_upstream_failure(*response);
-            co_return std::unexpected(
-                Error{failure.status,
-                      fmt::format("Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type),
-                      failure.retry_after_seconds});
-        }
-        co_return {};
+        co_return detail::finish_update(context.services(), context.request(), response, check_response, location);
     }
 };
 
@@ -412,8 +370,7 @@ protected:
             driver_param_json, out_error);                                                                             \
     }
 
-/// The host-side seam and instance machinery the macro above expands to;
-/// not part of the interface a driver author writes against. Included last so
+/// Plugin-side ABI entry machinery used by the definition macro. Included last so
 /// that including <yaddnsc/sdk/async_driver.hpp> alone still resolves it.
 #include <yaddnsc/sdk/detail/async_instance.hpp>  // IWYU pragma: export
 

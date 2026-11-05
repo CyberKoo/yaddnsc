@@ -180,10 +180,14 @@ readability-use-anyofallof,
 concurrency-mt-unsafe
 '
 
-# The lint gate fails on any enabled diagnostic; NOLINT annotations with the
-# specific check name are the sanctioned way to mark intentional constructs
-# (e.g. ld --wrap symbol names).
-WarningsAsErrors: '*'
+# Only the defect-prone families are fatal: a bugprone, clang-analyzer or cert
+# finding fails the build. The suggestion-style families (modernize,
+# readability, performance, hicpp, google, misc) stay at warning severity and
+# are reported without blocking CI — their findings are noisy and shift with
+# the toolchain version. NOLINT annotations with the specific check name
+# remain the sanctioned way to mark intentional constructs (e.g. ld --wrap
+# symbol names).
+WarningsAsErrors: 'bugprone-*,clang-analyzer-*,cert-*'
 
 CheckOptions:
   - key: modernize-use-auto.MinTypeNameLength

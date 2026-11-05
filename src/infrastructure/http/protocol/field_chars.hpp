@@ -13,7 +13,7 @@
 #include <cctype>
 #include <string_view>
 
-#include "support/string_util.hpp"  // IWYU pragma: keep — the StringUtil namespace alias lives here
+#include <yaddnsc/util/string_util.hpp>
 
 namespace http::protocol {
 
@@ -51,7 +51,8 @@ namespace http::protocol {
     std::size_t pos = 0;
     do {
         const auto comma = value.find(',', pos);
-        const auto token = StringUtil::trim(value.substr(pos, comma == std::string_view::npos ? comma : comma - pos));
+        const auto token =
+            yaddnsc::util::trim(value.substr(pos, comma == std::string_view::npos ? comma : comma - pos));
         if (!is_token(token)) {
             return false;
         }
@@ -68,8 +69,9 @@ namespace http::protocol {
     std::size_t pos = 0;
     while (pos < value.size()) {
         const auto comma = value.find(',', pos);
-        if (StringUtil::iequals(
-                StringUtil::trim(value.substr(pos, comma == std::string_view::npos ? comma : comma - pos)), wanted)) {
+        if (yaddnsc::util::iequals(
+                yaddnsc::util::trim(value.substr(pos, comma == std::string_view::npos ? comma : comma - pos)),
+                wanted)) {
             return true;
         }
         if (comma == std::string_view::npos) {

@@ -13,27 +13,28 @@
 #include <string>
 #include <system_error>
 
+#include <yaddnsc/util/string_util.hpp>
+
 #include "infrastructure/http/protocol/field_chars.hpp"
 #include "infrastructure/http/protocol/field_names.hpp"
 #include "infrastructure/http/types.h"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
-#include "support/string_util.hpp"  // IWYU pragma: keep — the StringUtil namespace alias lives here
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include "yaddnsc/util/string_util.hpp"
 
 namespace http {
 namespace {
 
 /// The client owns these header fields: a user-supplied copy is discarded.
 [[nodiscard]] bool is_managed_header(const std::string_view name) noexcept {
-    return StringUtil::iequals(name, protocol::field::HOST) ||
-           StringUtil::iequals(name, protocol::field::CONTENT_LENGTH) ||
-           StringUtil::iequals(name, protocol::field::CONTENT_TYPE) ||
-           StringUtil::iequals(name, protocol::field::CONNECTION) ||
-           StringUtil::iequals(name, protocol::field::USER_AGENT) ||
-           StringUtil::iequals(name, protocol::field::TRANSFER_ENCODING) ||
-           StringUtil::iequals(name, protocol::field::TRAILER) || StringUtil::iequals(name, protocol::field::UPGRADE);
+    return yaddnsc::util::iequals(name, protocol::field::HOST) ||
+           yaddnsc::util::iequals(name, protocol::field::CONTENT_LENGTH) ||
+           yaddnsc::util::iequals(name, protocol::field::CONTENT_TYPE) ||
+           yaddnsc::util::iequals(name, protocol::field::CONNECTION) ||
+           yaddnsc::util::iequals(name, protocol::field::USER_AGENT) ||
+           yaddnsc::util::iequals(name, protocol::field::TRANSFER_ENCODING) ||
+           yaddnsc::util::iequals(name, protocol::field::TRAILER) ||
+           yaddnsc::util::iequals(name, protocol::field::UPGRADE);
 }
 
 /// RFC 9112 §3.2: the target is origin-form ("/..."), or "*" for a server-wide
@@ -61,22 +62,22 @@ struct RequestFieldState {
 };
 
 [[nodiscard]] RequestField classify_request_field(const std::string_view name) noexcept {
-    if (StringUtil::iequals(name, protocol::field::HOST)) {
+    if (yaddnsc::util::iequals(name, protocol::field::HOST)) {
         return RequestField::HOST;
     }
-    if (StringUtil::iequals(name, protocol::field::CONNECTION)) {
+    if (yaddnsc::util::iequals(name, protocol::field::CONNECTION)) {
         return RequestField::CONNECTION;
     }
-    if (StringUtil::iequals(name, protocol::field::CONTENT_LENGTH)) {
+    if (yaddnsc::util::iequals(name, protocol::field::CONTENT_LENGTH)) {
         return RequestField::CONTENT_LENGTH;
     }
-    if (StringUtil::iequals(name, protocol::field::TRANSFER_ENCODING)) {
+    if (yaddnsc::util::iequals(name, protocol::field::TRANSFER_ENCODING)) {
         return RequestField::TRANSFER_ENCODING;
     }
-    if (StringUtil::iequals(name, protocol::field::TRAILER)) {
+    if (yaddnsc::util::iequals(name, protocol::field::TRAILER)) {
         return RequestField::TRAILER;
     }
-    if (StringUtil::iequals(name, protocol::field::UPGRADE)) {
+    if (yaddnsc::util::iequals(name, protocol::field::UPGRADE)) {
         return RequestField::UPGRADE;
     }
     return RequestField::OTHER;
@@ -114,10 +115,10 @@ std::expected<void, Error> validate_request(const Request& request) {
         if (!protocol::is_token(name) || !protocol::is_field_value(value)) {
             return std::unexpected(Error{ErrorCode::INVALID_REQUEST, "invalid HTTP request header"});
         }
-        if (StringUtil::iequals(name, "upgrade")) {
+        if (yaddnsc::util::iequals(name, "upgrade")) {
             return std::unexpected(Error{ErrorCode::UNSUPPORTED_PROTOCOL, "HTTP protocol upgrade is not supported"});
         }
-        if (StringUtil::iequals(name, "transfer-encoding") || StringUtil::iequals(name, "trailer")) {
+        if (yaddnsc::util::iequals(name, "transfer-encoding") || yaddnsc::util::iequals(name, "trailer")) {
             return std::unexpected(
                 Error{ErrorCode::INVALID_REQUEST, "request transfer coding and trailers are not supported"});
         }

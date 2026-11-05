@@ -11,6 +11,8 @@
 #include <type_traits>
 #include <utility>
 
+#include <yaddnsc/sdk/driver_abi.h>
+
 #include "coro/fwd.h"
 #include "coro/notification.hpp"
 #include "coro/nursery.hpp"
@@ -27,7 +29,6 @@
 #include "infrastructure/plugin/detail/abi_result.h"
 #include "infrastructure/plugin/detail/cycle.h"
 #include "infrastructure/plugin/plugin_loader.h"
-#include "yaddnsc/sdk/driver_abi.h"
 
 namespace coro {
 class CancelScope;
@@ -39,6 +40,7 @@ namespace {
 /// Stops the resource on every body exit, including the early returns.
 struct StopGuard {
     AsyncResources& r;
+
     ~StopGuard() {
         // Release the watcher and stop HTTP on every body exit.
         r.stopping = true;
