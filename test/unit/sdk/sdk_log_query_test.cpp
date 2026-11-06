@@ -14,6 +14,7 @@
 // =============================================================================
 
 #include <coroutine>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <initializer_list>
@@ -96,9 +97,17 @@ public:
     using AsyncDriver::run_update;
 };
 
-class ImmediateExchangeHost final : public yaddnsc::sdk::AsyncExchangeHost {
+class ImmediateExchangeHost final : public yaddnsc::sdk::detail::AsyncExchangeHost {
 public:
     bool transport_failure = false;
+
+    std::expected<std::size_t, yaddnsc::sdk::HttpError> reserve_slot() override { return 0; }
+
+    void release_slot(std::size_t) noexcept override {}
+
+    void cancel_group(const void*) override {}
+
+    [[nodiscard]] bool update_cancelled() const noexcept override { return false; }
 
     bool start_exchange(yaddnsc::sdk::ExchangeAwaitable& awaitable, std::coroutine_handle<>) override {
         if (transport_failure) {

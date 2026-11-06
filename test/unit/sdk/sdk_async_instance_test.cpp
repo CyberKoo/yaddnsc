@@ -9,6 +9,7 @@
 // the one-shot contract.
 //
 
+#include <array>
 #include <coroutine>
 #include <cstdint>
 #include <expected>
@@ -16,6 +17,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -32,6 +34,8 @@ struct FakeHost {
     yaddnsc_status start_status = YADDNSC_STATUS_OK;
     uint64_t next_op_id = 1;
     int start_calls = 0;
+    int fail_start_call = 0;
+    std::vector<uint64_t> cancel_calls;
 };
 
 void fake_log(void*, yaddnsc_log_level, yaddnsc_string, const yaddnsc_source_location*) {}
@@ -47,7 +51,8 @@ int32_t fake_cancelled(void*) {
 yaddnsc_status fake_start(void* context, const yaddnsc_http_request*, uint64_t* out_op_id, yaddnsc_error* out_error) {
     auto* host = static_cast<FakeHost*>(context);
     ++host->start_calls;
-    if (host->start_status != YADDNSC_STATUS_OK) {
+    if (host->start_status != YADDNSC_STATUS_OK &&
+        (host->fail_start_call == 0 || host->start_calls == host->fail_start_call)) {
         if (out_error != nullptr) {
             static constexpr std::string_view message{"host refused the request"};
             out_error->status = host->start_status;
@@ -56,12 +61,14 @@ yaddnsc_status fake_start(void* context, const yaddnsc_http_request*, uint64_t* 
         return host->start_status;
     }
     if (out_op_id != nullptr) {
-        *out_op_id = host->next_op_id;
+        *out_op_id = host->next_op_id++;
     }
     return YADDNSC_STATUS_OK;
 }
 
-yaddnsc_status fake_cancel(void*, uint64_t, yaddnsc_error*) {
+yaddnsc_status fake_cancel(void* context, uint64_t op_id, yaddnsc_error*) {
+    auto* host = static_cast<FakeHost*>(context);
+    host->cancel_calls.push_back(op_id);
     return YADDNSC_STATUS_OK;
 }
 
@@ -150,6 +157,24 @@ public:
         }
         g_observed_status = response->status_code;
         g_observed_body = response->body;
+        co_return {};
+    }
+
+    [[nodiscard]] sdk::Result validate(std::string_view) const override { return {}; }
+};
+
+class CapacityDriver final : public sdk::AsyncDriver {
+public:
+    sdk::Task<sdk::Result> update(sdk::AsyncUpdateContext& context) override {
+        auto group = context.when_all(std::vector<sdk::HttpRequest>(sdk::MAX_ASYNC_EXCHANGES_PER_INSTANCE));
+        if (!group) {
+            co_return std::unexpected(sdk::Error{group.error().status, group.error().message, 0});
+        }
+        auto response = co_await context.exchange(sdk::HttpRequest{});
+        if (!response) {
+            g_observed_error_status = response.error().status;
+            co_return std::unexpected(sdk::Error{response.error().status, response.error().message, 0});
+        }
         co_return {};
     }
 
@@ -741,20 +766,49 @@ TEST(SdkAsyncInstanceValidate, RejectsASecondCall) {
     EXPECT_EQ(message_of(error), "async instance already used");
 }
 
-TEST(SdkAsyncInstanceExchange, RejectsASecondPendingExchange) {
+TEST(SdkAsyncInstanceExchange, ReportsCapacityWhenAwaitedAndReleasesReservations) {
     FakeHost host;
     auto services = make_services(&host);
     sdk::detail::AsyncInstance<ExchangingDriver> instance(&services);
 
-    sdk::ExchangeAwaitable first(instance, sdk::HttpRequest{});
-    sdk::ExchangeAwaitable second(instance, sdk::HttpRequest{});
-    EXPECT_TRUE(instance.start_exchange(first, std::noop_coroutine()));
-    EXPECT_FALSE(instance.start_exchange(second, std::noop_coroutine()));
+    {
+        std::array<std::optional<sdk::ExchangeAwaitable>, sdk::MAX_ASYNC_EXCHANGES_PER_INSTANCE> operations;
+        for (auto& operation : operations) {
+            operation.emplace(instance, sdk::HttpRequest{});
+        }
+        sdk::ExchangeAwaitable rejected(instance, sdk::HttpRequest{});
+        EXPECT_TRUE(rejected.await_ready());
+        EXPECT_EQ(host.start_calls, 0);
+        auto result = rejected.await_resume();
+        ASSERT_FALSE(result.has_value());
+        EXPECT_EQ(result.error().status, YADDNSC_STATUS_INVALID_ARGUMENT);
+        EXPECT_EQ(result.error().message, "async exchange task capacity exceeded");
+    }
 
-    auto result = second.await_resume();
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().status, YADDNSC_STATUS_INTERNAL_ERROR);
-    EXPECT_EQ(result.error().message, "another async exchange is already pending");
+    sdk::ExchangeAwaitable reused(instance, sdk::HttpRequest{});
+    EXPECT_FALSE(reused.await_ready());
+    EXPECT_EQ(host.start_calls, 0);
+}
+
+TEST(SdkAsyncInstanceExchange, SingleAwaitReportsCapacityWhileGroupReservesEverySlot) {
+    FakeHost host;
+    auto services = make_services(&host);
+    sdk::detail::AsyncInstance<CapacityDriver> instance(&services);
+    yaddnsc_error error = make_error();
+    auto request = make_request();
+    g_observed_error_status = YADDNSC_STATUS_OK;
+
+    EXPECT_EQ(instance.begin(request, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(g_observed_error_status, YADDNSC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(message_of(error), "async exchange task capacity exceeded");
+    EXPECT_EQ(host.start_calls, 0);
+
+    std::array<sdk::detail::ExchangeSlotLease, sdk::MAX_ASYNC_EXCHANGES_PER_INSTANCE> leases;
+    for (auto& lease : leases) {
+        auto acquired = sdk::detail::acquire_slot(instance);
+        ASSERT_TRUE(acquired.has_value());
+        lease = std::move(*acquired);
+    }
 }
 
 TEST(SdkAsyncInstanceExchange, ReportsAHostFailure) {

@@ -293,7 +293,7 @@ target_compile_definitions(test_coro_driver_gateway PRIVATE
 add_dependencies(test_coro_driver_gateway yaddnsc_fixture_async)
 
 # ---------------------------------------------------------------------------
-# Async SDK fixture — a real AsyncDriver using the sequential exchange API.
+# Async SDK fixture — a real AsyncDriver using single and grouped exchanges.
 # ---------------------------------------------------------------------------
 add_library(yaddnsc_fixture_async_sdk MODULE fixtures/async_sdk_plugin.cpp)
 set_target_properties(yaddnsc_fixture_async_sdk PROPERTIES PREFIX "" OUTPUT_NAME "async_sdk_driver")

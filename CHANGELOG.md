@@ -10,152 +10,58 @@ section here.
 ## [1.1.0] - Unreleased
 
 The host now implements plugin ABI 1.1; ABI 1.0 remains frozen and loadable.
-The bundled drivers use the async execution protocol and therefore require a
-1.1 host, while their names and provider parameters are unchanged. Failed
-updates now report the provider's own error detail, and the driver package
-versions move to 1.1.0/2.1.0 (see Changed). Migration: [coroutine lifecycle
-migration](docs/coroutine.md#coroutine-lifecycle-migration) and
-[custom drivers](docs/custom-drivers.md).
+Migration guidance: [custom drivers](docs/custom-drivers.md).
 
 ### Breaking
 
-- Async C++ exchanges return owned `AsyncHttpResponse` values through
-  `AsyncExchangeResult`; async response checkers must use the new type. The
-  synchronous three-field borrowed `HttpResponse` / `ExchangeResult` API and
-  C ABI are unchanged. See [custom drivers](docs/custom-drivers.md).
-- Async plugins require a complete async execution group and ABI 1.1; a module
-  cannot mix sync and async execution symbols. ABI 1.0 sync plugins keep their
-  original load and execution path.
-- The bundled drivers emit only the async group, so an older ABI 1.0 host
-  rejects them at load. Their names and provider parameters are unchanged.
-- Structured concurrency uses `with_nursery`, `Nursery` and `NurseryPolicy`,
-  exposed by `coro/with_nursery.hpp` and `coro/nursery.hpp`; the old
-  `group.hpp` and `task_group.hpp` headers are removed, not compatibility aliases.
-  Handle/next consumption requires the owning loop and a structured descendant
-  of the nursery runner, including already-ready results.
-- Nursery body locals and parameters are not retained for children after body
-  return. Owners shared with children belong in runner-owned Resources or
-  outside the entire nursery await.
-- Results become ready only after their producer frame has been destroyed.
-  A child that terminated earlier in the same batch can therefore require an
-  additional Handle/next suspension; already-retired results retain fast paths.
-- `Nursery::next<T>()` returns a frame-free observation awaitable instead of a
-  `Task`; `co_await nursery.next<T>()` is unchanged, but code that names or
-  stores the returned `Task` must adapt. A call no longer creates a nested
-  execution for every result consumed. Already-retired results resume without
-  an extra queue round trip.
-- `Nursery::next<T>()` reserves its matching result before resuming the
-  consumer. Cancelling that wait releases the reservation; a result already
-  reserved by a Handle is no longer a `next<T>()` candidate.
-- Frame destruction moves to FIFO batch-end retirement, independently of
-  consumption. Ready ordering relative to other events can change.
-- Plugin cycle ingress closes before retiring HTTP requests finish draining;
-  late posted requests take the existing cancellation/rejection path.
-
-### Added
-
-- Optional ABI 1.1 host-services log-level query, with lazy SDK logging and
-  fallback to the original log path.
-- Async plugin protocol and SDK: an event/PENDING update model, async services
-  table, loader mode selection, create/begin/resume/destroy/validate, and a
-  sequential async exchange API for driver authors.
-- Runner-owned resource scopes with fail-fast or supervisor child policies,
-  admission closure and a single cancellation/drain/cleanup path.
-- Explicit execution ownership, independent result storage and shared
-  wait/cancellation arbitration, with Debug and Release contract tests.
-- Shared SDK helpers for driver authors: the response skeleton in
-  `sdk/run_update.hpp` (`log_response_body`, `transient_rejection`,
-  `status_rejection`, `upstream_rejection`, `rejection_message`) and the
-  parameter checks in `sdk/driver_common.hpp` (`require_non_empty`,
-  `optional_non_negative`, `validate_via`). Existing drivers keep working.
-  See [custom drivers](docs/custom-drivers.md).
-
-### Removed
-
-- The old `task_group`, `supervisor_group`, public `TaskGroup`, `join()` and
-  `with_children()` APIs, and `GroupToken`/`group_token` ingress tokens.
+- Bundled drivers now use the async execution group and require an ABI 1.1
+  host; an ABI 1.0 host rejects them at load. Their names and provider
+  parameters are unchanged.
 
 ### Changed
 
-- The async execution group is now the recommended way to write a driver. The
-  synchronous group stays fully supported across the whole ABI 1.x line: it
-  loads and runs exactly as in ABI 1.0, and only a future major version could
-  retire it. New drivers should target the async group. See
+- The async execution group is now recommended for new drivers. The synchronous
+  group remains fully supported throughout ABI 1.x and runs as in ABI 1.0;
+  only a future major version could retire it. See
   [custom drivers](docs/custom-drivers.md#entry-points).
-- The bundled drivers use the async SDK and require ABI 1.1; their names are
-  unchanged.
-- The bundled drivers report the provider's own error detail in a failed
-  update instead of a generic rejection message, and an empty optional
-  parameter is reported with the same wording as an empty required one.
-  Their package versions move from 1.0.0/2.0.0 to 1.1.0/2.1.0.
-- Ready dispatch uses a borrowed frame token to avoid an extra execution-record
-  lookup without transferring frame ownership or changing retirement order.
-- Avoid retrying every parked completion consumer when no matching result is
-  available, while preserving cancellation order and exhaustion notifications.
-- Reduce per-execution bookkeeping by sharing fixed completion roles, and keep
-  the empty cross-thread inbox path inline without changing dispatch order.
-- A redirect hop that leaves the persistent origin now runs the same pipeline
-  as a persistent hop, so a connection lost before an idempotent hop is answered
-  is recovered from instead of failing the request. The redirect budget still
-  spans every hop.
-- A TLS session that never comes up — unusable trust material, a rejected
-  certificate, a peer that will not negotiate — is reported as a handshake
-  failure instead of an unreachable host, so DoH/DoT diagnostics name the
-  actual cause.
+- Bundled drivers report the provider's own error detail instead of a generic
+  rejection message. Empty optional parameters use the same diagnostic as
+  empty required ones.
+- Bundled driver package versions move from 1.0.0/2.0.0 to 1.1.0/2.1.0.
+
+### Added
+
+- Async plugin protocol and C++ SDK with event/PENDING updates, async host
+  services, loader mode selection, and full lifecycle support. Modules must
+  export a complete async execution group and cannot mix sync and async
+  execution symbols.
+- Async HTTP exchanges return owned `AsyncHttpResponse` values through
+  `AsyncExchangeResult`, including checked slot-capacity failures for single
+  exchanges. The synchronous C++ exchange API is unchanged.
+- Bounded async HTTP `when_all` and `when_any` groups with creation-time slot
+  reservation, ordered results, completion policies, loser cancellation/drain,
+  and observed update-cancellation outcomes in both result types. The plugin C
+  ABI is unchanged.
+- Optional ABI 1.1 host-services log-level query, with lazy SDK logging and
+  fallback to the original log path.
+- Shared SDK response helpers in `sdk/run_update.hpp` and parameter checks in
+  `sdk/driver_common.hpp`. See [custom drivers](docs/custom-drivers.md).
+
+### Security
+
+- IP-source and driver request failures log the request path rather than the
+  full URL, avoiding provider credentials in query strings.
 
 ### Fixed
 
-- Timing-sensitive regression tests use explicit rendezvous and virtual clocks
-  instead of scheduler-speed assumptions in worker cancellation, signals, TLS,
-  logging overflow and plugin mode coexistence.
-- A completed async exchange stays readable after it returns: the response
-  copies its body and headers before the awaiting coroutine resumes.
-- Async `validate` publishes create and validate failures on every exit path;
-  an exception or an unsubmittable destroy step during async cleanup is fatal
-  instead of releasing an instance that may still be alive.
-- The async host rejects HTTP requests with a short declared prefix and clears
-  the op-id output on failures.
-- Async cancellation wakes a loop-side watcher while a slow plugin step runs,
-  so in-flight HTTP is stopped without waiting for the step to return.
-- Synchronous update warnings honor the host's log-level query instead of
-  bypassing the lazy gate.
-- The async SDK enforces the one-shot validate/update contract, validates the
-  complete cancellation and error event payloads, and copies exception text
-  through the bounded error buffer.
-- Unregistering an fd revokes its pending callback in both readiness and
-  poll-failure dispatch, so removing another registration during a callback
-  cannot dispatch a stale context afterwards.
-- A `next<T>()` waiter is no longer told it is exhausted while a published
-  result it could still take is merely reserved by another consumer. Handing a
-  reservation back now wakes those waiters, and consuming the entry delivers the
-  real exhaustion answer, so `while (auto outcome = co_await nursery.next<T>())`
-  can no longer lose a result that is released during a retirement transaction.
-- Retiring a record that still holds a queued resumption terminates instead of
-  resuming a frame the retirement transaction is about to destroy. The ready queue
-  carries a borrowed frame token, so this is the only check left for that state and
-  it is enforced in Release as well as Debug.
-- Cancelling a reserved `next<T>()` result preserves its original publication
-  order instead of returning it behind newer results. A `nullopt` observation
-  does not preclude results from later spawns or released reservations.
-- Cancellation callbacks can disarm another subscription without skipping
-  older live subscribers.
-- Result invalidation releases values and exceptions even when invalid Handle
-  copies survive nursery exit; cleanup also runs if error aggregation fails.
-- Lock handoff remains owned across cancellation, joined offload waits through
-  callable destruction, and abandon completion cannot revisit a retired waiter.
-  These guarantees are preserved and covered by deterministic regressions.
-- Existing single-consumer semantics remain unchanged: a throwing result move
-  still consumes the result, while cancellation releases only its reservation.
-- IP-source and driver request failures name the server by its path instead of
-  printing the whole request URL, whose query can carry provider credentials.
-- Loading a driver that requires a newer ABI minor always reports the host as
-  the outdated side, even when the module exports no entry-point group the
-  host knows: the version handshake runs before the execution-group symbol
-  check, so such a module is no longer misreported as missing the v1 entry
-  points.
-- The update interval runs from each cycle's scheduled start rather than the
-  moment its timer fired, so timer wake-up latency no longer accumulates into
-  the long-run cadence.
+- Redirects that leave a persistent origin recover when a connection is lost
+  before an idempotent hop is answered. The redirect budget still spans every
+  hop.
+- TLS trust, certificate and negotiation failures are reported as handshake
+  failures instead of unreachable hosts, so DoH/DoT diagnostics name the actual
+  cause.
+- Update intervals run from each cycle's scheduled start, preventing timer
+  wake-up latency from accumulating into the long-run cadence.
 
 ## [1.0.0] - 2026-11-03
 

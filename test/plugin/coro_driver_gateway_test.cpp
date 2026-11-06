@@ -602,9 +602,23 @@ private:
     HeldResponse& state_;
 };
 
+class GatedWinnerStream final : public ClockedBridgeStream {
+public:
+    explicit GatedWinnerStream(HeldResponse& state) : ClockedBridgeStream(0ms), state_(state) {}
+
+    coro::Task<std::expected<std::size_t, net::IoError>> read_some(std::span<std::uint8_t> buffer) override {
+        co_await state_.entered.wait();
+        co_return co_await ClockedBridgeStream::read_some(buffer);
+    }
+
+private:
+    HeldResponse& state_;
+};
+
 class HeldResponseFactory final : public ClockedBridgeFactory {
 public:
-    explicit HeldResponseFactory(HeldResponse& state) : ClockedBridgeFactory(0ms), state_(state) {}
+    explicit HeldResponseFactory(HeldResponse& state, bool gate_winner = false)
+        : ClockedBridgeFactory(0ms), state_(state), gate_winner_(gate_winner) {}
 
     std::unique_ptr<net::Stream> create_tcp(domain::InetAddress, std::uint16_t port,
                                             const net::ConnectOptions&) override {
@@ -612,11 +626,15 @@ public:
         if (port == 1) {
             return std::make_unique<HeldResponseStream>(state_);
         }
+        if (gate_winner_) {
+            return std::make_unique<GatedWinnerStream>(state_);
+        }
         return std::make_unique<ClockedBridgeStream>(0ms);
     }
 
 private:
     HeldResponse& state_;
+    bool gate_winner_;
 };
 
 }  // namespace
@@ -719,12 +737,14 @@ TEST(Bridge, CancelBeforeScopePublication_DoesNotStartHttp) {
 /// Releases the worker on every exit, including a failed assertion path.
 struct ReleaseWorker {
     void (*release)();
+
     ~ReleaseWorker() { release(); }
 };
 
 /// Clears the published scope pointer when the cancellation scope exits.
 struct ScopeBorrow {
     coro::CancelScope*& slot;
+
     ~ScopeBorrow() { slot = nullptr; }
 };
 
@@ -995,6 +1015,100 @@ TEST_F(CoroDriverGatewayTest, AsyncSdkDriverCompletesThroughTheGateway) {
     EXPECT_EQ(server.request_count(), 1u);
     ASSERT_TRUE(valid.has_value()) << valid.error().message;
     ASSERT_FALSE(invalid.has_value());
+}
+
+TEST_F(CoroDriverGatewayTest, AsyncSdkDriverWhenAllRunsRequestsConcurrently) {
+    LoopbackHttpServer server{LoopbackHttpServer::Barrier{.count = 2, .give_up = 10s}};
+    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_SDK_PATH)));
+    coro::Loop loop;
+    std::expected<void, domain::DriverError> result;
+
+    run_loop(loop, [&]() -> coro::Task<void> {
+        co_await coro::with_nursery(
+            std::unique_ptr<plugin::DriverGateway>{},
+            [&](coro::Nursery& group, std::unique_ptr<plugin::DriverGateway>& owner) -> coro::Task<void> {
+                auto& gateway = *(owner = std::make_unique<plugin::DriverGateway>(catalog_, logger_, loop, group,
+                                                                                  default_options(30s)));
+                const std::string params =
+                    fmt::format("all:http://127.0.0.1:{0}/first|http://127.0.0.1:{0}/second", server.port());
+                result = co_await gateway.update("async_sdk_driver", make_command(params));
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
+        co_return;
+    });
+
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_TRUE(server.barrier_met());
+    EXPECT_EQ(server.request_count(), 2u);
+}
+
+TEST_F(CoroDriverGatewayTest, AsyncSdkDriverWhenAllCancellationDrainsRequests) {
+    PausedClock clock;
+    HeldResponse held;
+    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_SDK_PATH)));
+    coro::Loop loop{clock};
+    auto options = default_options(30s);
+    options.http.factory = std::make_shared<HeldResponseFactory>(held);
+    bool saw_request = false;
+
+    run_loop(loop, [&]() -> coro::Task<void> {
+        co_await coro::with_nursery(
+            std::unique_ptr<plugin::DriverGateway>{},
+            [&](coro::Nursery& group, std::unique_ptr<plugin::DriverGateway>& owner) -> coro::Task<void> {
+                auto& gateway =
+                    *(owner = std::make_unique<plugin::DriverGateway>(catalog_, logger_, loop, group, options));
+                co_await coro::with_nursery(
+                    [&](coro::Nursery& cycle) -> coro::Task<void> {
+                        cycle.spawn(gateway.update(
+                            "async_sdk_driver", make_command("all:http://127.0.0.1:1/held|http://127.0.0.1:2/ready")));
+                        co_await held.entered.wait();
+                        saw_request = true;
+                        cycle.cancel();
+                        co_return;
+                    },
+                    coro::NurseryPolicy::SUPERVISOR);
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
+        co_return;
+    });
+
+    EXPECT_TRUE(saw_request);
+    EXPECT_EQ(held.reads, 1u);
+    EXPECT_EQ(held.cancelled, 1u);
+    EXPECT_EQ(held.responses, 0u);
+    EXPECT_EQ(held.alive, 0u);
+}
+
+TEST_F(CoroDriverGatewayTest, AsyncSdkDriverWhenAnyCancelsAndDrainsLoser) {
+    PausedClock clock;
+    HeldResponse held;
+    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_SDK_PATH)));
+    coro::Loop loop{clock};
+    auto options = default_options(30s);
+    options.http.factory = std::make_shared<HeldResponseFactory>(held, true);
+    std::expected<void, domain::DriverError> result;
+
+    run_loop(loop, [&]() -> coro::Task<void> {
+        co_await coro::with_nursery(
+            std::unique_ptr<plugin::DriverGateway>{},
+            [&](coro::Nursery& group, std::unique_ptr<plugin::DriverGateway>& owner) -> coro::Task<void> {
+                auto& gateway =
+                    *(owner = std::make_unique<plugin::DriverGateway>(catalog_, logger_, loop, group, options));
+                result = co_await gateway.update(
+                    "async_sdk_driver", make_command("any:http://127.0.0.1:1/loser|http://127.0.0.1:2/winner"));
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
+        co_return;
+    });
+
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(held.reads, 1u);
+    EXPECT_EQ(held.cancelled, 1u);
+    EXPECT_EQ(held.responses, 0u);
+    EXPECT_EQ(held.alive, 0u);
 }
 
 TEST_F(CoroDriverGatewayTest, AsyncDriverPropagatesHttpFailure) {

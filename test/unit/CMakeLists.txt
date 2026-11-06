@@ -521,6 +521,10 @@ add_unit_test(sdk_async_lifecycle SOURCE sdk/sdk_async_lifecycle_test.cpp)
 # compatibility, malformed event rejection and exception translation.
 add_unit_test(sdk_async_instance SOURCE sdk/sdk_async_instance_test.cpp)
 
+# sdk_async_group — creation-time capacity, ordered fan-out, winner policies,
+# loser cancellation/drain and whole-update cancellation.
+add_unit_test(sdk_async_group SOURCE sdk/sdk_async_group_test.cpp)
+
 # driver_magic — the YADDNSC_DRIVER_MAGIC constant in the v1 ABI header
 add_unit_test(driver_magic SOURCE sdk/driver_magic_test.cpp)
 

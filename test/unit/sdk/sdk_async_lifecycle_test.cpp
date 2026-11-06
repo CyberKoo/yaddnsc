@@ -12,6 +12,7 @@
 
 #include <array>
 #include <coroutine>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <initializer_list>
@@ -32,10 +33,21 @@ namespace sdk = yaddnsc::sdk;
 
 namespace {
 
-class FakeExchangeHost final : public sdk::AsyncExchangeHost {
+class FakeExchangeHost final : public sdk::detail::AsyncExchangeHost {
 public:
     sdk::ExchangeAwaitable* pending = nullptr;
     std::coroutine_handle<> continuation;
+
+    std::expected<std::size_t, sdk::HttpError> reserve_slot() override { return 0; }
+
+    void release_slot(std::size_t) noexcept override {
+        pending = nullptr;
+        continuation = {};
+    }
+
+    void cancel_group(const void*) override {}
+
+    [[nodiscard]] bool update_cancelled() const noexcept override { return false; }
 
     bool start_exchange(sdk::ExchangeAwaitable& awaitable, std::coroutine_handle<> handle) override {
         pending = &awaitable;
@@ -45,8 +57,14 @@ public:
 };
 
 void fake_log(void*, yaddnsc_log_level, yaddnsc_string, const yaddnsc_source_location*) {}
-int32_t fake_log_enabled(void*, yaddnsc_log_level) { return 0; }
-int32_t fake_cancelled(void*) { return 0; }
+
+int32_t fake_log_enabled(void*, yaddnsc_log_level) {
+    return 0;
+}
+
+int32_t fake_cancelled(void*) {
+    return 0;
+}
 
 yaddnsc_status fake_start(void*, const yaddnsc_http_request*, uint64_t* out_op_id, yaddnsc_error*) {
     if (out_op_id != nullptr) {
@@ -55,7 +73,9 @@ yaddnsc_status fake_start(void*, const yaddnsc_http_request*, uint64_t* out_op_i
     return YADDNSC_STATUS_OK;
 }
 
-yaddnsc_status fake_cancel(void*, uint64_t, yaddnsc_error*) { return YADDNSC_STATUS_OK; }
+yaddnsc_status fake_cancel(void*, uint64_t, yaddnsc_error*) {
+    return YADDNSC_STATUS_OK;
+}
 
 yaddnsc_async_services make_services() {
     yaddnsc_async_services services{};
@@ -127,8 +147,8 @@ public:
         auto operation = context.exchange(sdk::HttpRequest{});
         auto response = co_await operation;
         if (!response) {
-            co_return std::unexpected(sdk::Error{response.error().status, response.error().message,
-                                                 response.error().retry_after_seconds});
+            co_return std::unexpected(
+                sdk::Error{response.error().status, response.error().message, response.error().retry_after_seconds});
         }
         co_return {};
     }

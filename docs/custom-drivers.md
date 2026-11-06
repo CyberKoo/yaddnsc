@@ -101,21 +101,116 @@ drivers receive the sync table; async drivers receive the async table, and the
 gateway drives begin/resume while HTTP waits stay on the loop instead of
 occupying a worker. The C++ async SDK
 (`<yaddnsc/sdk/async_driver.hpp>`) provides `AsyncDriver`, `AsyncServices`,
-`AsyncUpdateContext`, one sequential exchange awaitable, and the async driver
-macro; it emits only the async group. Concurrent fan-out is not part of this
-SDK revision. `co_await context.exchange(...)` returns `AsyncExchangeResult`
-(`std::expected<AsyncHttpResponse, HttpError>`). `AsyncHttpResponse` owns its
-`std::string` body and `std::vector<HttpHeader>` header strings, preserving
-binary bytes, header order, casing and duplicates. The SDK copies the ABI
-payload before business code resumes and moves the result out of the
-awaitable. Copies own independent storage; moves transfer ownership, so neither
-the event nor the awaitable needs to remain alive. Async response checkers must
-accept `const AsyncHttpResponse&`, not `const HttpResponse&`. The host-side
-half of that awaitable — the exchange host type, the mutators that deliver a
-response or a cancellation, and the instance type — lives in
-`<yaddnsc/sdk/detail/async_instance.hpp>`, which `async_driver.hpp` includes
-last. It is the host's wiring, not driver interface: do not name it from
-driver code.
+`AsyncUpdateContext`, single and grouped HTTP awaitables, and the async driver
+macro; it emits only the async group. `co_await context.exchange(...)` returns
+`AsyncExchangeResult` (`std::expected<AsyncHttpResponse, HttpError>`).
+`AsyncHttpResponse` owns its `std::string` body and
+`std::vector<HttpHeader>` header strings, preserving binary bytes, header
+order, casing and duplicates. The SDK copies the ABI payload before business
+code resumes and moves the result out of the awaitable. Copies own independent
+storage; moves transfer ownership, so neither the event nor the awaitable needs
+to remain alive. Async response checkers must accept
+`const AsyncHttpResponse&`, not `const HttpResponse&`. The host-side half of
+that awaitable lives in `<yaddnsc/sdk/detail/async_instance.hpp>`, which
+`async_driver.hpp` includes last. It is the host's wiring, not driver
+interface: do not name it from driver code.
+
+Each async instance reserves creation-time HTTP task slots from
+`MAX_ASYNC_EXCHANGES_PER_INSTANCE` (currently 8). Reserved plus active tasks
+share this fixed capacity; different update instances have independent slots.
+Creating a single exchange awaitable reserves one slot immediately. If none
+remains, `co_await context.exchange(...)` returns an `HttpError` with
+`YADDNSC_STATUS_INVALID_ARGUMENT`; it does not prepare the request, call
+`http_start`, or throw `std::length_error` for capacity exhaustion. `when_all`
+and `when_any` report capacity failure through their checked factory result
+before creating any child task or calling `http_start`. Destroying an unstarted
+operation releases its slots.
+
+A single exchange reports `CANCELLED` through its `AsyncExchangeResult`; use
+`context.is_cancelled()` to distinguish cancellation of the whole update from
+a per-operation error. See
+[Cancellation and lifetime](plugin-abi.md#cancellation-and-lifetime).
+
+`when_all(std::vector<HttpRequest>)` starts the whole admitted group, waits for
+every request, and returns an `AsyncWhenAllResult`. Its `results` are in
+original request order regardless of completion order, and
+`update_cancelled_observed` reports update cancellation observed before the
+group completes. A transport failure stays in its own result and does not
+cancel siblings. An empty group completes inline with empty results. HTTP
+4xx/5xx remain responses rather than transport errors, so the driver still
+applies its own status checks:
+
+```cpp
+auto operation = context.when_all(std::move(requests));
+if (!operation) {
+    co_return std::unexpected(Error{
+        operation.error().status,
+        operation.error().message,
+        operation.error().retry_after_seconds,
+    });
+}
+auto outcome = co_await std::move(*operation);
+if (outcome.update_cancelled_observed) {
+    co_return std::unexpected(Error{YADDNSC_STATUS_CANCELLED, "the update was cancelled", 0});
+}
+for (const auto& response : outcome.results) {
+    if (!response) {
+        co_return std::unexpected(Error{
+            response.error().status,
+            response.error().message,
+            response.error().retry_after_seconds,
+        });
+    }
+    if (response->status_code < 200 || response->status_code >= 300) {
+        co_return std::unexpected(Error{
+            YADDNSC_STATUS_UPSTREAM_REJECTED,
+            "the upstream returned a non-success HTTP status",
+            0,
+        });
+    }
+}
+```
+
+`when_any` accepts an optional `AsyncWhenAnyPolicy` and returns an
+`AsyncWhenAnyResult` containing `winner_index`, ordered `results`, and
+`update_cancelled_observed`:
+
+- `FIRST_COMPLETED` (the default) lets the first response or `HttpError` win.
+- `FIRST_SUCCESS` ignores `HttpError` values until a result with `has_value()`
+  arrives. Here success means that an HTTP response arrived; 4xx/5xx still
+  require driver-level classification. If every request fails, `winner_index`
+  is `nullopt` and `results` retains every error.
+- An empty group has no winner and an empty result vector.
+
+For both group types, `update_cancelled_observed` becomes true when the SDK
+observes either the host's live cancellation state or an `UPDATE_CANCELLED`
+event before group completion. It is not a guarantee against cancellation
+immediately after the final observation; the host checks cancellation again at
+the update boundary. Observed update cancellation clears `winner_index`.
+Drivers must inspect the winner's `AsyncExchangeResult` as well: a per-op
+`CANCELLED` error may legally win `FIRST_COMPLETED` while
+`update_cancelled_observed` is false.
+
+**Normal group return.** Once a winner is selected, the SDK cancels the
+remaining requests through `http_cancel` and drains every completion before
+returning. Already-ready loser responses are drained without replacing the
+winner. `UPDATE_CANCELLED` settles every pending child, including cancellation
+after winner selection during the loser drain. Individual responses remain in
+`results`. No child task or HTTP operation remains detached after a normal
+group return.
+
+**Exceptional group exit.** If any loser cancellation fails, the SDK still
+attempts every other active loser, records the failed op IDs and statuses, and
+terminates the update with `INTERNAL_ERROR` instead of returning a normal group
+result or winner. The instance latches this failure, so catching the group
+exception cannot turn the update into success. The SDK destroys its child tasks
+and releases their slots; the host then cancels and waits for residual HTTP
+operations on its terminal path and does not deliver further completion events
+to that instance.
+
+These are SDK-only structured helpers: host `coro::CancelScope` and
+`coro::Nursery` types are not exposed to plugins, and the C ABI remains
+unchanged.
 
 `ExchangeResult` carries the three-field `HttpResponse` aggregate
 (`status_code`, `headers`, `body`), whose header/body views borrow the host
