@@ -23,6 +23,7 @@
 #include <functional>
 #include <future>
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -1131,6 +1132,34 @@ TEST_F(CoroDriverGatewayTest, AsyncDriverPropagatesHttpFailure) {
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DriverError::Code::UPDATE_FAILED);
+}
+
+TEST_F(CoroDriverGatewayTest, AsyncDriverPreservesAndClampsRetryAfter) {
+    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_DRIVER_PATH)));
+    coro::Loop loop;
+    std::expected<void, domain::DriverError> limited;
+    std::expected<void, domain::DriverError> overflowing;
+
+    run_loop(loop, [&]() -> coro::Task<void> {
+        co_await coro::with_nursery(
+            std::unique_ptr<plugin::DriverGateway>{},
+            [&](coro::Nursery& group, std::unique_ptr<plugin::DriverGateway>& owner) -> coro::Task<void> {
+                auto& gateway = *(
+                    owner = std::make_unique<plugin::DriverGateway>(catalog_, logger_, loop, group, default_options()));
+                limited = co_await gateway.update("async_fixture", make_command("rate-limited"));
+                overflowing = co_await gateway.update("async_fixture", make_command("rate-limited-overflow"));
+                co_return;
+            },
+            coro::NurseryPolicy::SUPERVISOR);
+        co_return;
+    });
+
+    ASSERT_FALSE(limited.has_value());
+    EXPECT_EQ(limited.error().code, domain::DriverError::Code::RATE_LIMITED);
+    EXPECT_EQ(limited.error().retry_after_seconds, 73);
+    ASSERT_FALSE(overflowing.has_value());
+    EXPECT_EQ(overflowing.error().code, domain::DriverError::Code::RATE_LIMITED);
+    EXPECT_EQ(overflowing.error().retry_after_seconds, std::numeric_limits<int>::max());
 }
 
 TEST_F(CoroDriverGatewayTest, AsyncDriverValidatesThroughTheGateway) {

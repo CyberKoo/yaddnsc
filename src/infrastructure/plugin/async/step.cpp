@@ -50,8 +50,9 @@ bool finish_async_step(CallState& state, std::string_view driver_name, const Asy
         state.result = std::unexpected(invalid_plugin_result(driver_name, entry));
         return false;
     }
-    state.result = std::unexpected(fqdn ? map_error(outcome.status, outcome.message, driver_name, *fqdn)
-                                        : map_validate_error(outcome.status, outcome.message, driver_name));
+    state.result = std::unexpected(
+        fqdn ? map_error(outcome.status, outcome.message, driver_name, *fqdn, outcome.retry_after_seconds)
+             : map_validate_error(outcome.status, outcome.message, driver_name));
     return false;
 }
 

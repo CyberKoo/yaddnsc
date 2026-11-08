@@ -8,9 +8,7 @@ RUN apk add --no-cache \
         build-base \
         cmake \
         git \
-        openssl-dev \
-        zlib-dev \
-        brotli-dev
+        openssl-dev
 
 WORKDIR /build
 
@@ -36,8 +34,6 @@ FROM alpine:3 AS runtime
 RUN apk add --no-cache \
         openssl \
         libstdc++ \
-        zlib \
-        brotli \
         ca-certificates
 
 # Copy the compiled binary, config, and driver modules

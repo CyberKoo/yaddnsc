@@ -2,16 +2,14 @@
 
 #include <array>
 #include <chrono>
+#include <coroutine>  // IWYU pragma: keep — coroutine lowering
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <span>
 #include <string>
 #include <utility>
 #include <vector>
-
-#include <coroutine>  // IWYU pragma: keep — coroutine lowering
-
-#include <expected>
 
 #include "coro/scope.hpp"
 #include "coro/sleep.hpp"
@@ -48,13 +46,13 @@ namespace {
         co_return std::unexpected(connection_error("UDP send", server, port));
     }
     std::size_t discarded = 0;
+    std::array<std::uint8_t, dns::MAX_MESSAGE_SIZE> buffer{};
     for (;;) {
         // Yield periodically under a stray-packet flood, without accepting it
         // or resetting the timer. A foreign sender cannot force early failure.
         if (discarded != 0 && discarded % 32 == 0)
             co_await coro::sleep_for(std::chrono::milliseconds(1));
         ++discarded;
-        std::array<std::uint8_t, dns::MAX_MESSAGE_SIZE> buffer{};
         auto received = co_await socket.recv_from(buffer);
         if (!received)
             co_return std::unexpected(connection_error("UDP receive", server, port));

@@ -53,6 +53,11 @@ namespace {
            R"(","load":["simple/simple.so"]},"resolver":{"use_custom_servers":false},)" + one_http_domain() + "}";
 }
 
+[[nodiscard]] std::string config_with_simple_driver_no_domains() {
+    return std::string(R"({"drivers":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
+           R"(","load":["simple/simple.so"]},"resolver":{"use_custom_servers":false},"domains":[]})";
+}
+
 /// Config with no drivers loaded (driver_dir exists, empty load list).
 [[nodiscard]] std::string config_no_drivers() {
     return std::string(R"({"drivers":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
@@ -470,6 +475,16 @@ TEST(CliDriverTest, RunList_NoDrivers_ReturnsZero) {
     EXPECT_NE(capture.str().find("No drivers loaded."), std::string::npos);
 }
 
+TEST(CliDriverTest, RunListAndInfo_IgnoreUnrelatedDomainValidation) {
+    TempConfigFile cfg(config_with_simple_driver_no_domains());
+    StdoutCapture capture;
+    EXPECT_EQ(Composition::run(Cli::DriverListCommand{cfg.path()}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::DriverInfoCommand{cfg.path(), "simple"}), EXIT_SUCCESS);
+    const std::string out = capture.str();
+    EXPECT_NE(out.find("Loaded drivers (1):"), std::string::npos);
+    EXPECT_NE(out.find("Name:        simple"), std::string::npos);
+}
+
 TEST(CliDriverTest, RunList_InvalidConfig_ReturnsFailure) {
     TempConfigFile cfg{"{ not json"};
     EXPECT_EQ(Composition::run(Cli::DriverListCommand{cfg.path()}), EXIT_FAILURE);
@@ -603,8 +618,6 @@ TEST(CliDnsTest, RunResolver_UnparsableAddress_FallsBackToRaw) {
 // type), keeping the test on loopback-free, deterministic ground.
 TEST(CliDnsTest, RunResolve_UnknownType_PrintsValidTypes) {
     LoggerCapture logs;
-    // The dispatch path validates the config before resolving, so the file
-    // must hold at least one statically-valid domain.
     TempConfigFile cfg{
         std::string(R"({"drivers":{"auto_discover":false,"load":[]},"resolver":{"use_custom_servers":false},)") +
         one_http_domain() + "}"};
@@ -612,6 +625,21 @@ TEST(CliDnsTest, RunResolve_UnknownType_PrintsValidTypes) {
     StreamCapture err{STDERR_FILENO};
     EXPECT_EQ(Composition::run(Cli::DnsResolveCommand{cfg.path(), "example.com", "BOGUS"}), EXIT_FAILURE);
     EXPECT_EQ(err.str(), "Error: unknown record type 'BOGUS'.\nValid types: A, AAAA, TXT\n");
+}
+
+TEST(CliDnsTest, RunResolve_IgnoresUnrelatedDomainValidation) {
+    LoggerCapture logs;
+    TempConfigFile cfg{
+        R"({"drivers":{"auto_discover":false,"load":[]},"resolver":{"use_custom_servers":false},"domains":[]})"};
+    StreamCapture err{STDERR_FILENO};
+    EXPECT_EQ(Composition::run(Cli::DnsResolveCommand{cfg.path(), "example.com", "BOGUS"}), EXIT_FAILURE);
+    EXPECT_EQ(err.str(), "Error: unknown record type 'BOGUS'.\nValid types: A, AAAA, TXT\n");
+}
+
+TEST(CliDnsTest, RunResolve_InvalidResolverStillFails) {
+    TempConfigFile cfg{
+        R"({"drivers":{"auto_discover":false,"load":[]},"resolver":{"use_custom_servers":true,"servers":[]},"domains":[]})"};
+    EXPECT_EQ(Composition::run(Cli::DnsResolveCommand{cfg.path(), "example.com", "A"}), EXIT_FAILURE);
 }
 
 TEST(CliDnsTest, RunResolve_MissingConfig_ReturnsFailure) {

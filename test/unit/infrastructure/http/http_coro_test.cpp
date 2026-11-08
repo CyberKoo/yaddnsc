@@ -448,6 +448,39 @@ TEST(HttpRedirect, temporary_redirect_307_PreservesMethodAndBody) {
     EXPECT_EQ(wire.headers.find("Content-Type")->second, "application/dns-message");
 }
 
+TEST(HttpRedirect, cross_origin_307_308_WithBodyIsNotFollowed) {
+    http::Request current;
+    current.method = http::Method::POST;
+    current.body = "payload";
+    current.content_type = "application/json";
+    const http::Options options;
+    const std::pair<std::string_view, std::string_view> cases[] = {
+        {"https://example.test/old", "https://other.test/new"},
+        {"https://example.test/old", "https://example.test:444/new"},
+        {"http://example.test/old", "https://example.test/new"},
+    };
+
+    for (const int status : {307, 308}) {
+        for (const auto& [current_url, location] : cases) {
+            SCOPED_TRACE(status);
+            SCOPED_TRACE(location);
+            const auto uri = Uri::parse(current_url).value();
+            auto evaluation =
+                http::evaluate_redirect(status, {{"Location", std::string(location)}}, 0, options, current, uri);
+            EXPECT_FALSE(evaluation.plan.has_value());
+            EXPECT_FALSE(evaluation.limit_reached);
+
+            current.body.reset();
+            evaluation =
+                http::evaluate_redirect(status, {{"Location", std::string(location)}}, 0, options, current, uri);
+            ASSERT_TRUE(evaluation.plan.has_value());
+            EXPECT_EQ(evaluation.plan->next.method, http::Method::POST);
+            EXPECT_FALSE(evaluation.plan->next.body.has_value());
+            current.body = "payload";
+        }
+    }
+}
+
 TEST(HttpRedirect, cross_origin_DropsCredentials) {
     http::Request current;
     current.headers.emplace("Authorization", "Bearer secret");

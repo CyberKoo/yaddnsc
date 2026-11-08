@@ -1,15 +1,17 @@
 #ifndef YADDNSC_INFRASTRUCTURE_CONFIG_STATIC_VALIDATOR_H
 #define YADDNSC_INFRASTRUCTURE_CONFIG_STATIC_VALIDATOR_H
 
-#include <vector>
-
 #include <expected>
+#include <vector>
 
 #include "domain/config/runtime_config.h"
 #include "domain/error/error.h"
 
 namespace Config {
 struct AppConfig;
+
+/// Runs only resolver/bootstrap checks for the one-shot DNS diagnostic command.
+[[nodiscard]] auto validate_resolver(const AppConfig& raw) -> std::vector<domain::ConfigError>;
 
 /// Runs every static (environment-independent) configuration check and
 /// collects ALL violations as values, in one stable configuration order.

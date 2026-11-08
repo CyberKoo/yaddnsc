@@ -100,7 +100,7 @@ yaddnsc 随附十二个以可加载模块形式提供的服务商驱动，本文
 | `zone_id` | 是 | — | 域名的 Zone ID |
 | `record_id` | 是 | — | 待更新记录的 ID |
 | `token` | 是 | — | API 令牌 |
-| `ttl` | 否 | 30 | TTL，单位秒 |
+| `ttl` | 否 | `1` | `1`（自动）或 30–86400 秒；30–59 仅适用于 Enterprise 区域 |
 | `proxied` | 否 | `false` | 是否经 Cloudflare 代理转发 |
 
 令牌须持有对应域名的 DNS 编辑权限。Zone ID 与记录 ID 可在 Cloudflare 控制台或

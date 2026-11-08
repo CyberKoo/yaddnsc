@@ -1,5 +1,8 @@
 #include "abi_result.h"
 
+#include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <string>
 
 #include <yaddnsc/sdk/driver_abi.h>
@@ -16,28 +19,30 @@ bool has_valid_plugin_error(const yaddnsc_error& error, yaddnsc_status returned_
 }
 
 domain::DriverError map_error(yaddnsc_status status, std::string_view plugin_message, std::string_view driver_name,
-                              std::string_view fqdn) {
+                              std::string_view fqdn, std::uint32_t retry_after_seconds) {
     using Code = domain::DriverError::Code;
     const std::string message = !plugin_message.empty()
                                     ? std::string(plugin_message)
                                     : fmt::format("Driver '{}' update failed for {}", driver_name, fqdn);
+    const auto retry = static_cast<int>(
+        std::min<std::uint32_t>(retry_after_seconds, static_cast<std::uint32_t>(std::numeric_limits<int>::max())));
     switch (status) {
         case YADDNSC_STATUS_RATE_LIMITED:
-            return {Code::RATE_LIMITED, message, 0};
+            return {Code::RATE_LIMITED, message, retry};
         case YADDNSC_STATUS_CANCELLED:
             throw AbiCancelled{};
         case YADDNSC_STATUS_INVALID_CONFIG:
         case YADDNSC_STATUS_INTERNAL_ERROR:
-            return {Code::UNKNOWN, message, 0};
+            return {Code::UNKNOWN, message, retry};
         case YADDNSC_STATUS_NETWORK_ERROR:
         case YADDNSC_STATUS_AUTHENTICATION_FAILED:
         case YADDNSC_STATUS_UPSTREAM_REJECTED:
         case YADDNSC_STATUS_UNSUPPORTED_RECORD:
         case YADDNSC_STATUS_INVALID_RESPONSE:
-            return {Code::UPDATE_FAILED, message, 0};
+            return {Code::UPDATE_FAILED, message, retry};
         default:
             // INVALID_ARGUMENT and unknown codes indicate a contract bug.
-            return {Code::UNKNOWN, message, 0};
+            return {Code::UNKNOWN, message, retry};
     }
 }
 

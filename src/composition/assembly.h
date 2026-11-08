@@ -47,6 +47,9 @@ inline constexpr app::UpdatePolicy UPDATE_POLICY{.driver_validation_budget = CON
 /// Configuration and loader failures abort the command; allocation defects propagate.
 [[nodiscard]] spdlog::level::level_enum to_log_level(std::string_view level);
 [[nodiscard]] domain::RuntimeConfig load_runtime_config(const std::string& path);
+[[nodiscard]] domain::ResolverSettings load_resolver_config(const std::string& path);
+[[nodiscard]] DriverCatalog load_driver_catalog(const std::string& path);
+[[nodiscard]] DriverCatalog load_catalog(const domain::DriverSettings& settings);
 [[nodiscard]] DriverCatalog load_catalog(const domain::RuntimeConfig& config);
 [[nodiscard]] std::string format_config_errors(std::span<const domain::ConfigError> errors);
 [[nodiscard]] std::shared_ptr<const net::TlsContext> make_default_tls_context();
@@ -58,8 +61,8 @@ inline constexpr app::UpdatePolicy UPDATE_POLICY{.driver_validation_budget = CON
 /// factory checks protect direct callers too, so drift from static validation
 /// stays a configuration failure instead of an internal exception type
 /// escaping into a command's presentation.
-[[nodiscard]] std::unique_ptr<dns::Dispatcher> make_dispatcher(const domain::ResolverSettings& resolver,
-                                                               const std::shared_ptr<const net::TlsContext>& tls_context);
+[[nodiscard]] std::unique_ptr<dns::Dispatcher> make_dispatcher(
+    const domain::ResolverSettings& resolver, const std::shared_ptr<const net::TlsContext>& tls_context);
 /// A run loop with trace diagnostics already wired; the caller owns it until
 /// coro::run returns.
 [[nodiscard]] std::unique_ptr<coro::Loop> make_traced_loop();

@@ -76,12 +76,14 @@ template<typename Services, typename Response, typename CheckResponse>
     }
     auto checked = std::invoke(std::forward<CheckResponse>(check_response), *response, Services{services});
     if (!checked) {
-        log_lazy([&] { return YADDNSC_LOG_WARN; }, [&] { return services; },
-                 [&](const auto* target, yaddnsc_log_level level) {
-                     log_message(target, level, location.file_name(), static_cast<int32_t>(location.line()),
-                                 location.function_name(), "Domain \"{}\" ({}) update rejected by upstream",
-                                 params.fqdn, params.record_type);
-                 });
+        log_lazy(
+            [&] { return detail::is_transient_status(response->status_code) ? YADDNSC_LOG_WARN : YADDNSC_LOG_ERROR; },
+            [&] { return services; },
+            [&](const auto* target, yaddnsc_log_level level) {
+                log_message(target, level, location.file_name(), static_cast<int32_t>(location.line()),
+                            location.function_name(), "Domain \"{}\" ({}) update rejected by upstream", params.fqdn,
+                            params.record_type);
+            });
         if constexpr (std::same_as<decltype(checked), Result>) {
             return checked;
         }

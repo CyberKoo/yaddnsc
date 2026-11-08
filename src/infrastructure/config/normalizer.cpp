@@ -20,8 +20,18 @@
 
 namespace Config {
 
-namespace {
-auto normalize_resolver(const ResolverConfig& raw) -> domain::ResolverSettings {
+auto normalize_driver_settings(const DriverConfig& raw) -> domain::DriverSettings {
+    domain::DriverSettings settings;
+    if (raw.driver_dir.has_value()) {
+        settings.driver_dir = std::filesystem::path{*raw.driver_dir};
+    }
+    settings.auto_discover = raw.auto_discover;
+    settings.load = raw.load;
+    return settings;
+}
+
+auto normalize_resolver_settings(const ResolverConfig& raw, std::string_view bootstrap_dns)
+    -> domain::ResolverSettings {
     domain::ResolverSettings settings;
     settings.strategy = raw.strategy;
 
@@ -30,10 +40,13 @@ auto normalize_resolver(const ResolverConfig& raw) -> domain::ResolverSettings {
     } else {
         settings.servers.push_back({YADDNSC_DEFAULT_DNS_SERVER, YADDNSC_DEFAULT_DNS_PORT});
     }
-
+    if (!bootstrap_dns.empty()) {
+        settings.bootstrap_servers.push_back({resolve_bootstrap_dns(bootstrap_dns).address, YADDNSC_DEFAULT_DNS_PORT});
+    }
     return settings;
 }
 
+namespace {
 auto normalize_subdomain(const SubdomainConfig& raw, int domain_interval) -> domain::SubdomainConfig {
     if (!raw.type.has_value()) {
         SPDLOG_WARN("Subdomain \"{}\" has no record type configured, treating it as an A record", raw.name);
@@ -74,23 +87,8 @@ auto normalize_domain(const DomainConfig& raw) -> domain::DomainConfig {
 
 auto normalize(const AppConfig& raw) -> domain::RuntimeConfig {
     domain::RuntimeConfig config;
-    config.resolver = normalize_resolver(raw.resolver);
-
-    if (!raw.bootstrap_dns.empty()) {
-        // The bare address, so downstream consumers — the bootstrap resolver,
-        // which parses the address as an IP literal — see exactly one spelling,
-        // bracketed or not. Validation has already rejected anything else; a
-        // value that slipped through is kept verbatim and reported there as a
-        // CONFIG error rather than silently dropped here.
-        config.resolver.bootstrap_servers.push_back(
-            {resolve_bootstrap_dns(raw.bootstrap_dns).address, YADDNSC_DEFAULT_DNS_PORT});
-    }
-
-    if (raw.drivers.driver_dir.has_value()) {
-        config.drivers.driver_dir = std::filesystem::path{*raw.drivers.driver_dir};
-    }
-    config.drivers.auto_discover = raw.drivers.auto_discover;
-    config.drivers.load = raw.drivers.load;
+    config.drivers = normalize_driver_settings(raw.drivers);
+    config.resolver = normalize_resolver_settings(raw.resolver, raw.bootstrap_dns);
 
     config.domains.reserve(raw.domains.size());
     for (const auto& domain_config : raw.domains) {

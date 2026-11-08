@@ -19,6 +19,7 @@
 #include "domain/error/error.h"
 #include "infrastructure/config/config.h"
 #include "infrastructure/config/config_exception.h"
+#include "infrastructure/config/normalizer.h"
 #include "infrastructure/config/static_validator.h"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/dns/bootstrap/resolv_conf.h"
@@ -80,12 +81,12 @@ namespace Composition::internal {
 /// An empty result is not fatal — IP-literal targets still work — but every
 /// hostname target (DoH/DoT server, HTTP IP source, provider API endpoint)
 /// will fail fast at connect time, so say so once at startup.
-void fill_bootstrap_servers(domain::RuntimeConfig& config) {
-    if (!config.resolver.bootstrap_servers.empty()) {
+void fill_bootstrap_servers(domain::ResolverSettings& resolver) {
+    if (!resolver.bootstrap_servers.empty()) {
         return;
     }
-    config.resolver.bootstrap_servers = dns::parse_resolv_conf();
-    if (config.resolver.bootstrap_servers.empty()) {
+    resolver.bootstrap_servers = dns::parse_resolv_conf();
+    if (resolver.bootstrap_servers.empty()) {
         SPDLOG_WARN(
             "No bootstrap DNS servers available (no \"bootstrap_dns\" configured and no nameserver found in "
             "/etc/resolv.conf): hostname targets will fail to resolve. IP-literal targets are unaffected. "
@@ -126,8 +127,8 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
     return {.http = http_options, .bridge_wait_budget = std::chrono::seconds(5)};
 }
 
-[[nodiscard]] std::unique_ptr<dns::Dispatcher> make_dispatcher(const domain::ResolverSettings& resolver,
-                                                               const std::shared_ptr<const net::TlsContext>& tls_context) {
+[[nodiscard]] std::unique_ptr<dns::Dispatcher> make_dispatcher(
+    const domain::ResolverSettings& resolver, const std::shared_ptr<const net::TlsContext>& tls_context) {
     try {
         return dns::make_dispatcher(resolver, resolver.bootstrap_servers, tls_context, DNS_POLICY);
     } catch (const std::invalid_argument& error) {
@@ -177,15 +178,34 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
     if (!config.has_value()) {
         throw ConfigException(format_config_errors(config.error()));
     }
-    fill_bootstrap_servers(*config);
+    fill_bootstrap_servers(config->resolver);
     return std::move(*config);
 }
 
+[[nodiscard]] domain::ResolverSettings load_resolver_config(const std::string& config_path) {
+    const auto raw = Config::load_config(config_path);
+    if (const auto errors = Config::validate_resolver(raw); !errors.empty()) {
+        throw ConfigException(format_config_errors(errors));
+    }
+    auto resolver = Config::normalize_resolver_settings(raw.resolver, raw.bootstrap_dns);
+    fill_bootstrap_servers(resolver);
+    return resolver;
+}
+
 /// Fill a catalog with the configured drivers.
-DriverCatalog load_catalog(const domain::RuntimeConfig& config) {
+DriverCatalog load_catalog(const domain::DriverSettings& settings) {
     DriverCatalog catalog;
-    DriverLoader::load(catalog, config.drivers);
+    DriverLoader::load(catalog, settings);
     return catalog;
+}
+
+DriverCatalog load_catalog(const domain::RuntimeConfig& config) {
+    return load_catalog(config.drivers);
+}
+
+DriverCatalog load_driver_catalog(const std::string& config_path) {
+    const auto raw = Config::load_config(config_path);
+    return load_catalog(Config::normalize_driver_settings(raw.drivers));
 }
 
 }  // namespace Composition::internal

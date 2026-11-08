@@ -8,6 +8,7 @@
 #include <charconv>
 #include <compare>
 #include <cstdint>
+#include <expected>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -17,7 +18,6 @@
 #include <utility>
 #include <vector>
 
-#include <expected>
 #include <openssl/opensslv.h>
 #include <openssl/prov_ssl.h>
 #include <openssl/safestack.h>
@@ -36,14 +36,14 @@ namespace {
 #if OPENSSL_VERSION_NUMBER >= 0x30300000L
 /// Owns an X509_STORE_get1_objects() snapshot: frees the stack and drops each
 /// contained object's reference.
-void free_object_stack(STACK_OF(X509_OBJECT)* stack) {
+void free_object_stack(STACK_OF(X509_OBJECT) * stack) {
     sk_X509_OBJECT_pop_free(stack, X509_OBJECT_free);
 }
 #endif
 
 /// The bundle to trust: the explicit path when set, otherwise discovery. Returns
-/// nullopt when no usable bundle exists; the caller then falls back to the
-/// OpenSSL default cert dir before failing closed.
+/// nullopt when no usable bundle exists; the caller then snapshots SSL_CERT_DIR
+/// when set or the OpenSSL default cert dir before failing closed.
 [[nodiscard]] std::optional<std::string> resolve_ca_bundle(const TlsTrustOptions& options) {
     if (options.ca_bundle) {
         return options.ca_bundle;
@@ -194,11 +194,25 @@ std::expected<std::shared_ptr<const TlsContext>, IoError> TlsContext::create(con
         }
     } else {
         X509_STORE* store = SSL_CTX_get_cert_store(context.get());
-        if (store == nullptr || !detail::load_trust_directory(*store, X509_get_default_cert_dir())) {
+        const auto directories = Utils::Cert::discover_ca_directories();
+        bool loaded = store != nullptr;
+        if (loaded && directories) {
+            loaded = !directories->empty();
+            for (const auto& directory : *directories) {
+                loaded = loaded && detail::load_trust_directory(*store, directory).has_value();
+            }
+        } else if (loaded) {
+            loaded = detail::load_trust_directory(*store, X509_get_default_cert_dir()).has_value();
+        }
+        if (!loaded) {
             SPDLOG_ERROR("No usable TLS trust snapshot available; verification stays fail-closed");
             return std::unexpected(IoError::CONNECTION_FAILED);
         }
-        SPDLOG_WARN("No TLS CA bundle discovered; snapshotted the OpenSSL default cert dir instead");
+        if (directories) {
+            SPDLOG_INFO("No TLS CA bundle discovered; snapshotted SSL_CERT_DIR");
+        } else {
+            SPDLOG_WARN("No TLS CA bundle discovered; snapshotted the OpenSSL default cert dir instead");
+        }
     }
 
     return std::shared_ptr<const TlsContext>(new TlsContext(ConstructionKey{}, std::move(context)));

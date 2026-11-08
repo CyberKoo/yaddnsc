@@ -129,6 +129,8 @@ delivery at an atomic-unmask kernel wait boundary; registration-only coverage
 is kept separately on all supported POSIX targets.
 Retry-After date arithmetic is checked against a supplied,
 fixed clock sample, while the normal SDK boundary still samples system time.
+The async gateway suite checks preservation and `INT_MAX` saturation of those
+hints, and a `ManualClock` regression pins the one-hour scheduling clamp.
 
 Gate-based test binaries have a 120-second CTest watchdog. It diagnoses a
 stalled test process; it does not release a fixture, choose a functional result,
@@ -192,7 +194,8 @@ The certificate suite snapshots multiple issuers and AUX, rejects misnamed roots
 and fixes the fail-closed policy for malformed entries, directories and dangling
 links alongside valid roots. `test_trust_fallback` runs the real context factory
 in fresh processes with isolated discovery/default-directory adapters, covering
-directory-only trust and explicit-bundle precedence. No production test hooks
+directory-only trust, explicit-bundle precedence, and `SSL_CERT_DIR` list loading
+with fail-closed invalid sources. No production test hooks
 are added. The real TLS component verifies a peer after snapshot source removal.
 
 The allocation-failure binary replaces allocation functions only inside that

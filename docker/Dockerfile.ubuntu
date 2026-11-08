@@ -34,8 +34,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libspdlog-dev \
         libfmt-dev \
         libsystemd-dev \
-        zlib1g-dev \
-        libbrotli-dev \
         libxml2-dev \
         ca-certificates \
         file \

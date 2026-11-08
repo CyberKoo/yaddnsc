@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <initializer_list>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -21,12 +22,14 @@
 #include <glaze/json/generic_fwd.hpp>
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/sdk/format.hpp>
 
 #include "abi_test_harness.h"
 
 // ── Shared fixtures ──────────────────────────────────────────────────────────
 
 namespace {
+namespace fmt = yaddnsc::sdk::fmt;
 constexpr std::string_view CONFIG = R"({
         "zone_id": "myzone",
         "record_id": "rec123",
@@ -275,4 +278,59 @@ TEST(CloudflareDriverTest, ValidateAndUpdateRejectNegativeTtlBeforeHttp) {
     EXPECT_EQ(update.status, YADDNSC_STATUS_INVALID_CONFIG);
     EXPECT_EQ(update.error_message, validation.error_message);
     EXPECT_TRUE(fake.requests.empty());
+}
+
+TEST(CloudflareDriverTest, Update_DefaultTtlIsAutomatic) {
+    FakeHostServices fake;
+    fake.queue_response(200, make_success_response("A", "www.example.com", "1.2.3.4", 1, false));
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+    ASSERT_EQ(fake.requests.size(), 1u);
+    ASSERT_TRUE(fake.requests[0].body.has_value());
+    EXPECT_NE(fake.requests[0].body->find(R"("ttl":1)"), std::string::npos);
+}
+
+TEST(CloudflareDriverTest, Update_SupportedTtlBoundariesAreAccepted) {
+    for (const int ttl : {1, 30, 60, 86400}) {
+        FakeHostServices fake;
+        fake.queue_response(200, make_success_response("A", "www.example.com", "1.2.3.4", ttl, false));
+        const std::string json =
+            fmt::format(R"({{"zone_id":"myzone","record_id":"rec123","token":"mytoken","ttl":{}}})", ttl);
+        const auto result = run_abi_update(fake, json, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+        ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << ttl << ": " << result.error_message;
+        ASSERT_EQ(fake.requests.size(), 1u) << ttl;
+        EXPECT_NE(fake.requests[0].body->find(fmt::format(R"("ttl":{})", ttl)), std::string::npos) << ttl;
+    }
+}
+
+TEST(CloudflareDriverTest, ValidateAndUpdateRejectUnsupportedTtlBeforeHttp) {
+    for (const int ttl : {0, 2, 29, 86401}) {
+        const std::string json =
+            fmt::format(R"({{"zone_id":"myzone","record_id":"rec123","token":"mytoken","ttl":{}}})", ttl);
+        FakeHostServices fake;
+        EXPECT_EQ(run_abi_validate(fake, json).status, YADDNSC_STATUS_INVALID_CONFIG) << ttl;
+        EXPECT_EQ(run_abi_update(fake, json, "1.2.3.4", "A", "example.com", "www", "www.example.com").status,
+                  YADDNSC_STATUS_INVALID_CONFIG)
+            << ttl;
+        EXPECT_TRUE(fake.requests.empty()) << ttl;
+    }
+}
+
+TEST(CloudflareDriverTest, Update_SharedRejectionLogMatchesHttpSeverity) {
+    const std::uint32_t statuses[] = {401, 429};
+    const yaddnsc_log_level levels[] = {YADDNSC_LOG_ERROR, YADDNSC_LOG_WARN};
+    for (std::size_t index = 0; index < std::size(statuses); ++index) {
+        FakeHostServices fake;
+        fake.queue_response(statuses[index], R"({"success":false,"errors":[],"messages":[]})");
+        const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+        ASSERT_FALSE(result.status == YADDNSC_STATUS_OK);
+        int matching_logs = 0;
+        for (const auto& log : fake.logs) {
+            if (log.message.find("update rejected by upstream") != std::string::npos) {
+                ++matching_logs;
+                EXPECT_EQ(log.level, levels[index]) << statuses[index];
+            }
+        }
+        EXPECT_EQ(matching_logs, 1) << statuses[index];
+    }
 }

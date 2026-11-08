@@ -4,6 +4,7 @@
 
 #include "subdomain_task.h"
 
+#include <algorithm>
 #include <chrono>
 #include <compare>    // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
@@ -40,9 +41,12 @@ namespace {
     return elapsed >= force_interval;
 }
 
+constexpr auto MAX_RETRY_AFTER = std::chrono::hours{1};
+
 coro::Duration next_delay(const UpdateCycleOutcome& outcome, int update_interval) noexcept {
     if (!outcome.has_value() && outcome.error().retry_after_seconds > 0) {
-        return std::chrono::seconds(outcome.error().retry_after_seconds);
+        return std::min(std::chrono::seconds(outcome.error().retry_after_seconds),
+                        std::chrono::duration_cast<std::chrono::seconds>(MAX_RETRY_AFTER));
     }
     return std::chrono::seconds(update_interval);
 }
@@ -107,6 +111,13 @@ coro::Task<void> subdomain_task(const domain::DomainConfig& domain, const domain
 
             if (!outcome.timed_out && outcome->has_value() && task.force_update) {
                 last_force = co_await coro::current_time();
+            }
+
+            if (!outcome.timed_out && !outcome->has_value() &&
+                std::chrono::seconds(outcome->error().retry_after_seconds) > MAX_RETRY_AFTER) {
+                YLOG_WARN(services.logger, "Provider retry hint for \"{}\" is clamped from {}s to {}s", task.fqdn,
+                          outcome->error().retry_after_seconds,
+                          std::chrono::duration_cast<std::chrono::seconds>(MAX_RETRY_AFTER).count());
             }
 
             // Provider retry_after starts at failure and restarts the schedule

@@ -35,8 +35,8 @@ constexpr std::string_view DRIVER_NAME = "cloudflare";
 constexpr std::string_view REJECTION_SUBJECT = "Cloudflare API request";
 }  // namespace
 
-YADDNSC_DEFINE_ASYNC_DRIVER(CloudflareDriver, "cloudflare", "Updates DNS records via the Cloudflare API", "Kotarou", "2.1.0",
-                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+YADDNSC_DEFINE_ASYNC_DRIVER(CloudflareDriver, "cloudflare", "Updates DNS records via the Cloudflare API", "Kotarou",
+                            "2.1.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 CloudflareParams CloudflareDriver::parse_params(std::string_view json) {
     auto cfg = parse_config<CloudflareParams>(json);
@@ -44,6 +44,9 @@ CloudflareParams CloudflareDriver::parse_params(std::string_view json) {
     require_non_empty("record_id", cfg.record_id);
     require_non_empty("token", cfg.token);
     optional_non_negative("ttl", cfg.ttl);
+    if (cfg.ttl && *cfg.ttl != 1 && (*cfg.ttl < 30 || *cfg.ttl > 86400)) {
+        throw yaddnsc::sdk::ConfigParseError("Parameter 'ttl' must be 1 (automatic) or between 30 and 86400 seconds");
+    }
     return cfg;
 }
 
@@ -112,7 +115,7 @@ std::string CloudflareDriver::generate_body(const CloudflareParams& cfg, const U
     auto body = CloudflareRequestBody{.type = std::string(request.record_type),
                                       .name = std::string(request.subdomain),
                                       .content = std::string(request.ip_address),
-                                      .ttl = cfg.ttl.value_or(30),
+                                      .ttl = cfg.ttl.value_or(1),
                                       .proxied = cfg.proxied.value_or(false)};
     return glz::write_json(body).value_or("{}");
 }

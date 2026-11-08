@@ -41,7 +41,7 @@ namespace Composition::internal {
 /// and deliberately absent from assembly.h, so the test re-declares the
 /// production signature to drive the "configured bootstrap_dns wins" branch
 /// without going through a configuration file.
-void fill_bootstrap_servers(domain::RuntimeConfig& config);
+void fill_bootstrap_servers(domain::ResolverSettings& resolver);
 }  // namespace Composition::internal
 
 // ===========================================================================
@@ -157,7 +157,7 @@ TEST(CompositionAssembly, FillBootstrapServers_ConfiguredBootstrapDnsIsKeptVerba
     config.resolver.bootstrap_servers = {domain::DnsServer{.address = "192.0.2.53", .port = 5353},
                                          domain::DnsServer{.address = "198.51.100.7", .port = 53}};
 
-    Composition::internal::fill_bootstrap_servers(config);
+    Composition::internal::fill_bootstrap_servers(config.resolver);
 
     ASSERT_EQ(config.resolver.bootstrap_servers.size(), 2u);
     EXPECT_EQ(config.resolver.bootstrap_servers[0].address, "192.0.2.53");
@@ -172,7 +172,7 @@ TEST(CompositionAssembly, FillBootstrapServers_LeavesTheRestOfTheConfigUntouched
     config.resolver.servers = {domain::DnsServer{.address = "9.9.9.9", .port = 53}};
     config.resolver.strategy = domain::ResolverStrategy::FALLBACK;
 
-    Composition::internal::fill_bootstrap_servers(config);
+    Composition::internal::fill_bootstrap_servers(config.resolver);
 
     ASSERT_EQ(config.resolver.servers.size(), 1u);
     EXPECT_EQ(config.resolver.servers.front().address, "9.9.9.9");

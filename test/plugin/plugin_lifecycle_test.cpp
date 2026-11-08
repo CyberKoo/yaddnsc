@@ -505,6 +505,19 @@ TEST(PluginLifecycle, CreateFailureAfterStoringHandleDestroysAndClearsIt) {
     get_state(&destroys, &last_destroyed);
     EXPECT_EQ(destroys, 2u);
     EXPECT_EQ(last_destroyed, token());
+
+    // Instance-owned mode: the error bytes die with the failed create handle.
+    set_mode(2);
+    error = {};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    handle = nullptr;
+    EXPECT_EQ(module->create(services, &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ(handle, nullptr);
+    EXPECT_EQ(std::string(error.message.data, error.message.size), "create failed after storing a handle");
+
+    get_state(&destroys, &last_destroyed);
+    EXPECT_EQ(destroys, 3u);
+    EXPECT_EQ(last_destroyed, token());
 }
 
 namespace {

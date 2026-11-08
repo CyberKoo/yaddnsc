@@ -11,7 +11,7 @@ struct CloudflareParams {
     std::string zone_id;                 ///< Cloudflare Zone ID
     std::string record_id;               ///< DNS Record ID to update
     std::string token;                   ///< Cloudflare API token
-    std::optional<int> ttl{30};          ///< DNS record TTL in seconds (default: 30, auto)
+    std::optional<int> ttl{1};           ///< DNS record TTL in seconds (default: 1, automatic)
     std::optional<bool> proxied{false};  ///< Whether the record is proxied through Cloudflare
 };
 

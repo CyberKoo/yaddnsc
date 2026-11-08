@@ -110,7 +110,7 @@ Records: A, AAAA (existing record). Uses the
 | `zone_id` | Yes | — | Zone ID of the domain |
 | `record_id` | Yes | — | ID of the record to update |
 | `token` | Yes | — | API token |
-| `ttl` | No | 30 | TTL in seconds |
+| `ttl` | No | `1` | `1` (automatic) or 30–86400 seconds; 30–59 requires an Enterprise zone |
 | `proxied` | No | `false` | Route the record through the Cloudflare proxy |
 
 The token must hold the DNS edit permission for the zone. Zone and record IDs

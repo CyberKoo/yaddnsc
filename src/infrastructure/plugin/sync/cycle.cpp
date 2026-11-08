@@ -1,11 +1,9 @@
 #include "cycle.h"
 
-#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <exception>
 #include <expected>
-#include <limits>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -73,7 +71,7 @@ std::expected<void, domain::DriverError> run_update_task(const std::shared_ptr<c
     HostServicesContext context{bridge, logger, state};
     const auto services = context.make_services_v1_1();
     const auto created = create_driver(*module, services.base, [&](yaddnsc_status status, std::string_view message) {
-        return detail::map_error(status, message, driver_name, command.fqdn);
+        return detail::map_error(status, message, driver_name, command.fqdn, 0);
     });
     if (!created) {
         return std::unexpected(created.error());
@@ -102,10 +100,8 @@ std::expected<void, domain::DriverError> run_update_task(const std::shared_ptr<c
     if (!detail::has_valid_plugin_error(error, status)) {
         return std::unexpected(detail::invalid_plugin_result(driver_name, "update"));
     }
-    auto driver_error = detail::map_error(status, detail::to_view(error.message), driver_name, command.fqdn);
-    driver_error.retry_after_seconds = static_cast<int>(std::min<std::uint32_t>(
-        error.retry_after_seconds, static_cast<std::uint32_t>(std::numeric_limits<int>::max())));
-    return std::unexpected(std::move(driver_error));
+    return std::unexpected(detail::map_error(status, detail::to_view(error.message), driver_name, command.fqdn,
+                                             error.retry_after_seconds));
 }
 
 std::expected<void, domain::DriverError> run_validate_cycle(const std::shared_ptr<const PluginModule>& module,

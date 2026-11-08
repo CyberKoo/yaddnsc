@@ -66,7 +66,8 @@ provider update through the driver.
 - **Pacing and retry.** Each cycle is bounded by its own budget, with a
   shorter one around the DNS read so a dead resolver surfaces quickly. There
   is no accumulated back-off state: a failure retries after the normal
-  interval, a provider-supplied retry hint overrides it, and a forced update
-  stays due until it actually publishes.
+  interval, a provider-supplied retry hint overrides it up to a one-hour cap
+  (larger hints are clamped and logged), and a forced update stays due until it
+  actually publishes.
 - **A defect inside a cycle is logged and retried** after a full interval; it
   never retires the subdomain task.

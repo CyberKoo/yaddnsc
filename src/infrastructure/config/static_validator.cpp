@@ -97,6 +97,32 @@ void validate_ip_source(std::vector<domain::ConfigError>& errors, const std::str
 
 }  // namespace
 
+auto validate_resolver(const AppConfig& raw) -> std::vector<domain::ConfigError> {
+    std::vector<domain::ConfigError> errors;
+    if (raw.resolver.use_custom_servers) {
+        if (raw.resolver.servers.empty()) {
+            push_error(errors, Code::NO_RESOLVER_SERVERS,
+                       "use_custom_servers is enabled but no custom resolver servers are configured");
+        }
+        for (const auto& server : raw.resolver.servers) {
+            if (auto endpoint = dns::parse_resolver_endpoint(server); !endpoint) {
+                for (auto& message : endpoint.error()) {
+                    push_error(errors, Code::INVALID_RESOLVER, std::move(message));
+                }
+            }
+        }
+    }
+
+    if (!raw.bootstrap_dns.empty() && !resolve_bootstrap_dns(raw.bootstrap_dns).valid) {
+        push_error(errors, Code::INVALID_BOOTSTRAP_DNS,
+                   fmt::format(R"(Invalid bootstrap_dns "{}": must be an IP literal, with or without )"
+                               R"(brackets (e.g. "223.5.5.5", "2606:4700:4700::1111", )"
+                               R"("[2606:4700:4700::1111]"))",
+                               raw.bootstrap_dns));
+    }
+    return errors;
+}
+
 auto validate_static(const AppConfig& raw) -> std::vector<domain::ConfigError> {
     std::vector<domain::ConfigError> errors;
 
@@ -147,35 +173,9 @@ auto validate_static(const AppConfig& raw) -> std::vector<domain::ConfigError> {
         }
     }
 
-    // Custom resolver address(es) — parse failures are collected here as
-    // INVALID_RESOLVER config errors using the factory's endpoint semantics.
-    if (raw.resolver.use_custom_servers) {
-        if (raw.resolver.servers.empty()) {
-            push_error(errors, Code::NO_RESOLVER_SERVERS,
-                       "use_custom_servers is enabled but no custom resolver servers are configured");
-        }
-        for (const auto& server : raw.resolver.servers) {
-            if (auto endpoint = dns::parse_resolver_endpoint(server); !endpoint) {
-                for (auto& message : endpoint.error()) {
-                    push_error(errors, Code::INVALID_RESOLVER, std::move(message));
-                }
-            }
-        }
+    for (auto& error : validate_resolver(raw)) {
+        errors.push_back(std::move(error));
     }
-
-    // Bootstrap DNS server — must be an IP literal when set (hostnames would
-    // be circular: bootstrap DNS is what resolves hostnames). resolve_bootstrap_dns
-    // owns the rule (both IPv6 spellings accepted; no scheme, port or path,
-    // since the field has nowhere to carry them); this call only turns its
-    // verdict into a config error.
-    if (!raw.bootstrap_dns.empty() && !resolve_bootstrap_dns(raw.bootstrap_dns).valid) {
-        push_error(errors, Code::INVALID_BOOTSTRAP_DNS,
-                   fmt::format(R"(Invalid bootstrap_dns "{}": must be an IP literal, with or without )"
-                               R"(brackets (e.g. "223.5.5.5", "2606:4700:4700::1111", )"
-                               R"("[2606:4700:4700::1111]"))",
-                               raw.bootstrap_dns));
-    }
-
     return errors;
 }
 

@@ -24,7 +24,8 @@ struct RedirectEval {
 };
 
 /// Pure redirect decision: 307/308 preserve method/body; 301/302/303 use GET.
-/// Cross-origin hops remove authentication/cookies; TLS downgrades are refused.
+/// Cross-origin hops remove authentication/cookies; TLS downgrades and cross-origin
+/// 307/308 hops carrying a body are refused.
 [[nodiscard]] RedirectEval evaluate_redirect(int status, const std::multimap<std::string, std::string>& headers,
                                              int redirect_count, const Options& options, const Request& current,
                                              const Uri& current_uri);

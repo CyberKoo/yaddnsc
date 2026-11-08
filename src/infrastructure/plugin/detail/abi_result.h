@@ -1,6 +1,7 @@
 #ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_DETAIL_ABI_RESULT_H
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_DETAIL_ABI_RESULT_H
 
+#include <cstdint>
 #include <string_view>
 
 #include <yaddnsc/sdk/driver_abi.h>
@@ -17,9 +18,11 @@ struct AbiCancelled {};
 
 /// Translate an update/validation failure. CANCELLED throws AbiCancelled;
 /// allocation failures propagate. The caller copies borrowed plugin text before
-/// the next ABI entry. These helpers perform no logging or recovery.
+/// the next ABI entry. Retry hints are preserved with saturation to int.
+/// These helpers perform no logging or recovery.
 [[nodiscard]] domain::DriverError map_error(yaddnsc_status status, std::string_view plugin_message,
-                                            std::string_view driver_name, std::string_view fqdn);
+                                            std::string_view driver_name, std::string_view fqdn,
+                                            std::uint32_t retry_after_seconds);
 [[nodiscard]] domain::DriverError map_validate_error(yaddnsc_status status, std::string_view plugin_message,
                                                      std::string_view driver_name);
 [[nodiscard]] domain::DriverError invalid_plugin_result(std::string_view driver_name, std::string_view entry);

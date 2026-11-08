@@ -137,7 +137,7 @@ int32_t throwing_query(void*, yaddnsc_log_level) {
     return request;
 }
 
-class WarnDriver final : public yaddnsc::sdk::Driver {
+class RejectedDriver final : public yaddnsc::sdk::Driver {
 public:
     [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view) const override { return {}; }
 
@@ -188,7 +188,7 @@ TEST_F(SdkLogQueryTest, AsyncRunUpdatePreservesFailuresAndHonoursTheQuery) {
         ASSERT_FALSE(result);
         EXPECT_EQ(result.error().status, YADDNSC_STATUS_AUTHENTICATION_FAILED);
         EXPECT_EQ(host.query_calls, 2);
-        EXPECT_EQ(host.last_level, YADDNSC_LOG_WARN);
+        EXPECT_EQ(host.last_level, YADDNSC_LOG_ERROR);
         EXPECT_EQ(host.log_calls, enabled ? 2 : 0);
         if (enabled) {
             EXPECT_EQ(host.last_file, location.file_name());
@@ -365,25 +365,27 @@ TEST_F(SdkLogQueryTest, UpdateContextCarriesTheQuery) {
     yaddnsc::sdk::detail::destroy_driver(driver);
 }
 
-TEST_F(SdkLogQueryTest, RunUpdateWarnPathHonoursTheQuery) {
+TEST_F(SdkLogQueryTest, RunUpdateRejectionPathHonoursTheQuery) {
     QueryHost host;
     host.enabled = false;
     yaddnsc_driver* driver = nullptr;
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
-    ASSERT_EQ((yaddnsc::sdk::detail::create_driver<WarnDriver>(&host.table.base, &driver, &error)), YADDNSC_STATUS_OK);
+    ASSERT_EQ((yaddnsc::sdk::detail::create_driver<RejectedDriver>(&host.table.base, &driver, &error)),
+              YADDNSC_STATUS_OK);
     ASSERT_NE(driver, nullptr);
 
     const auto request = blank_request();
     EXPECT_EQ(yaddnsc::sdk::detail::update_driver(driver, &request, &error), YADDNSC_STATUS_UPSTREAM_REJECTED);
     EXPECT_EQ(host.query_calls, 2);
-    EXPECT_EQ(host.last_level, YADDNSC_LOG_WARN);
+    EXPECT_EQ(host.last_level, YADDNSC_LOG_ERROR);
     EXPECT_EQ(host.log_calls, 0);
     yaddnsc::sdk::detail::destroy_driver(driver);
 
     host.enabled = true;
     driver = nullptr;
-    ASSERT_EQ((yaddnsc::sdk::detail::create_driver<WarnDriver>(&host.table.base, &driver, &error)), YADDNSC_STATUS_OK);
+    ASSERT_EQ((yaddnsc::sdk::detail::create_driver<RejectedDriver>(&host.table.base, &driver, &error)),
+              YADDNSC_STATUS_OK);
     EXPECT_EQ(yaddnsc::sdk::detail::update_driver(driver, &request, &error), YADDNSC_STATUS_UPSTREAM_REJECTED);
     EXPECT_EQ(host.log_calls, 2);
     yaddnsc::sdk::detail::destroy_driver(driver);

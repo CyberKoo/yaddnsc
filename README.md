@@ -421,10 +421,11 @@ configure the corresponding IP literal instead.
 Server certificate verification is always enabled. The CA bundle is located
 by consulting, in order: the `SSL_CERT_FILE` environment variable, the
 OpenSSL default location, and a set of platform-specific system paths. If no
-bundle file is found, yaddnsc falls back to the OpenSSL default certificate
-directory — which the `SSL_CERT_DIR` environment variable selects when set —
-and only when that directory cannot be loaded either do TLS connections fail.
-Verification is never disabled. To trust additional certificates, combine
+bundle file is found, yaddnsc loads the colon-separated directories in
+`SSL_CERT_DIR` when it is set, or the OpenSSL default certificate directory
+otherwise. An invalid explicitly selected directory fails closed instead of
+falling back to another trust source; if no usable directory can be loaded,
+TLS connections fail. Verification is never disabled. To trust additional certificates, combine
 them into a single PEM bundle and point `SSL_CERT_FILE` at it:
 
 ```bash

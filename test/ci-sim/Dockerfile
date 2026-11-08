@@ -50,14 +50,16 @@ RUN echo "=== [4/4] conversion-gate configure ===" \
     && ctest --test-dir build-conversion --output-on-failure -j$(nproc)
 
 # ── [3/4] benchmark: Release build + run ──
-RUN echo "=== [5/4] benchmark build ===" \
-    && ninja -C build -j$(nproc) bench_dns_parser \
+RUN echo "=== [5/4] benchmark configure (Release) ===" \
+    && cmake -B build-benchmark -G Ninja -DCMAKE_BUILD_TYPE=Release -DYADDNSC_BUILD_TESTS=ON \
+    && echo "=== [5/4] benchmark build ===" \
+    && ninja -C build-benchmark -j$(nproc) bench_dns_parser \
         bench_uri bench_string_util bench_inet_address bench_socket_addr bench_builder \
     && echo "=== [5/4] benchmark results ===" \
     && for b in bench_dns_parser bench_uri \
                bench_string_util bench_inet_address bench_socket_addr bench_builder; do \
            echo "--- $b ---"; \
-           ./build/test/perf/$b --benchmark_format=console 2>&1 | tail -n +12; \
+           ./build-benchmark/test/perf/$b --benchmark_format=console 2>&1 | tail -n +12; \
        done
 
 # ── [4/4] integration test: end-to-end scenarios ──

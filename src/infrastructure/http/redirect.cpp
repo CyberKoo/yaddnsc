@@ -63,6 +63,9 @@ RedirectEval evaluate_redirect(const int status, const std::multimap<std::string
         .cross_origin = resolved->get_schema() != current_uri.get_schema() ||
                         resolved->get_host() != current_uri.get_host() || port != current_port,
     };
+    if ((status == 307 || status == 308) && plan.cross_origin && plan.next.body.has_value()) {
+        return {};
+    }
     if (status != 307 && status != 308) {
         plan.next.method = Method::GET;
         plan.next.body = std::nullopt;

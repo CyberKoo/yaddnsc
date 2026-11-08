@@ -42,12 +42,12 @@ class Nursery;
 
 namespace Composition {
 int execute_command(const Cli::DriverListCommand& command) {
-    const auto catalog = internal::load_catalog(internal::load_runtime_config(command.config_path));
+    const auto catalog = internal::load_driver_catalog(command.config_path);
     return Cli::present_driver_list(app::list_drivers(catalog));
 }
 
 int execute_command(const Cli::DriverInfoCommand& command) {
-    const auto catalog = internal::load_catalog(internal::load_runtime_config(command.config_path));
+    const auto catalog = internal::load_driver_catalog(command.config_path);
     return Cli::present_driver_info(command.name, catalog.describe(command.name));
 }
 
@@ -62,9 +62,9 @@ int execute_command(const Cli::InterfaceIpCommand& command) {
 }
 
 int execute_command(const Cli::DnsResolveCommand& command) {
-    const auto config = internal::load_runtime_config(command.config_path);
+    const auto resolver = internal::load_resolver_config(command.config_path);
     const auto tls_context = internal::make_default_tls_context();
-    const auto dispatcher = internal::make_dispatcher(config.resolver, tls_context);
+    const auto dispatcher = internal::make_dispatcher(resolver, tls_context);
     dns::DispatcherResolverPort resolver_port{*dispatcher};
     // A plain root preserves the default Ctrl-C disposition for this one-shot command.
     auto loop = internal::make_traced_loop();
@@ -119,7 +119,7 @@ int execute_command(const Cli::ConfigTestCommand& command) {
                       [&config, &driver_catalog, &logger, &validation_loop, &http_options](
                           coro::Nursery& nursery, std::unique_ptr<plugin::DriverGateway>& gateway) -> coro::Task<void> {
                           gateway = internal::make_driver_gateway(driver_catalog, logger, validation_loop, nursery,
-                                                                 http_options);
+                                                                  http_options);
                           // The runner keeps the gateway alive through every bridge child.
                           const auto outcome = co_await app::validate_driver_configs(
                               *gateway, config, app::ConfigValidationMode::REQUIRE_VALIDATION,

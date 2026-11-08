@@ -34,7 +34,8 @@ constexpr yaddnsc_driver_descriptor DESCRIPTOR = {
 constexpr yaddnsc_string BAD_ARGUMENT{"invalid async argument", sizeof("invalid async argument") - 1};
 constexpr yaddnsc_string CANCELLED_MESSAGE{"update cancelled", sizeof("update cancelled") - 1};
 constexpr yaddnsc_string EVENT_ERROR_MESSAGE{"async fixture event error", sizeof("async fixture event error") - 1};
-constexpr yaddnsc_string ZERO_OP_MESSAGE{"http_start returned a zero op id", sizeof("http_start returned a zero op id") - 1};
+constexpr yaddnsc_string ZERO_OP_MESSAGE{"http_start returned a zero op id",
+                                         sizeof("http_start returned a zero op id") - 1};
 constexpr yaddnsc_string EMPTY_CONFIG_MESSAGE{"empty driver_params", sizeof("empty driver_params") - 1};
 
 void write_error(yaddnsc_error* out_error, yaddnsc_status status, yaddnsc_string message) noexcept {
@@ -107,8 +108,9 @@ extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_get_descriptor(const yad
     return YADDNSC_STATUS_OK;
 }
 
-extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_async_create(
-    const yaddnsc_async_services* services, yaddnsc_async_driver** out_driver, yaddnsc_error* out_error) {
+extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_async_create(const yaddnsc_async_services* services,
+                                                                     yaddnsc_async_driver** out_driver,
+                                                                     yaddnsc_error* out_error) {
     if (out_driver == nullptr) {
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, BAD_ARGUMENT);
         return YADDNSC_STATUS_INVALID_ARGUMENT;
@@ -131,8 +133,9 @@ extern "C" FIXTURE_EXPORT void yaddnsc_driver_async_destroy(yaddnsc_async_driver
     delete reinterpret_cast<AsyncState*>(driver);  // NOLINT — nullptr is a no-op
 }
 
-extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_update_async_begin(
-    yaddnsc_async_driver* driver, const yaddnsc_update_request* request, yaddnsc_error* out_error) {
+extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_update_async_begin(yaddnsc_async_driver* driver,
+                                                                           const yaddnsc_update_request* request,
+                                                                           yaddnsc_error* out_error) {
     auto* state = reinterpret_cast<AsyncState*>(driver);  // NOLINT
     if (state == nullptr || state->phase != Phase::Initial) {
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, BAD_ARGUMENT);
@@ -156,6 +159,12 @@ extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_update_async_begin(
             ? std::string_view(reinterpret_cast<const char*>(request->driver_param_json.data),
                                request->driver_param_json.size)
             : std::string_view{};
+    if (configured == "rate-limited" || configured == "rate-limited-overflow") {
+        state->phase = Phase::UpdateTerminal;
+        write_error(out_error, YADDNSC_STATUS_RATE_LIMITED, EVENT_ERROR_MESSAGE);
+        out_error->retry_after_seconds = configured == "rate-limited-overflow" ? 0xffffffffU : 73U;
+        return YADDNSC_STATUS_RATE_LIMITED;
+    }
     std::string_view url = configured;
     bool cancel_same_step = false;
     if (const auto separator = configured.find('|'); separator != std::string_view::npos) {
@@ -201,8 +210,9 @@ extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_update_async_begin(
     return YADDNSC_STATUS_PENDING;
 }
 
-extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_update_async_resume(
-    yaddnsc_async_driver* driver, const yaddnsc_event* event, yaddnsc_error* out_error) {
+extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_update_async_resume(yaddnsc_async_driver* driver,
+                                                                            const yaddnsc_event* event,
+                                                                            yaddnsc_error* out_error) {
     auto* state = reinterpret_cast<AsyncState*>(driver);  // NOLINT
     if (state == nullptr || state->phase != Phase::UpdateWaiting || event == nullptr ||
         event->struct_size < YADDNSC_EVENT_MIN_SIZE || event->abi_major != YADDNSC_DRIVER_ABI_MAJOR ||
@@ -249,8 +259,9 @@ extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_update_async_resume(
     return event->status;
 }
 
-extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_async_validate(
-    yaddnsc_async_driver* driver, yaddnsc_string driver_param_json, yaddnsc_error* out_error) {
+extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_async_validate(yaddnsc_async_driver* driver,
+                                                                       yaddnsc_string driver_param_json,
+                                                                       yaddnsc_error* out_error) {
     if (driver == nullptr) {
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, BAD_ARGUMENT);
         return YADDNSC_STATUS_INVALID_ARGUMENT;

@@ -333,6 +333,23 @@ TEST(HttpClientRedirect, crossOrigin_ToAnIpv6Literal_BracketsTheHost) {
     EXPECT_NE(factory->sent_on(1).find("Host: [2001:db8::2]:8080"), std::string::npos);
 }
 
+TEST(HttpClientRedirect, crossOriginTemporaryRedirectWithBody_ReturnsTheOriginalResponse) {
+    auto factory =
+        factory_for({Behaviour::response("HTTP/1.1 307 Temporary Redirect\r\nLocation: "
+                                         "http://203.0.113.20:9090/elsewhere\r\nContent-Length: 0\r\n\r\n")});
+    const Options options = options_for(factory);
+    Request request;
+    request.method = http::Method::POST;
+    request.set_body("payload");
+    request.content_type = "application/json";
+
+    const auto response = exchange(options, "http://203.0.113.10:8080/start", request);
+
+    ASSERT_TRUE(response.has_value());
+    EXPECT_EQ(response->status_, 307);
+    EXPECT_EQ(factory->tcp_calls, 1);
+}
+
 TEST(HttpClientRedirect, temporaryRedirect_ReplaysTheMethodAndBody) {
     auto factory = factory_for(
         {Behaviour::response("HTTP/1.1 307 Temporary Redirect\r\nLocation: /retry\r\nContent-Length: 0\r\n\r\n"),

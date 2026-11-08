@@ -28,13 +28,17 @@ Migration guidance: [custom drivers](docs/custom-drivers.md).
   rejection message. Empty optional parameters use the same diagnostic as
   empty required ones.
 - Bundled driver package versions move from 1.0.0/2.0.0 to 1.1.0/2.1.0.
+- Cloudflare defaults TTL to `1` (automatic). Set `ttl` explicitly to retain a
+  fixed TTL.
+- Shared driver rejection logs use ERROR for non-transient HTTP failures and
+  WARN for 429 and 5xx responses.
 
 ### Added
 
-- Async plugin protocol and C++ SDK with event/PENDING updates, async host
-  services, loader mode selection, and full lifecycle support. Modules must
-  export a complete async execution group and cannot mix sync and async
-  execution symbols.
+- Async plugin protocol and C++ SDK with event/PENDING updates, provider
+  `Retry-After` propagation, async host services, loader mode selection, and
+  full lifecycle support. Modules must export a complete async execution group
+  and cannot mix sync and async execution symbols.
 - Async HTTP exchanges return owned `AsyncHttpResponse` values through
   `AsyncExchangeResult`, including checked slot-capacity failures for single
   exchanges. The synchronous C++ exchange API is unchanged.
@@ -54,6 +58,17 @@ Migration guidance: [custom drivers](docs/custom-drivers.md).
 
 ### Fixed
 
+- Synchronous plugin create failures snapshot instance-owned error text before
+  mandatory destruction, preventing use-after-free during contract cleanup.
+- Provider `Retry-After` hints longer than one hour are clamped to one hour
+  before scheduling retries.
+- Cloudflare rejects unsupported TTL values before issuing HTTP requests.
+- Cross-origin 307/308 redirects carrying a request body are no longer followed;
+  same-origin method and body replay is unchanged.
+- TLS directory fallback honors `SSL_CERT_DIR` directory lists and fails closed
+  for invalid explicit sources.
+- `driver list`, `driver info`, and `dns resolve` validate only the configuration
+  sections they use, so unrelated domain errors no longer block diagnostics.
 - Redirects that leave a persistent origin recover when a connection is lost
   before an idempotent hop is answered. The redirect budget still spans every
   hop.

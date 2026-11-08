@@ -277,13 +277,16 @@ yaddnsc_status PluginModule::create(const yaddnsc_host_services& services, yaddn
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
 
+    const uint32_t error_capacity = out_error.struct_size;
     yaddnsc_status status;
     try {
         status = entries->create(&services, out_driver, &out_error);
     } catch (const std::exception& e) {
+        out_error.struct_size = error_capacity;
         write_entry_error(out_error, e.what());
         status = YADDNSC_STATUS_INTERNAL_ERROR;
     } catch (...) {
+        out_error.struct_size = error_capacity;
         write_entry_error(out_error, "unknown exception from plugin create");
         status = YADDNSC_STATUS_INTERNAL_ERROR;
     }
@@ -293,10 +296,29 @@ yaddnsc_status PluginModule::create(const yaddnsc_host_services& services, yaddn
     // leak it — no DriverInstance exists to own the destroy() call.
     if (status != YADDNSC_STATUS_OK) {
         if (*out_driver != nullptr) {
-            SPDLOG_WARN("Driver '{}' ({}) violated the create contract: failure after storing a handle; destroying it",
-                        descriptor_.name, path());
-            destroy(*out_driver);
-            *out_driver = nullptr;
+            const auto cleanup = [this](yaddnsc_driver* driver) noexcept { destroy(driver); };
+            std::unique_ptr<yaddnsc_driver, decltype(cleanup)> failed_driver(std::exchange(*out_driver, nullptr),
+                                                                             cleanup);
+            const CreateErrorSnapshot snapshot(status, out_error, error_capacity);
+            failed_driver.reset();
+            try {
+                SPDLOG_WARN(
+                    "Driver '{}' ({}) violated the create contract: failure after storing a handle; destroyed it",
+                    descriptor_.name, path());
+            } catch (...) {
+            }
+
+            if (snapshot.valid) {
+                out_error.struct_size = error_capacity;
+                write_entry_error(out_error, {snapshot.message.data(), snapshot.size}, status);
+                out_error.retry_after_seconds = snapshot.retry;
+            } else {
+                // Keep malformed reports visibly invalid to the gateway, without
+                // retaining a message pointer into the destroyed instance.
+                // This trampoline receives a full host-owned C++ object even
+                // when its advertised ABI capacity is short.
+                out_error = {};
+            }
         }
         return status;
     }

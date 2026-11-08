@@ -11,11 +11,15 @@
 
 #include "application/tasks/main_loop.h"
 
+#include <algorithm>
 #include <chrono>
+#include <coroutine>
 #include <csignal>
 #include <cstdlib>
+#include <expected>
 #include <functional>
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <new>
 #include <optional>
@@ -25,9 +29,6 @@
 #include <utility>
 #include <vector>
 
-#include <coroutine>
-
-#include <expected>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
@@ -306,6 +307,31 @@ TEST(MainLoop, RetryAfterOverridesTheUpdateInterval) {
 
     // t=0 fails with retry_after=30, so the next attempt is at t=30, then t=40.
     EXPECT_EQ(gateway.calls, 3);
+}
+
+TEST(MainLoop, RetryAfterIsClampedToOneHour) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    FakeResolver resolver;
+    FakeIpSource ip_source;
+    FakeGateway gateway;
+    gateway.fail_first_retry_after = std::numeric_limits<int>::max();
+    RecordingLogger logger;
+    const app::Services services{resolver, ip_source, gateway, logger};
+    const auto config = make_config({make_subdomain("www", 10)}, 10, 0);
+
+    run_loop(loop, [&]() -> coro::Task<void> {
+        co_await coro::with_timeout(3601s, [&]() -> coro::Task<void> {
+            co_await app::subdomain_task(config->domains[0], config->domains[0].subdomains[0], services);
+            co_return;
+        });
+        co_return;
+    });
+
+    EXPECT_EQ(gateway.calls, 2);
+    EXPECT_TRUE(std::ranges::any_of(logger.records(), [](const auto& record) {
+        return record.level == app::LogLevel::WARN && record.message.find("clamped") != std::string::npos;
+    }));
 }
 
 TEST(MainLoop, ForceUpdateIntervalSkipsTheDnsRead) {
@@ -1064,8 +1090,8 @@ TEST(MainLoop, StartupValidation_AncestorCancellationSkipsUpdates) {
     };
 
     const auto timed = coro::run(loop, coro::with_timeout(5s, [&]() -> coro::Task<app::MainLoopOutcome> {
-                                       co_return co_await app::main_loop(config, runtime_services);
-                                   }));
+                                     co_return co_await app::main_loop(config, runtime_services);
+                                 }));
     completed = !timed.timed_out;
 
     // Validation runs inside the cancellable scope, so the budget is a shield
