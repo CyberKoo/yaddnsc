@@ -254,6 +254,19 @@ TEST_F(GatewayAbiContractTest, CreateReportsAFailureWithNoMessage_TheHostSynthes
         << result.error().message;
 }
 
+TEST_F(GatewayAbiContractTest, CreateReportsRateLimited_MapsToRateLimitedAndClampsRetryAfter) {
+    select_mode("create_reports_rate_limited");
+
+    std::expected<void, domain::DriverError> result;
+    run_update(catalog_, logger_, result);
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DriverError::Code::RATE_LIMITED);
+    EXPECT_EQ(result.error().message, "plugin reported this failure");
+    EXPECT_EQ(result.error().retry_after_seconds, INT_MAX);
+    EXPECT_EQ(control_->state().updates, 0U);
+}
+
 // ---------------------------------------------------------------------------
 // update() contract and the status mapping
 // ---------------------------------------------------------------------------

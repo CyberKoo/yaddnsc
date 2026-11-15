@@ -41,7 +41,7 @@ struct DestroyPhase {
 };
 
 /// Successful handles are immediately adopted by the caller's DriverInstance.
-/// Failure text is copied here, before another ABI entry can invalidate it.
+/// Failure text and retry hints are copied here, before another ABI entry can invalidate them.
 template<typename MapFailure>
 std::expected<yaddnsc_driver*, domain::DriverError> create_driver(const PluginModule& module,
                                                                   const yaddnsc_host_services& services,
@@ -56,7 +56,7 @@ std::expected<yaddnsc_driver*, domain::DriverError> create_driver(const PluginMo
     if (status == YADDNSC_STATUS_OK || !detail::has_valid_plugin_error(error, status)) {
         return std::unexpected(detail::invalid_plugin_result(module.descriptor().name, "create"));
     }
-    return std::unexpected(map_failure(status, detail::to_view(error.message)));
+    return std::unexpected(map_failure(status, detail::to_view(error.message), error.retry_after_seconds));
 }
 
 std::expected<void, domain::DriverError> run_update_task(const std::shared_ptr<const PluginModule>& module,
@@ -70,9 +70,11 @@ std::expected<void, domain::DriverError> run_update_task(const std::shared_ptr<c
     }
     HostServicesContext context{bridge, logger, state};
     const auto services = context.make_services_v1_1();
-    const auto created = create_driver(*module, services.base, [&](yaddnsc_status status, std::string_view message) {
-        return detail::map_error(status, message, driver_name, command.fqdn, 0);
-    });
+    const auto created =
+        create_driver(*module, services.base,
+                      [&](yaddnsc_status status, std::string_view message, std::uint32_t retry_after_seconds) {
+                          return detail::map_error(status, message, driver_name, command.fqdn, retry_after_seconds);
+                      });
     if (!created) {
         return std::unexpected(created.error());
     }
@@ -114,9 +116,10 @@ std::expected<void, domain::DriverError> run_validate_cycle(const std::shared_pt
     }
     HostServicesContext context{bridge, logger, state};
     const auto services = context.make_services_v1_1();
-    const auto created = create_driver(*module, services.base, [&](yaddnsc_status status, std::string_view message) {
-        return detail::map_validate_error(status, message, driver_name);
-    });
+    const auto created =
+        create_driver(*module, services.base, [&](yaddnsc_status status, std::string_view message, std::uint32_t) {
+            return detail::map_validate_error(status, message, driver_name);
+        });
     if (!created) {
         return std::unexpected(created.error());
     }

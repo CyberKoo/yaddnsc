@@ -55,17 +55,18 @@ alignas(alignof(void*)) unsigned char g_instance[sizeof(void*)]{};
 
 enum class Mode {
     kWellBehaved,
-    kCreateOkWithoutHandle,       ///< OK, but *out_driver left untouched
-    kCreateFailsWithoutReport,    ///< non-OK, out_error untouched
-    kCreateReportsEmptyMessage,   ///< non-OK, legal report with an empty message
-    kCreateFailsWithStaleStatus,  ///< out_error.status disagrees with the return value
-    kCreateReportsInternalError,  ///< non-OK, legal report
-    kUpdateFailsWithoutReport,    ///< non-OK, out_error untouched
-    kUpdateReportsNetworkError,   ///< non-OK, legal report
-    kUpdateReportsRateLimited,    ///< non-OK, legal report, overflowing retry_after
-    kUpdateReportsInvalidArgument,///< a valid status outside the mapping's cases
-    kValidateFailsWithoutReport,  ///< non-OK, out_error untouched
-    kValidateRejectsConfig,       ///< non-OK INVALID_CONFIG, legal report
+    kCreateOkWithoutHandle,         ///< OK, but *out_driver left untouched
+    kCreateFailsWithoutReport,      ///< non-OK, out_error untouched
+    kCreateReportsEmptyMessage,     ///< non-OK, legal report with an empty message
+    kCreateFailsWithStaleStatus,    ///< out_error.status disagrees with the return value
+    kCreateReportsInternalError,    ///< non-OK, legal report
+    kCreateReportsRateLimited,      ///< non-OK, legal report, overflowing retry_after
+    kUpdateFailsWithoutReport,      ///< non-OK, out_error untouched
+    kUpdateReportsNetworkError,     ///< non-OK, legal report
+    kUpdateReportsRateLimited,      ///< non-OK, legal report, overflowing retry_after
+    kUpdateReportsInvalidArgument,  ///< a valid status outside the mapping's cases
+    kValidateFailsWithoutReport,    ///< non-OK, out_error untouched
+    kValidateRejectsConfig,         ///< non-OK INVALID_CONFIG, legal report
 };
 
 std::optional<Mode> parse_mode(const std::string_view name) {
@@ -86,6 +87,9 @@ std::optional<Mode> parse_mode(const std::string_view name) {
     }
     if (name == "create_reports_internal_error") {
         return Mode::kCreateReportsInternalError;
+    }
+    if (name == "create_reports_rate_limited") {
+        return Mode::kCreateReportsRateLimited;
     }
     if (name == "update_fails_without_report") {
         return Mode::kUpdateFailsWithoutReport;
@@ -115,10 +119,11 @@ std::uint64_t g_validates = 0;
 std::uint64_t g_destroys = 0;
 
 /// Fill out_error with a report consistent with `status`.
-yaddnsc_status report(yaddnsc_error* out_error, yaddnsc_status status, std::string_view message) {
+yaddnsc_status report(yaddnsc_error* out_error, yaddnsc_status status, std::string_view message,
+                      std::uint32_t retry_after_seconds = 0) {
     if (out_error != nullptr && out_error->struct_size >= YADDNSC_ERROR_MIN_SIZE) {
         out_error->status = status;
-        out_error->retry_after_seconds = 0;
+        out_error->retry_after_seconds = retry_after_seconds;
         out_error->message = {message.data(), message.size()};
     }
     return status;
@@ -190,6 +195,8 @@ extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_create(const yaddnsc_hos
             return YADDNSC_STATUS_INTERNAL_ERROR;
         case Mode::kCreateReportsInternalError:
             return report(out_error, YADDNSC_STATUS_INTERNAL_ERROR, REPORTED_MESSAGE);
+        case Mode::kCreateReportsRateLimited:
+            return report(out_error, YADDNSC_STATUS_RATE_LIMITED, REPORTED_MESSAGE, OVERFLOWING_RETRY);
         default:
             break;
     }

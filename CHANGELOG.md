@@ -60,6 +60,8 @@ Migration guidance: [custom drivers](docs/custom-drivers.md).
 
 - Synchronous plugin create failures snapshot instance-owned error text before
   mandatory destruction, preventing use-after-free during contract cleanup.
+- Synchronous plugin create failures preserve `Retry-After` hints for retry
+  scheduling instead of discarding them.
 - Provider `Retry-After` hints longer than one hour are clamped to one hour
   before scheduling retries.
 - Cloudflare rejects unsupported TTL values before issuing HTTP requests.
