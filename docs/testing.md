@@ -467,4 +467,3 @@ shared state, so TSan has nothing to detect there. The `--timeout` bounds any
 other hung test instead of waiting out the CI job timeout.
 
 Coverage uses `YADDNSC_SANITIZE_DEBUG=OFF` to avoid mixing instrumentation.
-

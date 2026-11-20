@@ -7,7 +7,7 @@ than repeat it. The plugin C ABI stability promise is defined in that same
 document. Release bodies on GitHub Releases are copied from the matching
 section here.
 
-## [1.1.0] - Unreleased
+## [1.1.0] - 2026-11-21
 
 The host now implements plugin ABI 1.1; ABI 1.0 remains frozen and loadable.
 Migration guidance: [custom drivers](docs/custom-drivers.md).

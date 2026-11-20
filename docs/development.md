@@ -98,7 +98,7 @@ cmake --build build-docs --target doxygen
 
 Bundled dependencies use CPM.cmake to integrate upstream CMake projects; some
 libraries also have system-package paths. `cmake/CPM.cmake` currently downloads
-CPM 0.43.1 with a SHA-256 check on the bootstrap download. Dependency declarations
+CPM 0.43.2 with a SHA-256 check on the bootstrap download. Dependency declarations
 mostly select release tags, which upstream can move; this bootstrap hash does
 not make dependency tags immutable. A full Git commit SHA identifies a specific
 source revision. CPM's source cache is not a binary cache, and the setup provides
@@ -174,4 +174,3 @@ Every ABI minor bump must:
 The compile-time pins in `driver_abi.h` (constant values, field offsets,
 baselines, leaf sizes, alignment) run in every build on every target, so a
 violation fails compilation before any test runs.
-

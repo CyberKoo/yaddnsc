@@ -55,8 +55,8 @@ option(YADDNSC_SANITIZE_DEBUG "Enable sanitizers in Debug builds" ON)
 include(Sanitizer)
 
 # Version info
-# Version is managed by project(yaddnsc VERSION 1.0.0). The version.h.in
-# template uses @PROJECT_VERSION_MAJOR@ etc. directly.
+# Version is managed by project(yaddnsc VERSION ...) in the root CMakeLists.txt.
+# The version.h.in template uses @PROJECT_VERSION_MAJOR@ etc. directly.
 option(YADDNSC_DEVELOPMENT "Development mode (embed git version info)" ON)
 include(ReleaseInfo)
 

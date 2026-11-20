@@ -420,7 +420,7 @@ journalctl -u yaddnsc
 | TLS 校验失败 | 检查系统时间、CA 证书包与 `SSL_CERT_FILE`。 |
 | mDNS 无应答 | 确认 `.local` 名称、组播可用性与所选接口。 |
 | 服务启动失败 | 查看 `systemctl status yaddnsc` 与 `journalctl -u yaddnsc`。 |
-| 升级后驱动被拒绝 | 使用当前 SDK 重新编译驱动；major 不同，或插件要求的 minor 高于宿主时，宿主拒绝加载。 |
+| 升级后驱动被拒绝 | ABI major 不匹配时，使用目标 major 对应的 SDK 重新构建驱动；插件要求的 minor 高于宿主时，升级 yaddnsc，或改用与该宿主兼容的 SDK。 |
 
 ## 其他文档
 

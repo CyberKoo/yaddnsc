@@ -567,9 +567,11 @@ One exchange is limited to 64 KiB of headers and 16 MiB of body.
   The default is `${CMAKE_INSTALL_LIBDIR}/yaddnsc/drivers`, where `make
   install` puts bundled drivers — a driver built in the build tree has to be
   copied there or pointed at explicitly.
-- Magic mismatch, a different ABI major, or a plugin minor newer than the
-  host: rebuild the driver with the current SDK headers. The host pins the
-  layout and refuses a module built for a different ABI generation.
+- Magic mismatch or a different ABI major: rebuild the driver with the
+  appropriate SDK headers. The host pins the layout and refuses a module
+  built for a different ABI generation.
+- A plugin minor newer than the host: upgrade yaddnsc, or rebuild the driver
+  against an SDK compatible with that host if it cannot be upgraded.
 - `http_start` yields `NETWORK_ERROR` with "the API server did not respond
   in time": the exchange budget expired, including time waiting for loop
   dispatch. This fails the exchange; it does not imply host shutdown.

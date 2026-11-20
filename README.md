@@ -465,7 +465,7 @@ inaccessible to unrelated accounts.
 | TLS verification fails | Check system time, the CA bundle, and `SSL_CERT_FILE`. |
 | mDNS yields no answer | Verify the `.local` name, multicast availability, and the selected interface. |
 | Service fails to start | Inspect `systemctl status yaddnsc` and `journalctl -u yaddnsc`. |
-| Driver rejected after upgrade | Rebuild the driver against the current SDK when its ABI major differs or it requires a newer minor than the host provides. |
+| Driver rejected after upgrade | ABI major mismatch: rebuild against an SDK for the intended major. Plugin minor newer than host: upgrade yaddnsc, or use an SDK compatible with that host. |
 
 ## Further Documentation
 
