@@ -20,7 +20,7 @@ if(CLANG_TIDY_EXE)
         # the compiler's warnings and fails the build, duplicating what the
         # real compile already enforces. Tidy findings themselves stay at
         # warning severity through WarningsAsErrors in .clang-tidy.
-        set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY_EXE};--extra-arg=-Wno-error")
+        set(YADDNSC_CLANG_TIDY_COMMAND "${CLANG_TIDY_EXE};--extra-arg=-Wno-error")
     else()
         message(STATUS "Clang-Tidy skipped (compiler is ${CMAKE_CXX_COMPILER_ID}, not Clang)")
     endif()

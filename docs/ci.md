@@ -95,6 +95,11 @@ clang-tidy is invoked with `--extra-arg=-Wno-error` so that the project's
 `-Werror`, which reaches it through the shared compile command, does not turn
 the compiler warnings it re-reports into a build failure — the real compile
 already enforces those. Tool execution/parsing errors may still fail the build.
+`cmake/BuildOptions.cmake` activates clang-tidy and IWYU only after every
+bundled third-party target has been created, including the test-only
+GoogleTest/GoogleMock and Google Benchmark targets in
+`test/Dependencies.cmake`. Static analysis therefore applies to first-party
+translation units without package-specific suppressions.
 
 ## Include hygiene
 
@@ -102,8 +107,9 @@ already enforces those. Tool execution/parsing errors may still fail the build.
   found and the compiler is upstream Clang, not GCC or AppleClang. It runs
   without `--error`, so violations are reported but do not fail the build, and
   it uses `.iwyu-mappings.imp` for mappings.
-  Activation occurs after third-party targets are created; generated header-check
-  translation units opt out. Disable locally with `-DYADDNSC_IWYU=OFF`.
+  Activation follows the dependency-first ordering described above; generated
+  header-check translation units opt out. Disable locally with
+  `-DYADDNSC_IWYU=OFF`.
   CI coverage comes from the nightly lint job (see above);
   the macOS job uses AppleClang, which IWYU deliberately skips.
 - **Header self-containment**: in non-Release builds, `yaddnsc_header_checks`

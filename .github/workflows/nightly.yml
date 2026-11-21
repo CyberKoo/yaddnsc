@@ -70,7 +70,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/CPM
-          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/Dependencies.cmake') }}
           restore-keys: cpm-${{ runner.os }}-
       - name: Install dependencies
         run: sudo apt update && sudo apt install -y ninja-build libssl-dev zlib1g-dev pkg-config
@@ -108,7 +108,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/CPM
-          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/Dependencies.cmake') }}
           restore-keys: cpm-${{ runner.os }}-
       - name: Install dependencies
         run: |
@@ -137,7 +137,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/CPM
-          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/Dependencies.cmake') }}
           restore-keys: cpm-${{ runner.os }}-
       - name: Install dependencies
         run: sudo apt update && sudo apt install -y ninja-build libssl-dev zlib1g-dev pkg-config
@@ -175,7 +175,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/CPM
-          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/Dependencies.cmake') }}
           restore-keys: cpm-${{ runner.os }}-
       - name: Install dependencies
         run: sudo apt update && sudo apt install -y clang clang-tidy iwyu lld libc++-dev libc++abi-dev ninja-build libssl-dev zlib1g-dev pkg-config

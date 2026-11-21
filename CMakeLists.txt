@@ -1,13 +1,21 @@
 cmake_minimum_required(VERSION 3.28...3.31 FATAL_ERROR)
-project(yaddnsc VERSION 1.1.0)
+project(yaddnsc VERSION 1.2.0)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
 # Project configuration.
 include(ProjectSetup)
 
-# Third-party dependencies, then first-party build configuration.
+# Every bundled third-party target must exist before BuildOptions enables
+# static analysis for the first-party targets that follow.
 include(Dependencies)
+
+option(YADDNSC_BUILD_TESTS "Build unit and integration tests" OFF)
+mark_as_advanced(YADDNSC_BUILD_TESTS)
+if (YADDNSC_BUILD_TESTS)
+  include(${PROJECT_SOURCE_DIR}/test/Dependencies.cmake)
+endif ()
+
 include(BuildOptions)
 
 # Host modules and executable.
@@ -38,9 +46,6 @@ if (NOT CMAKE_BUILD_TYPE STREQUAL "Release")
 endif ()
 
 # Optional test suite.
-option(YADDNSC_BUILD_TESTS "Build unit and integration tests" OFF)
-mark_as_advanced(YADDNSC_BUILD_TESTS)
-
 if (YADDNSC_BUILD_TESTS)
   enable_testing()
   add_subdirectory(test)

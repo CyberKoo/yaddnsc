@@ -37,11 +37,14 @@ if (YADDNSC_USE_SYSTEM_SPDLOG AND fmt_VERSION VERSION_LESS 10)
 endif ()
 
 # ---------------------------------------------------------------------------
-# Include-What-You-Use (cmake/IWYU.cmake). Enabled here — after every CPM
-# dependency target exists — so only first-party targets (production modules,
-# drivers, plugin support libraries, tests) inherit the check; third-party TUs are never
-# analyzed.
+# Static analysis (cmake/ClangTidy.cmake and cmake/IWYU.cmake). Enabled only
+# after every bundled dependency target, including test-only dependencies, has
+# been created. First-party targets created below inherit both checks;
+# third-party translation units never do.
 # ---------------------------------------------------------------------------
+if (YADDNSC_CLANG_TIDY_COMMAND)
+  set(CMAKE_CXX_CLANG_TIDY ${YADDNSC_CLANG_TIDY_COMMAND})
+endif ()
 if (YADDNSC_IWYU_COMMAND)
   set(CMAKE_CXX_INCLUDE_WHAT_YOU_USE ${YADDNSC_IWYU_COMMAND})
 endif ()

@@ -3,8 +3,9 @@
 #
 # Hierarchy:
 #   test/
-#     CMakeLists.txt       ←  this file — loads GoogleTest, defines test_support
-#                                 and the add_unit_test helper
+#     Dependencies.cmake   ←  test-only third-party dependencies
+#     CMakeLists.txt       ←  this file — defines test_support and the
+#                                 add_unit_test helper
 #     unit/                ←  unit-test targets (pure logic, no I/O); the layout
 #                                 mirrors src/: domain/, application/, coro/,
 #                                 infrastructure/<module>/, support/, plus sdk/
@@ -22,56 +23,6 @@
 # that depend on these headers, so the flag must apply at the test level too.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 19 AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 20)
     add_compile_options(-fexperimental-library)
-endif()
-
-# Re-use the project's CPM.cmake for GoogleTest.
-include(${CMAKE_SOURCE_DIR}/cmake/CPM.cmake)
-
-# ---------------------------------------------------------------------------
-# GoogleTest  (v1.17.0 — compatible with C++23, includes gmock)
-# ---------------------------------------------------------------------------
-# Use the same URI shorthand format as other project dependencies.
-CPMAddPackage(
-    URI "gh:google/googletest@1.17.0"
-    OPTIONS "INSTALL_GTEST OFF"
-             "gtest_force_shared_crt ON"
-)
-
-if (googletest_ADDED)
-    # GoogleTest targets are already defined by the CPM fetch above.
-    message(STATUS "GoogleTest v${googletest_VERSION} loaded for test targets")
-
-    # Mark GTest/GMock as SYSTEM to suppress clang-tidy false positives
-    # (e.g. bugprone-suspicious-include on gtest-all.cc / gmock-all.cc).
-    # Also exempt them from IWYU: they are third-party TUs and must not fail
-    # the enforced include-hygiene check.
-    foreach(tgt gtest gtest_main gmock gmock_main)
-      set_target_properties(${tgt} PROPERTIES SYSTEM TRUE CXX_INCLUDE_WHAT_YOU_USE "")
-    endforeach()
-endif ()
-
-# ---------------------------------------------------------------------------
-# Google Benchmark  (v1.9.5 — micro-benchmark support)
-# ---------------------------------------------------------------------------
-# Used by test/perf/ benchmarks.  Suppress its own test suite to avoid
-# a nested GoogleTest build that would conflict with the one above.
-CPMAddPackage(
-    URI "gh:google/benchmark@1.9.5"
-    OPTIONS "BENCHMARK_ENABLE_TESTING OFF"
-            "BENCHMARK_ENABLE_INSTALL OFF"
-)
-
-# Google Benchmark's own library must be compiled with optimisations for
-# meaningful timing results, even when the parent project is Debug.
-# Also exempt it from IWYU: it is a third-party TU and must not fail the
-# enforced include-hygiene check.
-if(benchmark_ADDED)
-  foreach(tgt benchmark benchmark_main)
-    set_target_properties(${tgt} PROPERTIES CXX_INCLUDE_WHAT_YOU_USE "")
-    target_compile_options(${tgt} PRIVATE
-          $<$<NOT:$<CONFIG:Release>>:-O2 -DNDEBUG>
-        )
-  endforeach()
 endif()
 
 # ---------------------------------------------------------------------------

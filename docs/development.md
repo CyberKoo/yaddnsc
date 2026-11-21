@@ -58,12 +58,15 @@ The root `CMakeLists.txt` orchestrates the build. Edit the module under `cmake/`
 that owns the relevant concern; keep the root file focused on loading order:
 
 1. `ProjectSetup.cmake` — C++ compilation environment, feature detection,
-   user options, version information, sanitizers, and `GNUInstallDirs`.
-2. `Dependencies.cmake` — third-party dependencies and wrapper targets.
-   GoogleTest and Google Benchmark remain in `test/`.
+   user options, version information, sanitizers, and `GNUInstallDirs`. C++
+   module scanning is disabled because no project target uses modules; feature
+   checks therefore do not require standard-library module metadata.
+2. `Dependencies.cmake` — third-party dependencies and wrapper targets. When
+   tests are enabled, `test/Dependencies.cmake` then loads GoogleTest and Google
+   Benchmark before first-party build configuration.
 3. `BuildOptions.cmake` — fmt, warnings, build_options, and internal_headers
-   interface targets, the production-module helper, and first-party IWYU
-   activation after third-party targets have been created.
+   interface targets, the production-module helper, and first-party
+   clang-tidy/IWYU activation after all third-party targets have been created.
 4. `ProductionTargets.cmake` — all production modules, explicit source lists,
    and their dependency graph, using the shared interfaces and helper.
 5. `Executable.cmake` — main executable linking, sanitizer application,

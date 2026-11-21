@@ -33,7 +33,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/CPM
-          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/Dependencies.cmake') }}
           restore-keys: cpm-${{ runner.os }}-
       - name: Install dependencies
         run: sudo apt update && sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g-dev pkg-config python3-venv curl
@@ -58,7 +58,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/CPM
-          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/Dependencies.cmake') }}
           restore-keys: cpm-${{ runner.os }}-
       - name: Install dependencies
         run: apk add --no-cache build-base git cmake samurai openssl openssl-dev zlib-dev pkgconfig python3
@@ -81,7 +81,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/CPM
-          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/Dependencies.cmake') }}
           restore-keys: cpm-${{ runner.os }}-
       - name: Install dependencies
         run: brew install cmake ninja openssl@3 pkg-config
@@ -112,7 +112,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/CPM
-          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/Dependencies.cmake') }}
           restore-keys: cpm-${{ runner.os }}-
       - name: Install dependencies
         run: sudo apt update && sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g-dev pkg-config python3-venv curl
@@ -155,7 +155,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/CPM
-          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/Dependencies.cmake') }}
           restore-keys: cpm-${{ runner.os }}-
       - name: Install dependencies
         run: sudo apt update && sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g-dev pkg-config
@@ -188,7 +188,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/CPM
-          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/Dependencies.cmake') }}
           restore-keys: cpm-${{ runner.os }}-
       - name: Install dependencies
         run: sudo apt update && sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g-dev pkg-config
@@ -227,7 +227,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/CPM
-          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/Dependencies.cmake') }}
           restore-keys: cpm-${{ runner.os }}-
       - name: Install dependencies
         run: sudo apt update && sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g-dev pkg-config python3-venv
@@ -251,7 +251,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/CPM
-          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/Dependencies.cmake') }}
           restore-keys: cpm-${{ runner.os }}-
       - name: Install packaging dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake git ninja-build gcc-14 g++-14 libssl-dev libxml2-dev zlib1g-dev pkg-config
@@ -282,7 +282,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/CPM
-          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/Dependencies.cmake') }}
           restore-keys: cpm-${{ runner.os }}-
       - name: Install dependencies
         run: |

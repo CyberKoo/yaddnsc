@@ -6,6 +6,10 @@
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# No project target provides or consumes C++ modules. In particular, do not let
+# C++23 feature checks import standard-library modules and depend on toolchain
+# module metadata that this build otherwise never uses.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
