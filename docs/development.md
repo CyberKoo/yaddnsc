@@ -48,9 +48,34 @@ beside the features they gate (see [Documentation](#documentation) and
   `YADDNSC_DEFAULT_DNS_PORT` (default `53`) are the fallback resolver used when
   no nameserver is configured; the address is validated as an IPv4/IPv6 literal;
 - `YADDNSC_ENABLE_DEB` (default `OFF`) enables CPack DEB generation, producing
-  two packages: `yaddnsc` (binary, drivers, config, systemd unit, shell
-  completions) and `yaddnsc-dev` (plugin SDK headers, CMake package config,
-  header-only signing helpers and bundled Glaze).
+  `yaddnsc` (binary, drivers, config, systemd unit, shell completions) and
+  `yaddnsc-dev` (plugin SDK headers, CMake package config, header-only signing
+  helpers and bundled Glaze);
+- `YADDNSC_ENABLE_RPM` (default `OFF`) enables CPack RPM generation with the
+  same contents, named `yaddnsc` and `yaddnsc-devel`;
+- `YADDNSC_RPM_PACKAGE_RELEASE` (default `1`) sets the RPM package release
+  independently of the project version;
+- `YADDNSC_RPM_OPENSSL_DEVEL_DEPENDENCY` (default empty) overrides the RPM
+  development package's OpenSSL dependency. The automatic default is
+  `pkgconfig(openssl) >= 3.0` on Fedora and `libopenssl-devel >= 3.0` on SUSE
+  distributions, avoiding LibreSSL as an alternative provider.
+
+### RPM package build
+
+On Fedora or openSUSE with `rpmbuild` installed:
+
+```bash
+cmake -S . -B build-rpm \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/usr \
+  -DYADDNSC_ENABLE_RPM=ON
+cmake --build build-rpm --parallel
+cpack --config build-rpm/CPackConfig.cmake -G RPM
+```
+
+DEB and RPM must use separate build directories because their native systemd
+paths can differ. Containerized build and installation verification is covered
+in [Testing](testing.md#tests).
 
 ### Build layout
 

@@ -67,7 +67,7 @@ Driver parameters and credential requirements are documented in
 ## Installation
 
 No pre-built packages are published at this time. The options are building
-from source, producing a Debian package, or building a container image.
+from source, producing Debian or RPM packages, or building a container image.
 
 ### Build from Source
 
@@ -126,9 +126,16 @@ multiarch library directory (`lib/x86_64-linux-gnu` on Debian/Ubuntu) for the
 packaged files; either way, the compiled-in default driver directory matches
 the packaged location.
 
-Alternatively, `docker/build-deb.sh` builds the package inside an Ubuntu
-container (24.04 by default) and writes the result to `deb-out/`; consult the
-script header for supported options.
+Alternatively, `docker/build-deb.sh` builds the package inside a Debian or
+Ubuntu container (Ubuntu 24.04 by default) and writes the result to `deb-out/`;
+consult the script header for supported options.
+
+### RPM Package
+
+Fedora and openSUSE RPM builds provide `yaddnsc` for the client and bundled
+drivers, and `yaddnsc-devel` for plugin development. The runtime package
+preserves a modified `config.json` on upgrade and includes systemd integration.
+See [RPM package build](docs/development.md#rpm-package-build) for build instructions.
 
 ### Container Image
 
@@ -436,8 +443,8 @@ yaddnsc run
 ## Running as a Service
 
 A systemd unit is installed when the systemd development files are detected at
-configure time; the Debian package always includes it. The unit validates the
-configuration before starting, restarts on failure, logs to the journal, and
+configure time; the Debian and RPM packages always include it. The unit validates
+the configuration before starting, restarts on failure, logs to the journal, and
 runs with a dynamically allocated user under restricted privileges.
 
 ```bash

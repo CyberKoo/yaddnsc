@@ -9,8 +9,12 @@ build/
 build-*/
 cmake-build-*/
 
-# Package output produced by docker/build-deb.sh
+# Native package outputs
 deb-out/
+rpm-out/
+_CPack_Packages/
+yaddnsc*.deb
+yaddnsc*.rpm
 
 # IDE settings
 .idea/

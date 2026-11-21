@@ -1,12 +1,8 @@
 # Installation rules for yaddnsc.
 #
 # Configures install targets, config file placement, systemd service unit,
-# and includes DEB/CPack packaging support.
+# and includes DEB/RPM packaging support.
 
-# ==============================================================================
-# Packaging — DEB via CPack
-# ==============================================================================
-# Included early so YADDNSC_ENABLE_DEB is available for the systemd logic below.
 include(Packaging)
 
 # ==============================================================================
@@ -14,23 +10,22 @@ include(Packaging)
 # ==============================================================================
 install(TARGETS yaddnsc RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT runtime)
 
+if (YADDNSC_ENABLE_RPM)
+    install(FILES ${CMAKE_SOURCE_DIR}/LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT runtime)
+endif ()
+
 # ==============================================================================
 # Default configuration file
 # ==============================================================================
-# For DEB packaging, install config to /etc/ so CPack auto-marks it as a
-# conffile.  dpkg will then NEVER silently overwrite a user-modified conffile
-# on upgrade — it prompts the user instead.
-if (YADDNSC_ENABLE_DEB)
-    # Absolute path — install to /etc/yaddnsc/ regardless of prefix.
-    # CPack DEB generator auto-detects files under /etc/ as conffiles.
+# Native packages always use /etc/yaddnsc. DEB and RPM both preserve modified
+# configuration files on upgrade through their package-specific metadata.
+if (YADDNSC_LINUX_PACKAGING)
     install(FILES ${CMAKE_SOURCE_DIR}/template/deb/yaddnsc_config.json DESTINATION /etc/yaddnsc RENAME config.json COMPONENT runtime)
 else ()
     install(FILES ${CMAKE_SOURCE_DIR}/template/deb/yaddnsc_config.json DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/yaddnsc RENAME config.json COMPONENT runtime)
 endif ()
 
-# System config directory for yaddnsc — this is the runtime path used by the
-# service unit.  For DEB packaging it is always /etc/yaddnsc (Debian convention).
-if (YADDNSC_ENABLE_DEB)
+if (YADDNSC_LINUX_PACKAGING)
     set(YADDNSC_SYSCONF_DIR "/etc/yaddnsc")
 else ()
     set(YADDNSC_SYSCONF_DIR "${CMAKE_INSTALL_FULL_SYSCONFDIR}/yaddnsc")
@@ -39,8 +34,8 @@ endif ()
 # ==============================================================================
 # systemd service unit
 # ==============================================================================
-# For DEB packaging, this is always installed since Debian/Ubuntu use systemd.
-# For other builds, we try pkg-config first.
+# Native packages always include the unit. For other builds, install it when
+# the systemd development files are detected.
 find_package(PkgConfig QUIET)
 if (PkgConfig_FOUND)
     # Check for the libsystemd library (from libsystemd-dev / libsystemd.pc)
@@ -52,16 +47,19 @@ if (PkgConfig_FOUND)
     endif ()
 endif ()
 
-if (YADDNSC_ENABLE_DEB AND NOT SYSTEMD_UNIT_DIR)
-    set(SYSTEMD_UNIT_DIR "/lib/systemd/system")
-    message(STATUS "DEB packaging enabled — using default systemd unit dir: ${SYSTEMD_UNIT_DIR}")
+if (YADDNSC_LINUX_PACKAGING AND NOT SYSTEMD_UNIT_DIR)
+    if (YADDNSC_ENABLE_RPM)
+        set(SYSTEMD_UNIT_DIR "/usr/lib/systemd/system")
+    else ()
+        set(SYSTEMD_UNIT_DIR "/lib/systemd/system")
+    endif ()
+    message(STATUS "Native packaging enabled — using default systemd unit dir: ${SYSTEMD_UNIT_DIR}")
 endif ()
 
 if (SYSTEMD_UNIT_DIR)
-    # The unit embeds absolute binary paths.  DEB contents follow the CPack
-    # packaging prefix, so the unit must too — CMAKE_INSTALL_FULL_BINDIR would
-    # silently diverge when the configure-time prefix differs from it.
-    if (YADDNSC_ENABLE_DEB)
+    # The unit embeds absolute binary paths. Native package contents follow the
+    # CPack packaging prefix, so the unit must too.
+    if (YADDNSC_LINUX_PACKAGING)
         set(YADDNSC_UNIT_BINDIR "${CPACK_PACKAGING_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}")
     else ()
         set(YADDNSC_UNIT_BINDIR "${CMAKE_INSTALL_FULL_BINDIR}")
@@ -77,8 +75,8 @@ endif ()
 # ==============================================================================
 # Shell completions (zsh, bash, fish)
 # ==============================================================================
-# Debian/Ubuntu packages use the vendor/site paths that are in the default
-# completion search path for each shell.
+# Native packages use the vendor/site paths that are in the default completion
+# search path for each shell.
 
 # -- zsh --
 if (YADDNSC_ENABLE_DEB)
@@ -104,7 +102,7 @@ install(
 )
 
 # -- fish --
-if (YADDNSC_ENABLE_DEB)
+if (YADDNSC_LINUX_PACKAGING)
     set(YADDNSC_FISH_COMPLETION_DIR "share/fish/vendor_completions.d")
 else ()
     set(YADDNSC_FISH_COMPLETION_DIR "share/fish/completions")
@@ -163,7 +161,11 @@ if (YADDNSC_HAS_SDK_XML_COMPONENT)
     )
 endif ()
 
-set(YADDNSC_CMAKE_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/yaddnsc")
+if (YADDNSC_LINUX_PACKAGING)
+    set(YADDNSC_CMAKE_INSTALL_DIR "${CMAKE_INSTALL_DATADIR}/cmake/yaddnsc")
+else ()
+    set(YADDNSC_CMAKE_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/yaddnsc")
+endif ()
 
 install(
     EXPORT yaddnscAbiTargets

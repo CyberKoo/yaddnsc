@@ -223,8 +223,8 @@ services. The bundled drivers use the async SDK and therefore require ABI
 
 ## Recommended build
 
-Third-party drivers build against the installed SDK — the `yaddnsc-dev`
-package when installing from DEB — no host sources needed:
+Third-party drivers build against the installed SDK — `yaddnsc-dev` from DEB or
+`yaddnsc-devel` from RPM — with no host sources needed:
 
 ```cmake
 find_package(yaddnsc CONFIG REQUIRED COMPONENTS plugin_sdk)  # + plugin_sdk_xml / plugin_sdk_crypto if needed
@@ -234,9 +234,9 @@ target_link_libraries(my_driver PRIVATE yaddnsc::plugin_sdk)
 ```
 
 `plugin_sdk` is the default component and requires **exactly Glaze v7.8.2**
-(`find_dependency(glaze 7.8.2 EXACT CONFIG)`). `yaddnsc-dev` bundles that release,
-including headers and package metadata. CMake skips incompatible candidates in
-earlier prefixes and can select the bundled copy. If no exact copy is available,
+(`find_dependency(glaze 7.8.2 EXACT CONFIG)`). The development packages bundle
+that release, including headers and package metadata. CMake skips incompatible
+candidates in earlier prefixes and can select the bundled copy. If no exact copy is available,
 configure fails with the expected version and instructions to check
 `CMAKE_PREFIX_PATH`, `glaze_DIR` and stale caches.
 
@@ -301,23 +301,25 @@ package, not the source tree.
 ## SDK distribution
 
 The SDK can be installed independently of the host so third-party drivers can build
-without the host sources. DEB packaging splits these files into two packages:
+without the host sources. DEB and RPM packaging split these files into
 `yaddnsc` (binary, bundled drivers, config, systemd unit, shell completions)
-and `yaddnsc-dev` (SDK headers, CMake metadata, helper headers, and examples):
+and `yaddnsc-dev` / `yaddnsc-devel` respectively (SDK headers, CMake metadata,
+helper headers, and examples):
 
 - headers: `<prefix>/include/yaddnsc/sdk/` (the C ABI + C++ helper layer) and
   `<prefix>/include/yaddnsc/util/` (shared string/format/URL utilities);
-- CMake package: `${CMAKE_INSTALL_LIBDIR}/cmake/yaddnsc` under the prefix
-  (normally `<prefix>/lib/cmake/yaddnsc/`), exporting four components —
-  `yaddnsc::plugin_abi`, `yaddnsc::plugin_sdk` (the default), `yaddnsc::plugin_sdk_xml`, and
+- CMake package: `${CMAKE_INSTALL_LIBDIR}/cmake/yaddnsc` for normal installs
+  (normally `<prefix>/lib/cmake/yaddnsc/`) or `share/cmake/yaddnsc` for DEB/RPM,
+  exporting four components — `yaddnsc::plugin_abi`, `yaddnsc::plugin_sdk`
+  (the default), `yaddnsc::plugin_sdk_xml`, and
   `yaddnsc::plugin_sdk_crypto`;
 - crypto helpers: header-only `<prefix>/include/yaddnsc/sdk/signing.hpp`,
   compiled by the consumer and linked to `OpenSSL::Crypto` through the optional
   `yaddnsc::plugin_sdk_crypto` interface target; no C++ archive is distributed;
 - standalone examples: `<prefix>/share/yaddnsc/examples` (C, HTTP, XML, crypto,
-  a loader and installation checks). The development DEB does not depend on
+  a loader and installation checks). The development packages do not depend on
   the same-version host runtime, and can be installed on SDK-only build machines;
-- runtime driver location (not part of `yaddnsc-dev`):
+- runtime driver location (not part of the development package):
   `${CMAKE_INSTALL_LIBDIR}/yaddnsc/drivers` (normally
   `<prefix>/lib/yaddnsc/drivers/`). That path is also the compiled-in default
   `driver_dir` (`YADDNSC_DEFAULT_DRIVER_DIR`), so an installed driver is found

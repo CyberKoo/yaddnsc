@@ -333,8 +333,30 @@ The `sdk-package` CI job configures a Release package, generates the final
 `yaddnsc-dev` DEB (no host build is needed for header-only development contents),
 installs it and its declared dependencies in a fresh Ubuntu container, and runs
 the installed verification script with no host package or source checkout.
-The final runtime DEB is built separately via `docker/build-deb.sh`
-(local Docker build, see above); this repository has no release workflow.
+The final runtime DEB is built separately via `docker/build-deb.sh`:
+
+```bash
+./docker/build-deb.sh debian:13 --jobs 2
+./docker/build-deb.sh ubuntu:24.04 --jobs 2
+```
+
+The RPM helper builds both runtime and development packages, then runs
+`test/packaging/verify-rpm.sh` in a clean target-distribution container before
+exporting them:
+
+```bash
+./docker/build-rpm.sh fedora:43
+./docker/build-rpm.sh opensuse/leap:16.0
+./docker/build-rpm.sh opensuse/tumbleweed:latest
+```
+
+The helper uses two compile jobs by default; pass `--jobs N` to select a
+different limit. The RPM verification checks configuration and systemd metadata,
+installs both packages with the native package manager, queries every bundled
+driver, validates the installed configuration, and runs the installed SDK
+consumer checks. It also upgrades from RPM release 1 to release 2 and verifies
+that a modified `config.json` remains byte-for-byte unchanged. This repository
+has no release workflow.
 
 ## Coverage
 

@@ -56,7 +56,7 @@ yaddnsc 是一个动态 DNS 客户端。它按配置周期性地获取每条记�
 
 ## 安装
 
-目前不提供预编译软件包。可选方式为从源码构建、生成 Debian 软件包或构建容器镜像。
+目前不提供预编译软件包。可选方式为从源码构建、生成 Debian 或 RPM 软件包，或构建容器镜像。
 
 ### 从源码构建
 
@@ -112,8 +112,14 @@ cpack --config build/CPackConfig.cmake -G DEB
 （Debian/Ubuntu 上为 `lib/x86_64-linux-gnu`）；无论前缀如何，编译进二进制的默认
 驱动目录都与软件包内的实际位置一致。
 
-也可以使用 `docker/build-deb.sh` 在 Ubuntu 容器内完成构建（默认 24.04），产物输出
-至 `deb-out/`；可用选项请参阅脚本头部注释。
+也可以使用 `docker/build-deb.sh` 在 Debian 或 Ubuntu 容器内完成构建（默认 Ubuntu
+24.04），产物输出至 `deb-out/`；可用选项请参阅脚本头部注释。
+
+### RPM 软件包
+
+Fedora 和 openSUSE 的 RPM 构建提供用于客户端及内置驱动的 `yaddnsc`，以及用于
+插件开发的 `yaddnsc-devel`。运行时软件包在升级时会保留已修改的 `config.json`，
+并包含 systemd 集成。软件包构建方法见 [RPM 软件包构建](docs/development.md#rpm-package-build)。
 
 ### 容器镜像
 
@@ -393,8 +399,8 @@ yaddnsc run
 
 ## 以服务方式运行
 
-若在 CMake 配置阶段检测到 systemd 开发文件，则会安装相应的 systemd 单元；Debian
-软件包始终包含该单元。单元在启动前校验配置，失败时自动重启，日志输出至 journal，并以
+若在 CMake 配置阶段检测到 systemd 开发文件，则会安装相应的 systemd 单元；Debian 和
+RPM 软件包始终包含该单元。单元在启动前校验配置，失败时自动重启，日志输出至 journal，并以
 动态分配的用户在受限权限下运行。
 
 ```bash

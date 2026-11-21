@@ -110,7 +110,9 @@ file(MAKE_DIRECTORY "${WORK_DIR}/relocated/include" "${WORK_DIR}/relocated/share
 file(COPY "${SDK_PREFIX}/include/yaddnsc" "${SDK_PREFIX}/include/glaze"
     DESTINATION "${WORK_DIR}/relocated/include")
 file(COPY "${SDK_PREFIX}/share/glaze" DESTINATION "${WORK_DIR}/relocated/share")
-file(GLOB_RECURSE sdk_configs "${SDK_PREFIX}/lib*/yaddnscConfig.cmake")
+file(GLOB_RECURSE sdk_configs
+    "${SDK_PREFIX}/lib*/yaddnscConfig.cmake"
+    "${SDK_PREFIX}/share/cmake/yaddnsc/yaddnscConfig.cmake")
 foreach(config IN LISTS sdk_configs)
     get_filename_component(directory "${config}" DIRECTORY)
     file(RELATIVE_PATH relative "${SDK_PREFIX}" "${directory}")

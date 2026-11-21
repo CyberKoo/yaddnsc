@@ -1,0 +1,68 @@
+# yaddnsc DEB package builder for Debian and Ubuntu
+#
+# Usage:
+#   docker build -f docker/Dockerfile.deb \
+#       --build-arg BASE_IMAGE=debian:13 -o deb-out .
+#   docker build -f docker/Dockerfile.deb \
+#       --build-arg BASE_IMAGE=ubuntu:24.04 -o deb-out .
+
+ARG BASE_IMAGE=ubuntu:24.04
+
+FROM ${BASE_IMAGE} AS builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG YADDNSC_USE_SYSTEM_SPDLOG=ON
+ARG YADDNSC_DEFAULT_DNS_SERVER=1.1.1.1
+ARG YADDNSC_DEFAULT_DNS_PORT=53
+ARG BUILD_JOBS=2
+ARG CMAKE_EXTRA_ARGS=""
+
+RUN . /etc/os-release && \
+    case "${ID}" in \
+        ubuntu|debian) ;; \
+        *) echo "Unsupported DEB base image: ${ID}; use ubuntu or debian" >&2; exit 1 ;; \
+    esac
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        git \
+        pkg-config \
+        libssl-dev \
+        libspdlog-dev \
+        libfmt-dev \
+        libsystemd-dev \
+        libxml2-dev \
+        ca-certificates \
+        file \
+    && rm -rf /var/lib/apt/lists/*
+
+# Ubuntu 24.04 ships GCC 13 by default; yaddnsc requires GCC 14+.
+RUN . /etc/os-release && \
+    if [ "${ID}" = "ubuntu" ] && [ "${VERSION_ID}" = "24.04" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends \
+            gcc-14 g++-14 \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+WORKDIR /src
+COPY . .
+
+RUN . /etc/os-release && \
+    if [ "${ID}" = "ubuntu" ] && [ "${VERSION_ID}" = "24.04" ]; then \
+        export CC=gcc-14 CXX=g++-14; \
+    fi; \
+    cmake -B build -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DYADDNSC_USE_SYSTEM_SPDLOG=${YADDNSC_USE_SYSTEM_SPDLOG} \
+        -DYADDNSC_DEFAULT_DNS_SERVER=${YADDNSC_DEFAULT_DNS_SERVER} \
+        -DYADDNSC_DEFAULT_DNS_PORT=${YADDNSC_DEFAULT_DNS_PORT} \
+        -DYADDNSC_ENABLE_DEB=ON \
+        ${CMAKE_EXTRA_ARGS}
+
+RUN cmake --build build -j "${BUILD_JOBS}"
+RUN cpack --config build/CPackConfig.cmake -G DEB
+RUN mkdir -p /deb-out && mv yaddnsc*.deb /deb-out/
+
+FROM scratch AS export
+COPY --from=builder /deb-out/*.deb /

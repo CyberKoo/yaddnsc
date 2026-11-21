@@ -1,0 +1,56 @@
+# Usage: docker build -f docker/Dockerfile.rpm \
+#   --build-arg BASE_IMAGE=fedora:43 -o rpm-out .
+
+ARG BASE_IMAGE=fedora:43
+
+FROM ${BASE_IMAGE} AS builder
+
+ARG YADDNSC_DEFAULT_DNS_SERVER=1.1.1.1
+ARG YADDNSC_DEFAULT_DNS_PORT=53
+ARG YADDNSC_RPM_PACKAGE_RELEASE=1
+ARG BUILD_JOBS=2
+ARG CMAKE_EXTRA_ARGS=""
+
+RUN if command -v dnf >/dev/null 2>&1; then \
+        dnf -y --setopt=install_weak_deps=False install \
+            gcc-c++ make cmake git pkgconf-pkg-config openssl-devel libxml2-devel \
+            systemd-devel rpm-build ca-certificates file; \
+    elif command -v zypper >/dev/null 2>&1; then \
+        zypper --non-interactive refresh && \
+        zypper --non-interactive install --no-recommends \
+            gcc-c++ make cmake git pkg-config libopenssl-devel libxml2-devel \
+            systemd-devel rpm-build ca-certificates file; \
+    else \
+        echo "Unsupported RPM distribution: dnf or zypper is required" >&2; \
+        exit 1; \
+    fi
+
+WORKDIR /src
+COPY . .
+
+RUN cmake -B build -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_INSTALL_SYSCONFDIR=/etc \
+        -DYADDNSC_ENABLE_RPM=ON \
+        -DYADDNSC_DEFAULT_DNS_SERVER=${YADDNSC_DEFAULT_DNS_SERVER} \
+        -DYADDNSC_DEFAULT_DNS_PORT=${YADDNSC_DEFAULT_DNS_PORT} \
+        -DYADDNSC_RPM_PACKAGE_RELEASE=${YADDNSC_RPM_PACKAGE_RELEASE} \
+        ${CMAKE_EXTRA_ARGS}
+
+RUN cmake --build build -j "${BUILD_JOBS}"
+RUN mkdir -p /rpm-out /rpm-upgrade/v1 /rpm-upgrade/v2
+RUN cpack --config build/CPackConfig.cmake -G RPM -B /rpm-out
+RUN cmake -B build -DYADDNSC_RPM_PACKAGE_RELEASE=1 && \
+    cpack --config build/CPackConfig.cmake -G RPM -B /rpm-upgrade/v1
+RUN cmake -B build -DYADDNSC_RPM_PACKAGE_RELEASE=2 && \
+    cpack --config build/CPackConfig.cmake -G RPM -B /rpm-upgrade/v2
+
+FROM ${BASE_IMAGE} AS verify
+
+COPY --from=builder /rpm-out /packages
+COPY --from=builder /rpm-upgrade /rpm-upgrade
+COPY --chmod=0755 test/packaging/verify-rpm.sh /usr/local/bin/verify-rpm
+RUN /usr/local/bin/verify-rpm
+
+FROM scratch AS export
+COPY --from=verify /packages/*.rpm /

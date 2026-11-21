@@ -43,6 +43,13 @@ ca.pem
 # CMake
 cmake-build-*/
 
+# Native package outputs
+/deb-out/
+/rpm-out/
+/_CPack_Packages/
+/yaddnsc*.deb
+/yaddnsc*.rpm
+
 # Mongo Explorer plugin
 .idea/**/mongoSettings.xml
 
