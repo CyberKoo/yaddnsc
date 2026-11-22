@@ -59,13 +59,39 @@ std::vector<uint8_t> dns_mkquery_system(const std::string &host, int ns_type) {
 namespace {
 
     void encode_dns_name(std::vector<uint8_t> &buf, const std::string &name) {
+        if (name.find('\0') != std::string::npos) {
+            throw DnsLookupException("DNS query name contains an embedded NUL", dns_lookup_error_type::PARSE);
+        }
+        if (name.empty() || name == ".") {
+            buf.push_back(0);
+            return;
+        }
+
+        const bool trailing_dot = name.back() == '.';
+        const size_t encoded_size = name.size() + (trailing_dot ? 1 : 2);
+        if (encoded_size > 255) {
+            throw DnsLookupException(
+                fmt::format("Domain name \"{}\" exceeds the 255-octet wire limit", name),
+                dns_lookup_error_type::PARSE);
+        }
+
         size_t start = 0;
         while (start < name.size()) {
             auto dot = name.find('.', start);
             if (dot == std::string::npos)
                 dot = name.size();
-            auto len = static_cast<uint8_t>(dot - start);
-            buf.push_back(len);
+            const auto len = dot - start;
+            if (len == 0) {
+                throw DnsLookupException(
+                    fmt::format("Empty label in domain name \"{}\" at offset {}", name, start),
+                    dns_lookup_error_type::PARSE);
+            }
+            if (len > 63) {
+                throw DnsLookupException(
+                    fmt::format("Label too long in domain name \"{}\" at offset {}", name, start),
+                    dns_lookup_error_type::PARSE);
+            }
+            buf.push_back(static_cast<uint8_t>(len));
             for (size_t i = start; i < dot; ++i)
                 buf.push_back(static_cast<uint8_t>(name[i]));
             start = dot + 1;

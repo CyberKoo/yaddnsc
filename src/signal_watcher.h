@@ -20,8 +20,7 @@
 //
 // The watching thread loops on sigwait() for SIGINT/SIGTERM with escalation:
 //   - 1st SIGINT → request graceful shutdown (sets context.terminate_).
-//   - 2nd SIGINT → kill(getpid(), SIGTERM) — escalate.
-//   - 3rd SIGINT → kill(getpid(), SIGKILL) — hard kill.
+//   - 2nd SIGINT → immediate termination with the conventional 128+SIGINT status.
 //   - External SIGTERM → request graceful shutdown.
 //
 // On destruction, the watcher thread is signaled to stop and joined.

@@ -219,6 +219,9 @@ All fields are required.
 | `driver` | string | Name of the driver handling this domain; must match a loaded driver. |
 | `subdomains` | array | Records managed under this domain. |
 
+A failed forced update remains due and is retried on the next update cycle.
+Its interval restarts only after a successful forced publication.
+
 ### `subdomains[]`
 
 | Field | Type | Description |
@@ -237,6 +240,11 @@ Two fields with similar names serve different purposes: `type` determines the
 record type and, for the `interface` source, the address family collected
 locally; `ip_type` determines the address family of the HTTP connections made
 for the `url` source and for driver API calls.
+
+Unknown enum values and values of the wrong JSON type are rejected. Optional
+fields use their defaults only when absent. The `domains` and `subdomains`
+arrays must not be empty. Ports embedded in URLs must be numeric and in the
+0-65535 range.
 
 Before each update, the host adds the keys `domain`, `subdomain`, `ip_addr`,
 `rd_type`, and `fqdn` to the driver's parameters with their runtime values.
@@ -263,9 +271,10 @@ addresses are excluded unless `allow_local_link` is set.
 ### `url`
 
 Issues an HTTP GET to `ip_source_param` and parses the response body as a
-bare IP address. HTTPS endpoints are recommended. The `interface` field, when
-non-empty, binds the outgoing connection to that interface; the same binding
-applies to the driver's update request.
+bare IP address. Responses that are not valid IP addresses, or whose family
+does not match the record type, are rejected. HTTPS endpoints are recommended.
+The `interface` field, when non-empty, binds the outgoing connection to that
+interface; the same binding applies to the driver's update request.
 
 ## DNS Resolver
 
@@ -284,13 +293,18 @@ Notes on each form:
   platforms without `res_nquery` the custom server is ignored and a warning
   is logged. IPv6 custom servers require platform support detected at build
   time.
-- For DoH, an empty path defaults to `/dns-query`.
+- For DoH, an empty path defaults to `/dns-query`. Redirects are not followed,
+  and the response must have the `application/dns-message` media type. HTTP
+  429 and 5xx responses are retried.
 - For DoT, the `tls://` prefix is stripped and the remainder is used as the
   server host name (and the TLS SNI). The port is **not** inferred: it comes
   from `port`, whose default of 53 is unsuitable — set `"port": 853`.
 
-A failed lookup is retried up to five times with a one-second interval before
-the update cycle skips the record.
+A failed lookup is retried up to five times with a one-second interval. As
+with a missing record, the update is still attempted when no current record
+can be read. Shutdown cancels the remaining retries and backoff. When a query
+returns multiple records, the update is skipped only when every returned
+address matches the local address.
 
 ## Drivers
 
@@ -315,7 +329,7 @@ token.
 | `zone_id` | Yes | — | Zone ID of the domain |
 | `record_id` | Yes | — | ID of the record to update |
 | `token` | Yes | — | API token with DNS edit permission on the zone |
-| `ttl` | No | `"30"` | TTL in seconds |
+| `ttl` | No | `"30"` | TTL in seconds; `1` (automatic) or 30-86400 |
 | `proxied` | No | `"0"` | Route the record through the Cloudflare proxy; truthy values are `1`, `on`, `true`, `yes` |
 
 Note the spelling `sub_domain` (with underscore): it is not covered by the

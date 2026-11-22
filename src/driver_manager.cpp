@@ -111,6 +111,9 @@ public:
         }
 
         driver_ = DriverPtr(create_func(), DestroyDeleter{destroy_func});
+        if (!driver_) {
+            throw BadDriverException(fmt::format("Driver '{}' create() returned a null instance", get_driver_name(path)));
+        }
     }
 
     [[nodiscard]] IDriver *get() const {

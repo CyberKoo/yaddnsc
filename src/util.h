@@ -8,6 +8,8 @@
 #include <thread>
 #include <functional>
 #include <type_traits>
+#include <chrono>
+#include <optional>
 
 #include "exception/base_exception.h"
 
@@ -27,9 +29,13 @@ namespace Util {
     template<class R, class E, typename = std::enable_if_t<std::is_base_of_v<YaddnscException, E>>>
     R retry_on_exception(const std::function<R()> &func, const unsigned retry,
                          const std::optional<std::function<bool(const E &)> > &e_filter = std::nullopt,
-                         unsigned long backoff = 500) {
+                         unsigned long backoff = 500,
+                         const std::function<bool(std::chrono::milliseconds)> &backoff_wait = nullptr) {
         unsigned counter = 0;
         while (true) {
+            if (backoff_wait && backoff_wait(std::chrono::milliseconds::zero())) {
+                return R{};
+            }
             try {
                 return func();
             } catch (const E &e) {
@@ -40,7 +46,14 @@ namespace Util {
                 if (++counter > retry) {
                     throw;
                 }
-                std::this_thread::sleep_for(std::chrono::milliseconds(backoff * counter));
+                const auto delay = std::chrono::milliseconds(backoff * counter);
+                if (backoff_wait) {
+                    if (backoff_wait(delay)) {
+                        return R{};
+                    }
+                } else {
+                    std::this_thread::sleep_for(delay);
+                }
                 SPDLOG_DEBUG("{} exception caught, retrying...(counter {})", e.get_name(), counter);
             }
         }

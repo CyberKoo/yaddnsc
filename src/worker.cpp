@@ -7,6 +7,7 @@
 #include <thread>
 #include <algorithm>
 #include <cctype>
+#include <vector>
 
 #include <httplib.h>
 #include <fmt/format.h>
@@ -42,7 +43,7 @@ public:
 
     [[nodiscard]] bool is_forced_update() const;
 
-    std::optional<std::string> dns_lookup(std::string_view, dns_record_type) const;
+    std::optional<std::vector<std::string>> dns_lookup(std::string_view, dns_record_type) const;
 
     static std::optional<std::string> get_ip_address(const Config::subdomain_config &);
 
@@ -68,6 +69,8 @@ public:
 
     static inline std::optional<dns_server> get_dns_server(const Config::resolver_config &) noexcept;
 
+    static bool wait_for_retry_backoff(std::chrono::milliseconds);
+
 public:
     const std::optional<dns_server> dns_server_;
     const dns_protocol_type protocol_;
@@ -75,6 +78,8 @@ public:
     const Config::domain_config &worker_config_;
 
     long force_update_counter_ = 0;
+
+    std::vector<bool> force_retry_ = std::vector<bool>(worker_config_.subdomains.size());
 
     static constexpr int RESOLVER_RETRY = 5;
 
@@ -174,13 +179,28 @@ void Worker::run() const {
     auto &context = Context::getInstance();
     auto &thread_pool = impl_->get_thread_pool();
 
-    std::mutex mutex;
-    std::unique_lock lock(mutex);
-    auto update_interval = std::chrono::seconds(impl_->worker_config_.update_interval);
+    const auto update_interval = std::chrono::seconds(impl_->worker_config_.update_interval);
+    auto next_start = std::chrono::steady_clock::now();
+    std::unique_lock lock(context.mutex_);
 
-    while (!context.terminate_) {
-        thread_pool.detach_task([_impl_ptr = impl_.get()] { _impl_ptr->run_scheduled_tasks(); });
-        context.condition_.wait_for(lock, update_interval, [&context]() { return context.terminate_; });
+    while (!context.terminate_.load(std::memory_order_acquire)) {
+        lock.unlock();
+        auto task = thread_pool.submit_task([_impl_ptr = impl_.get()] { _impl_ptr->run_scheduled_tasks(); });
+        task.wait();
+
+        const auto now = std::chrono::steady_clock::now();
+        next_start += update_interval;
+        if (next_start < now) {
+            next_start = now;
+        }
+
+        lock.lock();
+        if (context.terminate_.load(std::memory_order_acquire)) {
+            break;
+        }
+        context.condition_.wait_until(lock, next_start, [&context]() {
+            return context.terminate_.load(std::memory_order_acquire);
+        });
     }
 
     // Wait for all pending thread-pool tasks to complete before the worker exits.
@@ -188,13 +208,21 @@ void Worker::run() const {
     thread_pool.wait();
 }
 
-std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_record_type type) const {
+bool Worker::Impl::wait_for_retry_backoff(std::chrono::milliseconds duration) {
+    auto &context = Context::getInstance();
+    std::unique_lock lock(context.mutex_);
+    return context.condition_.wait_for(lock, duration, [&context]() {
+        return context.terminate_.load(std::memory_order_acquire);
+    });
+}
+
+std::optional<std::vector<std::string>> Worker::Impl::dns_lookup(std::string_view host, dns_record_type type) const {
     const auto ns_type = dns_type_to_ns_type(type);
 
     // DoT resolver — build raw query, send via TLS, parse response
     if (protocol_ == dns_protocol_type::DOT) {
         try {
-            return Util::retry_on_exception<std::string, DnsLookupException>(
+            return Util::retry_on_exception<std::vector<std::string>, DnsLookupException>(
                 [&] {
                     const auto &addr = dns_server_->ip_address;
                     DotResolver resolver(addr, dns_server_->port);
@@ -207,14 +235,14 @@ std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_r
                         SPDLOG_WARN(R"(Domain "{}" resolved more than one address (count: {}))", host,
                                     parsed.size());
                     }
-                    return parsed.front();
+                    return parsed;
                 }, RESOLVER_RETRY,
                 std::optional<std::function<bool(const DnsLookupException &)>>(
                     [](const DnsLookupException &e) {
                         return e.get_error() == dns_lookup_error_type::RETRY ||
                                e.get_error() == dns_lookup_error_type::CONNECTION;
                     }),
-                RESOLVER_RETRY_BACKOFF
+                RESOLVER_RETRY_BACKOFF, wait_for_retry_backoff
             );
         } catch (DnsLookupException &e) {
             SPDLOG_WARN("DoT lookup for domain {} type: {} failed after {} retries. Error: {}", host,
@@ -226,7 +254,7 @@ std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_r
     // DoH resolver — build raw query, send via HTTPS, parse response
     if (protocol_ == dns_protocol_type::DOH) {
         try {
-            return Util::retry_on_exception<std::string, DnsLookupException>(
+            return Util::retry_on_exception<std::vector<std::string>, DnsLookupException>(
                 [&] {
                     DohResolver resolver(dns_server_->ip_address);
                     auto raw = resolver.query(std::string(host), ns_type);
@@ -238,14 +266,14 @@ std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_r
                         SPDLOG_WARN(R"(Domain "{}" resolved more than one address (count: {}))", host,
                                     parsed.size());
                     }
-                    return parsed.front();
+                    return parsed;
                 }, RESOLVER_RETRY,
                 std::optional<std::function<bool(const DnsLookupException &)>>(
                     [](const DnsLookupException &e) {
                         return e.get_error() == dns_lookup_error_type::RETRY ||
                                e.get_error() == dns_lookup_error_type::CONNECTION;
                     }),
-                RESOLVER_RETRY_BACKOFF
+                RESOLVER_RETRY_BACKOFF, wait_for_retry_backoff
             );
         } catch (DnsLookupException &e) {
             SPDLOG_WARN("DoH lookup for domain {} type: {} failed after {} retries. Error: {}", host,
@@ -256,7 +284,7 @@ std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_r
 
     // Classic (SYSTEM) resolver — use existing DNS::resolve()
     try {
-        return Util::retry_on_exception<std::string, DnsLookupException>(
+        return Util::retry_on_exception<std::vector<std::string>, DnsLookupException>(
             [&] {
                 auto dns_answer = DNS::resolve(host, type, dns_server_);
                 if (dns_answer.empty()) {
@@ -267,11 +295,11 @@ std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_r
                                 dns_answer.size());
                 }
 
-                return dns_answer.front();
+                return dns_answer;
             }, RESOLVER_RETRY,
             [](const DnsLookupException &e) {
                 return e.get_error() == dns_lookup_error_type::RETRY;
-            }, RESOLVER_RETRY_BACKOFF
+            }, RESOLVER_RETRY_BACKOFF, wait_for_retry_backoff
         );
     } catch (DnsLookupException &e) {
         SPDLOG_WARN("DNS lookup for domain {} type: {} failed after {} retries. Error: {}", host, to_string(type),
@@ -282,33 +310,45 @@ std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_r
 }
 
 void Worker::Impl::run_scheduled_tasks() {
-    // If the program is terminating, bail out immediately to avoid needless work.
-    if (Context::getInstance().terminate_) {
+    auto &context = Context::getInstance();
+    if (context.terminate_.load(std::memory_order_acquire)) {
         return;
     }
 
     try {
-        auto &context = Context::getInstance();
         auto *driver = context.driver_manager_->get_driver(worker_config_.driver);
-        bool force_update = is_forced_update();
+        const bool force_update = is_forced_update();
         SPDLOG_DEBUG("Update counter: {}, estimated elapsed time {} seconds, force update: {}", force_update_counter_,
                      force_update_counter_ * worker_config_.update_interval, force_update);
 
-        for (const auto &config: worker_config_.subdomains) {
-            auto fqdn = fmt::format("{}.{}", config.name, worker_config_.name);
+        for (size_t record_index = 0; record_index < worker_config_.subdomains.size(); ++record_index) {
+            const auto &config = worker_config_.subdomains[record_index];
+            const auto fqdn = fmt::format("{}.{}", config.name, worker_config_.name);
+            const bool forced = force_update || force_retry_[record_index];
 
             try {
-                auto rd_type = to_string(config.type);
+                if (context.terminate_.load(std::memory_order_acquire)) {
+                    break;
+                }
+                const auto rd_type = to_string(config.type);
 
                 if (auto ip_addr = get_ip_address(config)) {
+                    if (context.terminate_.load(std::memory_order_acquire)) {
+                        break;
+                    }
                     auto record = dns_lookup(fqdn, config.type);
-                    auto record_val = record.value_or("<empty>");
-                    auto is_record_staled = record.has_value() && record.value() != *ip_addr;
+                    if (context.terminate_.load(std::memory_order_acquire)) {
+                        break;
+                    }
+                    const auto record_val = record.has_value() ? fmt::format("{}", fmt::join(*record, ", "))
+                                                               : std::string("<empty>");
+                    const auto is_record_staled = record.has_value() &&
+                        (record->empty() || std::any_of(record->begin(), record->end(),
+                                                       [&ip_addr](const auto &value) { return value != *ip_addr; }));
                     // force update or ip not same or even no ip
-                    if (force_update || is_record_staled || !record.has_value()) {
-                        if (force_update) {
+                    if (forced || is_record_staled || !record.has_value()) {
+                        if (forced) {
                             SPDLOG_INFO("Force update triggered!!");
-                            force_update_counter_ = 0;
                         }
 
                         auto parameters = driver_config_type{config.driver_param};
@@ -331,8 +371,12 @@ void Worker::Impl::run_scheduled_tasks() {
                         auto update_result = update_dns_record(request, config.ip_type, config.interface);
                         if (update_result.has_value() && driver->check_response(*update_result)) {
                             SPDLOG_INFO("Update {}, type: {}, to {}", fqdn, rd_type, *ip_addr);
+                            force_retry_[record_index] = false;
                         } else {
                             SPDLOG_WARN("Update domain {} failed", fqdn);
+                            if (forced) {
+                                force_retry_[record_index] = true;
+                            }
                         }
                     } else {
                         SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skip updating", fqdn, rd_type,
@@ -340,14 +384,26 @@ void Worker::Impl::run_scheduled_tasks() {
                     }
                 } else {
                     SPDLOG_WARN("No valid IP address found, skip the update");
+                    if (forced) {
+                        force_retry_[record_index] = true;
+                    }
                 }
             } catch (DriverException &e) {
+                if (forced) {
+                    force_retry_[record_index] = true;
+                }
                 SPDLOG_ERROR("Task for domain {}, ended with a driver exception: {}", fqdn, e.what());
             } catch (std::exception &e) {
+                if (forced) {
+                    force_retry_[record_index] = true;
+                }
                 SPDLOG_ERROR("Task for domain {}, ended with an unexpected exception: {}", fqdn, e.what());
             }
         }
 
+        if (force_update && !context.terminate_.load(std::memory_order_acquire)) {
+            force_update_counter_ = 0;
+        }
         ++force_update_counter_;
     } catch (std::exception &e) {
         SPDLOG_CRITICAL("Scheduler exited with an unhandled error: {}", e.what());

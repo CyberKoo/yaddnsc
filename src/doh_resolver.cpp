@@ -8,9 +8,14 @@
 #include <httplib.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+#include <cctype>
+
 #include "dns_mkquery.h"
+#include "dns_parser.h"
 #include "exception/dns_lookup_exception.h"
 #include "cert_util.h"
+#include "string_util.h"
 #include "uri.h"
 #include "version.h"
 
@@ -58,17 +63,34 @@ public:
                 dns_lookup_error_type::CONNECTION);
         }
 
-        if (response->status != 200) {
-            const auto is_transient = response->status >= 500;
+        if (response->status < 200 || response->status >= 300) {
+            const auto is_transient = response->status == 429 || response->status >= 500;
             throw DnsLookupException(
                 fmt::format(R"(DoH server "{}" returned HTTP status {})", server_url_, response->status),
-                is_transient ? dns_lookup_error_type::UNKNOWN : dns_lookup_error_type::NODATA);
+                is_transient ? dns_lookup_error_type::RETRY : dns_lookup_error_type::UNKNOWN);
+        }
+
+        auto media_type = response->get_header_value("Content-Type");
+        media_type = StringUtil::trim_copy(media_type.substr(0, media_type.find(';')));
+        constexpr std::string_view expected_type{DOH_CONTENT_TYPE};
+        const auto valid_type = media_type.size() == expected_type.size() &&
+            std::equal(media_type.begin(), media_type.end(), expected_type.begin(), [](unsigned char left, unsigned char right) {
+                return std::tolower(left) == std::tolower(right);
+            });
+        if (!valid_type) {
+            throw DnsLookupException("DoH server returned an unexpected Content-Type", dns_lookup_error_type::PARSE);
         }
 
         const auto &resp_body = response->body;
+        if (resp_body.size() > 16 * 1024) {
+            throw DnsLookupException("DoH response exceeds the 16 KiB limit", dns_lookup_error_type::PARSE);
+        }
+        std::vector<uint8_t> response_bytes{resp_body.begin(), resp_body.end()};
+        validate_dns_response(query_bytes, response_bytes);
+
         SPDLOG_DEBUG(R"(DoH query to "{}" succeeded ({} bytes) for "{}")", server_url_, resp_body.size(), host);
 
-        return {resp_body.begin(), resp_body.end()};
+        return response_bytes;
     }
 
 private:
@@ -80,7 +102,7 @@ private:
                 fmt::format("{}://{}:{}", uri.get_schema(), uri.get_host(), uri.get_port()));
             client->set_connection_timeout(std::chrono::seconds(10));
             client->set_read_timeout(std::chrono::seconds(10));
-            client->set_follow_location(true);
+            client->set_follow_location(false);
             client->set_default_headers({{"User-Agent", get_full_version()}});
 
             auto ca_path = get_system_ca_path();

@@ -17,6 +17,19 @@
 std::atomic<bool> SignalWatcher::signals_blocked_{false};
 std::atomic<bool> SignalWatcher::instance_created_{false};
 
+namespace {
+
+void request_shutdown() {
+    auto &context = Context::getInstance();
+    {
+        std::lock_guard lock(context.mutex_);
+        context.terminate_.store(true, std::memory_order_release);
+    }
+    context.condition_.notify_all();
+}
+
+}  // namespace
+
 // ===== static methods =======================================================
 
 void SignalWatcher::install() {
@@ -66,13 +79,14 @@ void SignalWatcher::signal_loop() {
     int sigint_count = 0;
 
     while (!shutdown_requested_.load(std::memory_order_acquire)) {
-        int sig;
-        sigwait(&sigset, &sig);
+        int sig = 0;
+        const int error = sigwait(&sigset, &sig);
+        if (error != 0) {
+            SPDLOG_ERROR("sigwait failed with error {}", error);
+            request_shutdown();
+            break;
+        }
 
-        // Re-check after waking — the destructor may have sent SIGINT to
-        // unblock sigwait() after setting shutdown_requested_.  In that
-        // case we exit without processing the signal, so sigint_count
-        // stays unchanged and we avoid false escalation.
         if (shutdown_requested_.load(std::memory_order_acquire)) {
             break;
         }
@@ -82,27 +96,14 @@ void SignalWatcher::signal_loop() {
 
             if (sigint_count == 1) {
                 SPDLOG_INFO("Received SIGINT, initiating graceful shutdown...");
-                auto &context = Context::getInstance();
-                context.terminate_ = true;
-                context.condition_.notify_all();
-            } else if (sigint_count == 2) {
-                SPDLOG_WARN("Second SIGINT received, escalating to SIGTERM...");
-                kill(getpid(), SIGTERM);
+                request_shutdown();
             } else {
-                SPDLOG_CRITICAL("Third SIGINT received, hard killing with SIGKILL...");
-                kill(getpid(), SIGKILL);
+                SPDLOG_CRITICAL("Second SIGINT received, forcing immediate termination");
+                ::_exit(128 + SIGINT);
             }
         } else if (sig == SIGTERM) {
-            if (sigint_count == 0) {
-                // External SIGTERM — not triggered by our escalation.
-                SPDLOG_INFO("Received SIGTERM, shutting down...");
-                auto &context = Context::getInstance();
-                context.terminate_ = true;
-                context.condition_.notify_all();
-            }
-            // If sigint_count > 0, this SIGTERM is from our escalation or
-            // from a concurrent escalation race — let the loop re-check
-            // shutdown_requested_ and exit cleanly.
+            SPDLOG_INFO("Received SIGTERM, shutting down...");
+            request_shutdown();
         }
     }
 }

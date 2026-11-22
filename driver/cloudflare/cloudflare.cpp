@@ -4,6 +4,8 @@
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 
+#include <stdexcept>
+
 #include "cloudflare.h"
 #include "string_util.h"
 
@@ -59,7 +61,13 @@ std::string CloudflareDriver::generate_body(const driver_config_type &config) {
     body["type"] = config.at("rd_type");
     body["name"] = config.at("sub_domain");
     body["content"] = config.at("ip_addr");
-    body["ttl"] = std::stoi(get_optional(config, "ttl").value_or("30"));
+    const auto ttl_text = get_optional(config, "ttl").value_or("30");
+    size_t ttl_end = 0;
+    const auto ttl = std::stoi(ttl_text, &ttl_end);
+    if (ttl_end != ttl_text.size() || (ttl != 1 && (ttl < 30 || ttl > 86400))) {
+        throw std::invalid_argument("Cloudflare TTL must be 1 (automatic) or between 30 and 86400 seconds");
+    }
+    body["ttl"] = ttl;
     body["proxied"] = StringUtil::str_to_bool(get_optional(config, "proxied").value_or("0"));
 
     return body.dump();

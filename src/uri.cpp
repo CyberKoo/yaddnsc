@@ -5,6 +5,7 @@
 
 #include <string>
 #include <algorithm>
+#include <charconv>
 
 #include <fmt/format.h>
 
@@ -61,7 +62,14 @@ Uri Uri::parse(std::string_view uri) {
         auto portEnd = (path_start != uri.end()) ? path_start : query_start;
         auto port = std::string(host_end, portEnd);
         if (!port.empty()) {
-            result.port_ = std::stoi(port);
+            int parsed_port = 0;
+            const auto *first = port.data();
+            const auto *last = first + port.size();
+            const auto [end, error] = std::from_chars(first, last, parsed_port);
+            if (error != std::errc{} || end != last || parsed_port < 0 || parsed_port > 65535) {
+                throw std::runtime_error(fmt::format("Invalid port \"{}\" in URI", port));
+            }
+            result.port_ = parsed_port;
         }
     }
 

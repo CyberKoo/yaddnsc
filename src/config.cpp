@@ -6,6 +6,9 @@
 
 #include <fstream>
 #include <optional>
+#include <algorithm>
+#include <initializer_list>
+#include <stdexcept>
 
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
@@ -15,10 +18,16 @@
 
 template<typename T>
 std::optional<T> get_optional(const nlohmann::json &j, const std::string &key) {
-    try {
-        return j.at(key).get<T>();
-    } catch (const nlohmann::json::exception &) {
+    if (!j.contains(key)) {
         return std::nullopt;
+    }
+    return j.at(key).get<T>();
+}
+
+void require_enum_value(const nlohmann::json &j, std::initializer_list<std::string_view> allowed) {
+    const auto value = j.get<std::string>();
+    if (std::find(allowed.begin(), allowed.end(), value) == allowed.end()) {
+        throw std::runtime_error("Invalid enumeration value in configuration");
     }
 }
 
@@ -59,11 +68,15 @@ void Config::from_json(const nlohmann::json &j, resolver_config &resolver) {
 
 void Config::from_json(const nlohmann::json &j, subdomain_config &subdomain) {
     j.at("name").get_to(subdomain.name);
+    require_enum_value(j.at("type"), {"a", "aaaa", "txt", "soa"});
     j.at("type").get_to(subdomain.type);
     j.at("interface").get_to(subdomain.interface);
     j.at("ip_source").get_to(subdomain.ip_source);
     j.at("ip_source_param").get_to(subdomain.ip_source_param);
     j.at("driver_param").get_to(subdomain.driver_param);
+    if (j.contains("ip_type")) {
+        require_enum_value(j.at("ip_type"), {"ipv4", "ipv6", "unspecified"});
+    }
     subdomain.ip_type = get_optional<ip_version_type>(j, "ip_type").value_or(ip_version_type::UNSPECIFIED);
     subdomain.allow_ula = get_optional<bool>(j, "allow_ula").value_or(false);
     subdomain.allow_local_link = get_optional<bool>(j, "allow_local_link").value_or(false);
@@ -88,8 +101,11 @@ auto it = std::find_if(std::begin(m), std::end(m),
                        [&j](const std::pair<dns_protocol_type, nlohmann::json> &ej_pair) -> bool {
                            return ej_pair.second == j;
                        });
+if (it == std::end(m)) {
+    throw std::runtime_error("Invalid DNS protocol in configuration");
+}
 
-e = ((it != std::end(m)) ? it : std::begin(m))->first;
+e = it->first;
 }
 
 void Config::from_json(const nlohmann::json &j, ip_source_type &e) {
@@ -102,8 +118,11 @@ static const std::pair<ip_source_type, nlohmann::json> m[] = {
                            [&j](const std::pair<ip_source_type, nlohmann::json> &ej_pair) -> bool {
                                return ej_pair.second == j;
                            });
+    if (it == std::end(m)) {
+        throw std::runtime_error("Invalid IP source in configuration");
+    }
 
-    e = ((it != std::end(m)) ? it : std::begin(m))->first;
+    e = it->first;
 }
 
 NLOHMANN_JSON_SERIALIZE_ENUM(dns_record_type, {

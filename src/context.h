@@ -8,6 +8,8 @@
 #include <memory>
 #include <string>
 #include <condition_variable>
+#include <atomic>
+#include <mutex>
 
 #include "base_classes.h"
 
@@ -26,7 +28,9 @@ public:
 
     std::string config_path_{};
 
-    bool terminate_{false};
+    std::atomic<bool> terminate_{false};
+
+    std::mutex mutex_{};
 
     std::condition_variable condition_{};
 

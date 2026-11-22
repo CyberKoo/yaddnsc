@@ -36,6 +36,17 @@ std::optional<std::string> IPUtil::get_ip_from_url(std::string_view url, ip_vers
         auto body = response->body;
         StringUtil::trim(body);
         SPDLOG_DEBUG("HTTP response: {}", body);
+
+        in_addr address4{};
+        in6_addr address6{};
+        const bool is_ipv4 = inet_pton(AF_INET, body.c_str(), &address4) == 1;
+        const bool is_ipv6 = inet_pton(AF_INET6, body.c_str(), &address6) == 1;
+        const bool wrong_family = (version == ip_version_type::IPV4 && !is_ipv4) ||
+                                  (version == ip_version_type::IPV6 && !is_ipv6);
+        if (body.find('\0') != std::string::npos || (!is_ipv4 && !is_ipv6) || wrong_family) {
+            SPDLOG_WARN("HTTP IP source returned an invalid or wrong-family address");
+            return std::nullopt;
+        }
         return body;
     }
 

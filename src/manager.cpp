@@ -76,10 +76,21 @@ unsigned int Manager::Impl::estimated_threads() const {
 void Manager::validate_config() const {
     auto &context = Context::getInstance();
 
+    if (impl_->config_.domains.empty()) {
+        throw ConfigVerificationException("Config must define at least one domain");
+    }
+
     auto drivers = context.driver_manager_->get_loaded_drivers();
     auto interfaces = NetworkUtil::get_interfaces();
 
     for (const auto &domain: impl_->config_.domains) {
+        if (domain.name.empty()) {
+            throw ConfigVerificationException("Domain name must not be empty");
+        }
+        if (domain.subdomains.empty()) {
+            throw ConfigVerificationException(fmt::format("Domain '{}' must have at least one subdomain", domain.name));
+        }
+
         // check drivers
         if (std::find(drivers.begin(), drivers.end(), domain.driver) == drivers.end()) {
             throw ConfigVerificationException(fmt::format("Driver {} not found", domain.driver));
@@ -101,6 +112,10 @@ void Manager::validate_config() const {
 
         // check interfaces
         for (auto &subdomain: domain.subdomains) {
+            if (subdomain.name.empty()) {
+                throw ConfigVerificationException(
+                    fmt::format("Subdomain name must not be empty in domain '{}'", domain.name));
+            }
             if (!subdomain.interface.empty()) {
                 if (std::find(interfaces.begin(), interfaces.end(), subdomain.interface) == interfaces.end()) {
                     throw ConfigVerificationException(fmt::format("Interface {} not found", subdomain.interface));

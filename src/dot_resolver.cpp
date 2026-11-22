@@ -19,6 +19,7 @@
 #include <spdlog/spdlog.h>
 
 #include "dns_mkquery.h"
+#include "dns_parser.h"
 #include "exception/dns_lookup_exception.h"
 #include "cert_util.h"
 
@@ -213,6 +214,13 @@ public:
             throw DnsLookupException(
                 fmt::format(R"(DoT: failed to read response body from "{}")", target),
                 dns_lookup_error_type::CONNECTION);
+        }
+
+        try {
+            validate_dns_response(query_bytes, response);
+        } catch (...) {
+            persistent_bio_.reset();
+            throw;
         }
 
         last_use_ = std::chrono::steady_clock::now();

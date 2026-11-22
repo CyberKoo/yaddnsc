@@ -6,6 +6,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <new>
+
 #include <arpa/nameser.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -74,6 +76,9 @@ query(std::string_view host, dns_record_type type, [[maybe_unused]] const std::o
                 std::memset(&local_state.nsaddr_list[i], 0, sizeof(local_state.nsaddr_list[i]));
             }
 
+#ifdef HAVE_RES_STATE_EXT_NSADDRS // glibc
+            res_nclose(&local_state);
+#endif
             local_state.nscount = 1;
             local_state._u._ext.nscount = 1;
 #ifdef HAVE_RES_STATE_EXT_NSADDRS // glibc
@@ -81,8 +86,10 @@ query(std::string_view host, dns_record_type type, [[maybe_unused]] const std::o
             local_state._u._ext.nsmap[0] = MAXNS + 1;
             sockaddr_in6 *sa6 = local_state._u._ext.nsaddrs[0];
             if (sa6 == nullptr) {
-                // Memory allocated here will be free'd in res_nclose() as we have done res_ninit() above.
                 sa6 = ccalloc<sockaddr_in6>(1);
+                if (sa6 == nullptr) {
+                    throw std::bad_alloc();
+                }
                 local_state._u._ext.nsaddrs[0] = sa6;
             }
 
