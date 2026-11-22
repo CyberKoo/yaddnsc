@@ -131,14 +131,19 @@ Alpine 构建提供用于客户端及驱动的 `yaddnsc`、用于插件开发的
 
 ### 容器镜像
 
-仓库根目录的 Dockerfile 用于构建基于 Alpine 的运行时镜像：
+[Docker Hub](https://hub.docker.com/r/cyberkoo/yaddnsc) 提供基于 Alpine 的
+`linux/amd64` 和 `linux/arm64` 预构建镜像。`latest` 跟踪最新稳定版，版本标签与
+GitHub Release 的标签一致，`nightly` 跟踪最新 nightly 构建：
 
 ```bash
-docker build -t yaddnsc .
+docker pull cyberkoo/yaddnsc:latest
 docker run -d --name yaddnsc \
   -v /etc/yaddnsc/config.json:/etc/yaddnsc/config.json:ro \
-  yaddnsc
+  cyberkoo/yaddnsc:latest
 ```
+
+开发版可使用 `docker pull cyberkoo/yaddnsc:nightly`。也可以通过仓库根目录的
+Dockerfile 在本地构建镜像：`docker build -t yaddnsc .`。
 
 镜像的入口为 `yaddnsc` 可执行文件，默认命令为 `run -c /etc/yaddnsc/config.json`。
 

@@ -46,6 +46,9 @@ by `ci.yml` path filters.
   passes, updates the same `nightly` pre-release in place with the pinned commit,
   notes, and x86_64 / AArch64 assets. Fixed asset names replace the previous
   build, and stale assets are removed after the new upload succeeds;
+- `docker-hub` — after the same complete matrix passes, builds the Alpine-based
+  image for `linux/amd64` and `linux/arm64` and pushes it as
+  `cyberkoo/yaddnsc:nightly`;
 - `linux-amd64-lint` — compile-only static analysis under upstream Clang
   (no tests run): compiler warnings fail the build via `-Werror`; IWYU
   findings are reported without `--error` and do not fail the build;
@@ -71,6 +74,13 @@ normally for each new source version, and a stable release sorts above every
 nightly of the same minor version. Official alpha/rc tags and nightly are
 separate pre-release channels and do not promise automatic cross-channel
 upgrades.
+
+`release-docker.yml` runs when a stable GitHub release is released. It builds the
+same Alpine-based `linux/amd64` and `linux/arm64` image from the release tag and
+pushes both `cyberkoo/yaddnsc:<release-tag>` and `cyberkoo/yaddnsc:latest`.
+Pre-releases do not trigger this workflow or move `latest`. Both Docker publishing
+jobs authenticate with the `DOCKER_USERNAME` and `DOCKER_PASSWORD` Actions
+secrets.
 
 `yaddnsc_warnings` supplies `-Wall -Wextra -Wpedantic -Wshadow -Werror` to
 production modules, the executable, header checks, and tests that link the shared

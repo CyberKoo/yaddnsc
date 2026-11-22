@@ -147,14 +147,21 @@ configuration is preserved on upgrade. See
 
 ### Container Image
 
-The Dockerfile in the repository root produces an Alpine-based runtime image:
+Pre-built Alpine-based images for `linux/amd64` and `linux/arm64` are available on
+[Docker Hub](https://hub.docker.com/r/cyberkoo/yaddnsc). The `latest` tag tracks
+the newest stable release, version tags match GitHub Release tags, and `nightly`
+tracks the newest nightly build:
 
 ```bash
-docker build -t yaddnsc .
+docker pull cyberkoo/yaddnsc:latest
 docker run -d --name yaddnsc \
   -v /etc/yaddnsc/config.json:/etc/yaddnsc/config.json:ro \
-  yaddnsc
+  cyberkoo/yaddnsc:latest
 ```
+
+For a development build, use `docker pull cyberkoo/yaddnsc:nightly`. To build a
+local image instead, run `docker build -t yaddnsc .` with the Dockerfile in the
+repository root.
 
 The image entrypoint is the `yaddnsc` executable; the default command is
 `run -c /etc/yaddnsc/config.json`.
