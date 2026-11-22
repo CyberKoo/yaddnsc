@@ -25,8 +25,8 @@ GCC 14+, Clang 19+, or Apple Clang 15+, and OpenSSL 3.0+.
 
 ### Build options
 
-The cache variables below are defined in `cmake/ProjectSetup.cmake` and
-`cmake/Packaging.cmake`; `YADDNSC_BUILD_DOCS` and `YADDNSC_IWYU` are defined
+The cache variables below are defined in `cmake/ProjectSetup.cmake` and the
+packaging modules; `YADDNSC_BUILD_DOCS` and `YADDNSC_IWYU` are defined
 beside the features they gate (see [Documentation](#documentation) and
 [Include hygiene](ci.md#include-hygiene)).
 
@@ -98,7 +98,9 @@ that owns the relevant concern; keep the root file focused on loading order:
    Release stripping, and IPO.
 6. `PluginSdk.cmake` — SDK/XML/crypto handling and C ABI checks, which are built
    regardless of `YADDNSC_BUILD_TESTS`.
-7. `InstallRules.cmake` — install rules, exports, and packaging.
+7. `InstallRules.cmake` — install rules and exports. `Packaging.cmake` owns
+   shared package metadata and generator selection; `PackagingDeb.cmake` and
+   `PackagingRpm.cmake` own their format-specific settings.
 8. `GeneratedHeaders.cmake` — its six generated-header `configure_file` calls,
    after installation and packaging have defined the paths baked into them.
 
