@@ -11,7 +11,7 @@ ctest --test-dir build --output-on-failure
 The C11 example links `yaddnsc::plugin_abi`; C++ HTTP uses `plugin_sdk`;
 signing uses `plugin_sdk_crypto` and `<yaddnsc/sdk/signing.hpp>`; XML
 uses `plugin_sdk_xml` when available. Glaze must be exactly v7.8.2 (bundled
-with the development package). The crypto example uses two translation units.
+with the development package under yaddnsc-private include/share paths). The crypto example uses two translation units.
 `-DYADDNSC_CONSUMER_C_ONLY=ON` configures with only a C compiler and no Glaze.
 On libstdc++ toolchains, `-DYADDNSC_CONSUMER_OLD_CXX_ABI=ON` exercises the
 alternate standard-library ABI without a precompiled signing archive.

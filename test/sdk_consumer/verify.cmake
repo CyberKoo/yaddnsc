@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.28)
 if(NOT DEFINED WORK_DIR OR NOT DEFINED SDK_PREFIX)
     message(FATAL_ERROR "Pass WORK_DIR and SDK_PREFIX (an installed SDK)")
 endif()
+if(EXISTS "${SDK_PREFIX}/include/glaze" OR EXISTS "${SDK_PREFIX}/share/glaze")
+    message(FATAL_ERROR "Bundled Glaze leaked into global include/share paths")
+endif()
+if(NOT IS_DIRECTORY "${SDK_PREFIX}/include/yaddnsc/vendor/glaze" OR
+   NOT EXISTS "${SDK_PREFIX}/share/yaddnsc/vendor/glaze/glazeConfig.cmake")
+    message(FATAL_ERROR "Bundled Glaze is missing from the yaddnsc-private paths")
+endif()
 file(MAKE_DIRECTORY "${WORK_DIR}")
 
 function(run)
@@ -107,9 +114,9 @@ run("${CMAKE_COMMAND}" -S "${WORK_DIR}/probe" -B "${WORK_DIR}/fallback"
 
 # Relocation and an install without Glaze metadata must give a useful diagnosis.
 file(MAKE_DIRECTORY "${WORK_DIR}/relocated/include" "${WORK_DIR}/relocated/share")
-file(COPY "${SDK_PREFIX}/include/yaddnsc" "${SDK_PREFIX}/include/glaze"
-    DESTINATION "${WORK_DIR}/relocated/include")
-file(COPY "${SDK_PREFIX}/share/glaze" DESTINATION "${WORK_DIR}/relocated/share")
+file(COPY "${SDK_PREFIX}/include/yaddnsc" DESTINATION "${WORK_DIR}/relocated/include")
+file(COPY "${SDK_PREFIX}/share/yaddnsc/vendor/glaze"
+    DESTINATION "${WORK_DIR}/relocated/share/yaddnsc/vendor")
 file(GLOB_RECURSE sdk_configs
     "${SDK_PREFIX}/lib*/yaddnscConfig.cmake"
     "${SDK_PREFIX}/share/cmake/yaddnsc/yaddnscConfig.cmake")
@@ -121,7 +128,7 @@ foreach(config IN LISTS sdk_configs)
 endforeach()
 run("${CMAKE_COMMAND}" -S "${example_source}" -B "${WORK_DIR}/relocation"
     "-DCMAKE_PREFIX_PATH=${WORK_DIR}/relocated" "-Dyaddnsc_DIR=${relocated_package_dir}"
-    "-Dglaze_DIR=${WORK_DIR}/relocated/share/glaze")
+    "-Dglaze_DIR=${WORK_DIR}/relocated/share/yaddnsc/vendor/glaze")
 run("${CMAKE_COMMAND}" --build "${WORK_DIR}/relocation" --parallel 2)
 run("${CMAKE_CTEST_COMMAND}" --test-dir "${WORK_DIR}/relocation" --output-on-failure)
 file(GLOB_RECURSE glaze_configs "${WORK_DIR}/relocated/*glazeConfig.cmake")
@@ -137,7 +144,7 @@ execute_process(COMMAND "${CMAKE_COMMAND}" --fresh -S "${WORK_DIR}/probe" -B "${
     "-DCMAKE_IGNORE_PREFIX_PATH=${SDK_PREFIX}" -DCMAKE_FIND_USE_CMAKE_SYSTEM_PATH=OFF -DCMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH=OFF
     -DCMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH=OFF -DCMAKE_MAKE_PROGRAM=/usr/bin/make
     RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE error)
-string(FIND "${output}${error}" "requires exactly Glaze ${required_glaze_version}" diagnostic_position)
+string(FIND "${output}${error}" "requires bundled Glaze ${required_glaze_version}" diagnostic_position)
 if(status EQUAL 0 OR diagnostic_position EQUAL -1)
     message(FATAL_ERROR "Expected exact-version SDK diagnostic, got ${status}: ${output}${error}")
 endif()

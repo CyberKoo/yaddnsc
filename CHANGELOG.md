@@ -9,6 +9,11 @@ section here.
 
 ## [Unreleased]
 
+### Changed
+
+- Bundled Glaze now installs only under yaddnsc-owned paths in every package,
+  avoiding conflicts with a distro-provided Glaze.
+
 ### Added
 
 - RPM packaging for Fedora and openSUSE, with runtime and plugin development

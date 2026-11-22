@@ -28,10 +28,14 @@ if ("plugin_sdk_xml" IN_LIST _yaddnsc_requested_components AND @YADDNSC_HAS_SDK_
 endif ()
 
 if ("plugin_sdk" IN_LIST _yaddnsc_requested_components OR yaddnsc_plugin_sdk_xml_FOUND)
+    set(_yaddnsc_glaze_dir "${PACKAGE_PREFIX_DIR}/share/yaddnsc/vendor/glaze")
+    set(glaze_DIR "${_yaddnsc_glaze_dir}")
     # Preflight permits a useful SDK-specific diagnostic and optional components.
-    find_package(glaze @YADDNSC_GLAZE_VERSION@ EXACT CONFIG QUIET)
+    find_package(glaze @YADDNSC_GLAZE_VERSION@ EXACT CONFIG QUIET
+        PATHS "${_yaddnsc_glaze_dir}" NO_DEFAULT_PATH)
     if (glaze_FOUND)
-        find_dependency(glaze @YADDNSC_GLAZE_VERSION@ EXACT CONFIG)
+        find_dependency(glaze @YADDNSC_GLAZE_VERSION@ EXACT CONFIG
+            PATHS "${_yaddnsc_glaze_dir}" NO_DEFAULT_PATH)
         include("${CMAKE_CURRENT_LIST_DIR}/yaddnscSdkTargets.cmake")
         set(yaddnsc_plugin_sdk_FOUND TRUE)
         if (yaddnsc_plugin_sdk_xml_FOUND)
@@ -40,7 +44,7 @@ if ("plugin_sdk" IN_LIST _yaddnsc_requested_components OR yaddnsc_plugin_sdk_xml
     else ()
         set(yaddnsc_plugin_sdk_xml_FOUND FALSE)
         set(yaddnsc_NOT_FOUND_MESSAGE
-            "The C++ SDK requires exactly Glaze @YADDNSC_GLAZE_VERSION@. Install the complete yaddnsc-dev package (including bundled Glaze), check CMAKE_PREFIX_PATH/glaze_DIR, and remove stale CMake caches.")
+            "The C++ SDK requires bundled Glaze @YADDNSC_GLAZE_VERSION@ under the yaddnsc prefix. Install the complete development package and remove stale CMake caches.")
     endif ()
 endif ()
 

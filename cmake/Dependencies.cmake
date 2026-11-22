@@ -8,14 +8,16 @@ find_package(OpenSSL 3.0 REQUIRED)
 # ---------------------------------------------------------------------------
 # glaze – JSON/reflection library
 # ---------------------------------------------------------------------------
-# The installed C++ SDK exposes Glaze through yaddnsc::plugin_sdk.  CPM adds
-# Glaze as a subproject, where its default is not to install package metadata;
-# enable that metadata so an installed SDK never points consumers at this build
-# tree's CPM cache.
-# Glaze installs under its own "glaze_Development" component, which
-# Packaging.cmake folds into the yaddnsc-dev package via component grouping.
+# The installed C++ SDK exposes Glaze through yaddnsc::plugin_sdk. Install its
+# headers and metadata only under yaddnsc-owned paths so a distro Glaze package
+# cannot collide with the bundled copy. Restore the project install dirs as soon
+# as the Glaze subproject has captured its own rules.
 set(YADDNSC_GLAZE_VERSION "7.8.2")
 set(glaze_INSTALL ON CACHE BOOL "Install Glaze package metadata for the yaddnsc SDK" FORCE)
+set(YADDNSC_PROJECT_INSTALL_INCLUDEDIR "${CMAKE_INSTALL_INCLUDEDIR}")
+set(YADDNSC_PROJECT_INSTALL_DATADIR "${CMAKE_INSTALL_DATADIR}")
+set(CMAKE_INSTALL_INCLUDEDIR "include/yaddnsc/vendor")
+set(CMAKE_INSTALL_DATADIR "share/yaddnsc/vendor")
 CPMAddPackage(
     NAME glaze
     GITHUB_REPOSITORY stephenberry/glaze
@@ -24,6 +26,10 @@ CPMAddPackage(
     SYSTEM YES
     OPTIONS "glaze_INSTALL ON"
 )
+set(CMAKE_INSTALL_INCLUDEDIR "${YADDNSC_PROJECT_INSTALL_INCLUDEDIR}")
+set(CMAKE_INSTALL_DATADIR "${YADDNSC_PROJECT_INSTALL_DATADIR}")
+unset(YADDNSC_PROJECT_INSTALL_INCLUDEDIR)
+unset(YADDNSC_PROJECT_INSTALL_DATADIR)
 
 # ---------------------------------------------------------------------------
 # fmt / std::format  (conditional)

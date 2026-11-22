@@ -323,9 +323,11 @@ cmake -DSDK_PREFIX=/tmp/yaddnsc-sdk -DWORK_DIR=/tmp/sdk-check \
   -DVERIFY_OLD_CXX_ABI=ON -P test/sdk_consumer/verify.cmake
 ```
 
-The development package requires exactly Glaze v7.8.2 and includes its metadata;
-`cmake --install --component dev` alone is incomplete for C++ JSON consumers:
-install `glaze_Development` into the same prefix too. XML is an optional component
+The development package requires exactly Glaze v7.8.2 and includes its metadata
+under yaddnsc-private include/share paths; no files are installed into the
+distro-owned `include/glaze` or `share/glaze`. `cmake --install --component dev`
+alone is incomplete for C++ JSON consumers: install `glaze_Development` into the
+same prefix too. XML is an optional component
 available only when the host was configured with libxml2. Crypto is header-only
 in `include/yaddnsc/sdk/signing.hpp` and requires OpenSSL 3.0+.
 

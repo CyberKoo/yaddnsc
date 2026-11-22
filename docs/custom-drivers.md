@@ -234,11 +234,12 @@ target_link_libraries(my_driver PRIVATE yaddnsc::plugin_sdk)
 ```
 
 `plugin_sdk` is the default component and requires **exactly Glaze v7.8.2**
-(`find_dependency(glaze 7.8.2 EXACT CONFIG)`). The development packages bundle
-that release, including headers and package metadata. CMake skips incompatible
-candidates in earlier prefixes and can select the bundled copy. If no exact copy is available,
-configure fails with the expected version and instructions to check
-`CMAKE_PREFIX_PATH`, `glaze_DIR` and stale caches.
+(`find_dependency(glaze 7.8.2 EXACT CONFIG)`). Every development package bundles
+that release under `include/yaddnsc/vendor` and `share/yaddnsc/vendor/glaze`,
+never the distro-owned `include/glaze` or `share/glaze`. The SDK loads only this
+private copy, so a separately installed distro Glaze cannot cause file conflicts
+or be selected accidentally. If the private copy is incomplete, configure fails
+with the expected version and instructions to reinstall the development package.
 
 The SDK propagates include paths, C++23 and necessary dependencies. Consumers
 own their warnings and `-Werror` policy. Set visibility on the plugin itself:
