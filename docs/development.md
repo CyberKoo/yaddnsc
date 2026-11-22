@@ -53,6 +53,8 @@ beside the features they gate (see [Documentation](#documentation) and
   helpers and bundled Glaze);
 - `YADDNSC_ENABLE_RPM` (default `OFF`) enables CPack RPM generation with the
   same contents, named `yaddnsc` and `yaddnsc-devel`;
+- `YADDNSC_PACKAGE_VERSION` (default empty) overrides the DEB/RPM package
+  version for snapshot builds without changing the project or ABI version;
 - `YADDNSC_RPM_PACKAGE_RELEASE` (default `1`) sets the RPM package release
   independently of the project version;
 - `YADDNSC_RPM_OPENSSL_DEVEL_DEPENDENCY` (default empty) overrides the RPM

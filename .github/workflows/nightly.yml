@@ -17,7 +17,7 @@ env:
   NIGHTLY_REF: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || 'dev' }}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.ref_name || 'dev' }}
   cancel-in-progress: true
 
 jobs:
@@ -28,16 +28,45 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     outputs:
       result: ${{ steps.check.outputs.result }}
+      publish: ${{ steps.check.outputs.publish }}
+      sha: ${{ steps.check.outputs.sha }}
+      short_sha: ${{ steps.check.outputs.short_sha }}
+      package_version: ${{ steps.check.outputs.package_version }}
+      apk_package_version: ${{ steps.check.outputs.apk_package_version }}
     steps:
       - name: Checkout with full history
         uses: actions/checkout@v7
         with:
           ref: ${{ env.NIGHTLY_REF }}
           fetch-depth: 0
-      - name: Check for recent commits
+      - name: Select source and package versions
         id: check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          SHORT_SHA="$(git rev-parse --short HEAD)"
+          PROJECT_VERSION="$(sed -n 's/^project(yaddnsc VERSION \([0-9][0-9.]*\)).*/\1/p' CMakeLists.txt)"
+          if ! [[ "${PROJECT_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Invalid project version: ${PROJECT_VERSION}" >&2
+              exit 1
+          fi
+          BUILD_ID="$(git rev-list --count --first-parent HEAD)"
+          EXACT_TAG="$(git describe --exact-match --tags HEAD 2>/dev/null || true)"
+          PUBLISH=true
+          if [ "${NIGHTLY_REF}" != "dev" ] || [[ "${EXACT_TAG}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              PUBLISH=false
+          fi
+          {
+              echo "sha=${SHA}"
+              echo "short_sha=${SHORT_SHA}"
+              echo "package_version=${PROJECT_VERSION}~dev.${BUILD_ID}.g${SHORT_SHA}"
+              echo "apk_package_version=${PROJECT_VERSION}_alpha0_git${BUILD_ID}"
+              echo "publish=${PUBLISH}"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
               echo "result=true" >> "$GITHUB_OUTPUT"
               echo "Manual trigger — running all builds"
           else
@@ -65,7 +94,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          ref: ${{ env.NIGHTLY_REF }}
+          ref: ${{ needs.should_run.outputs.sha }}
       - name: Cache CPM dependencies
         uses: actions/cache@v6
         with:
@@ -103,7 +132,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          ref: ${{ env.NIGHTLY_REF }}
+          ref: ${{ needs.should_run.outputs.sha }}
       - name: Cache CPM dependencies
         uses: actions/cache@v6
         with:
@@ -153,21 +182,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          ref: ${{ env.NIGHTLY_REF }}
+          ref: ${{ needs.should_run.outputs.sha }}
       - name: Build native packages
         run: |
-          docker build --target export-untested \
+          PACKAGE_VERSION='${{ needs.should_run.outputs.package_version }}'
+          if [ "${{ matrix.builder }}" = "apk" ]; then
+              PACKAGE_VERSION='${{ needs.should_run.outputs.apk_package_version }}'
+          fi
+          docker build --target export \
             --file "docker/Dockerfile.${{ matrix.builder }}" \
             --build-arg "BASE_IMAGE=${{ matrix.target }}" \
+            --build-arg "YADDNSC_PACKAGE_VERSION=${PACKAGE_VERSION}" \
             --build-arg BUILD_JOBS=2 \
             --output "nightly-out/${{ matrix.id }}" \
             .
       - name: Prepare release assets
         run: |
-          mkdir -p release
-          for package in "nightly-out/${{ matrix.id }}"/*.${{ matrix.builder }}; do
-            mv "${package}" "release/${{ matrix.id }}-${package##*/}"
-          done
+          docker/prepare-nightly-assets.sh "${{ matrix.builder }}" "${{ matrix.id }}" \
+            "nightly-out/${{ matrix.id }}" release
       - name: Upload native packages
         uses: actions/upload-artifact@v7
         with:
@@ -198,21 +230,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          ref: ${{ env.NIGHTLY_REF }}
+          ref: ${{ needs.should_run.outputs.sha }}
       - name: Build native packages
         run: |
-          docker build --target export-untested \
+          PACKAGE_VERSION='${{ needs.should_run.outputs.package_version }}'
+          if [ "${{ matrix.builder }}" = "apk" ]; then
+              PACKAGE_VERSION='${{ needs.should_run.outputs.apk_package_version }}'
+          fi
+          docker build --target export \
             --file "docker/Dockerfile.${{ matrix.builder }}" \
             --build-arg "BASE_IMAGE=${{ matrix.target }}" \
+            --build-arg "YADDNSC_PACKAGE_VERSION=${PACKAGE_VERSION}" \
             --build-arg BUILD_JOBS=2 \
             --output "nightly-out/${{ matrix.id }}" \
             .
       - name: Prepare release assets
         run: |
-          mkdir -p release
-          for package in "nightly-out/${{ matrix.id }}"/*.${{ matrix.builder }}; do
-            mv "${package}" "release/${{ matrix.id }}-${package##*/}"
-          done
+          docker/prepare-nightly-assets.sh "${{ matrix.builder }}" "${{ matrix.id }}" \
+            "nightly-out/${{ matrix.id }}" release
       - name: Upload native packages
         uses: actions/upload-artifact@v7
         with:
@@ -222,7 +257,15 @@ jobs:
           retention-days: 3
 
   nightly-release:
-    needs: [native-packages, native-packages-arm64]
+    needs:
+      - should_run
+      - linux-arm64
+      - linux-amd64-feature-flags
+      - linux-amd64-sanitizer
+      - linux-amd64-lint
+      - native-packages
+      - native-packages-arm64
+    if: needs.should_run.outputs.result == 'true' && needs.should_run.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -235,7 +278,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          ref: ${{ env.NIGHTLY_REF }}
+          ref: ${{ needs.should_run.outputs.sha }}
       - name: Download native packages
         uses: actions/download-artifact@v8
         with:
@@ -247,8 +290,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          NIGHTLY_SHA="$(git rev-parse HEAD)"
-          SHORT_SHA="$(git rev-parse --short HEAD)"
+          NIGHTLY_SHA='${{ needs.should_run.outputs.sha }}'
+          SHORT_SHA='${{ needs.should_run.outputs.short_sha }}'
           BUILD_TIME="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           NOTES="$(printf 'This release contains the latest automated Nightly build of yaddnsc.\n\n- **Commit**: `%s`\n- **Branch**: `%s`\n- **Build Time**: %s\n\nThese packages are automatically compiled and updated on every nightly build / manual run.\nIncludes x86_64 and AArch64 packages. This is a development pre-release, not a stable release.' "${SHORT_SHA}" "${NIGHTLY_REF}" "${BUILD_TIME}")"
           if gh release view nightly >/dev/null 2>&1; then
@@ -264,7 +307,16 @@ jobs:
               --prerelease \
               --notes "${NOTES}"
           fi
+          : > /tmp/nightly-assets
+          for package in release-artifacts/*; do
+              printf '%s\n' "${package##*/}" >> /tmp/nightly-assets
+          done
+          sort -u -o /tmp/nightly-assets /tmp/nightly-assets
           gh release upload nightly release-artifacts/* --clobber
+          gh release view nightly --json assets --jq '.assets[].name' | sort > /tmp/current-assets
+          comm -23 /tmp/current-assets /tmp/nightly-assets | while read -r asset; do
+              gh release delete-asset nightly "${asset}" --yes
+          done
 
   linux-amd64-sanitizer:
     needs: [should_run]
@@ -279,7 +331,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          ref: ${{ env.NIGHTLY_REF }}
+          ref: ${{ needs.should_run.outputs.sha }}
       - name: Cache CPM dependencies
         uses: actions/cache@v6
         with:
@@ -317,7 +369,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          ref: ${{ env.NIGHTLY_REF }}
+          ref: ${{ needs.should_run.outputs.sha }}
       - name: Cache CPM dependencies
         uses: actions/cache@v6
         with:

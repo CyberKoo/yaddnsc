@@ -325,8 +325,9 @@ cmake -DSDK_PREFIX=/tmp/yaddnsc-sdk -DWORK_DIR=/tmp/sdk-check \
 
 The development package requires exactly Glaze v7.8.2 and includes its metadata
 under yaddnsc-private include/share paths; no files are installed into the
-distro-owned `include/glaze` or `share/glaze`. `cmake --install --component dev`
-alone is incomplete for C++ JSON consumers: install `glaze_Development` into the
+distro-owned `include/glaze` or `share/glaze`. The SDK accepts only this private
+copy, not a system or externally supplied Glaze.
+`cmake --install --component dev` alone is incomplete for C++ JSON consumers: install `glaze_Development` into the
 same prefix too. XML is an optional component
 available only when the host was configured with libxml2. Crypto is header-only
 in `include/yaddnsc/sdk/signing.hpp` and requires OpenSSL 3.0+.
@@ -335,12 +336,18 @@ The `sdk-package` CI job configures a Release package, generates the final
 `yaddnsc-dev` DEB (no host build is needed for header-only development contents),
 installs it and its declared dependencies in a fresh Ubuntu container, and runs
 the installed verification script with no host package or source checkout.
-The final runtime DEB is built separately via `docker/build-deb.sh`:
+The `docker/build-deb.sh` helper builds runtime and development packages, then
+runs `test/packaging/verify-deb.sh` in a clean target-distribution container:
 
 ```bash
 ./docker/build-deb.sh debian:13 --jobs 2
 ./docker/build-deb.sh ubuntu:24.04 --jobs 2
 ```
+
+DEB verification covers conffile and systemd metadata, installation, every
+bundled driver, configuration validation, and the installed SDK consumer checks.
+It also upgrades from `~upgrade.1` to `~upgrade.2` and verifies that a modified
+`config.json` remains byte-for-byte unchanged.
 
 The RPM helper builds both runtime and development packages, then runs
 `test/packaging/verify-rpm.sh` in a clean target-distribution container before

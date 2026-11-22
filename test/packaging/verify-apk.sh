@@ -20,8 +20,17 @@ if [[ ${#runtime[@]} -ne 1 || ${#devel[@]} -ne 1 || ${#openrc[@]} -ne 1 || \
     exit 1
 fi
 
+[[ "$(apk version -t 1.2.0_alpha0_git140-r0 1.2.0_alpha0_git141-r0)" == "<" ]]
+[[ "$(apk version -t 1.2.0_alpha0_git141-r0 1.2.0-r0)" == "<" ]]
+[[ "$(apk version -t 1.2.0-r0 1.3.0_alpha0_git142-r0)" == "<" ]]
+[[ "$(apk version -t 1.3.0_alpha0_git142-r0 1.3.0-r0)" == "<" ]]
+
 apk add --no-cache --allow-untrusted \
     build-base cmake /packages/*.apk
+
+if [[ -n "${EXPECTED_PACKAGE_VERSION:-}" ]]; then
+    [[ "$(apk list --installed yaddnsc)" == "yaddnsc-${EXPECTED_PACKAGE_VERSION}-r${EXPECTED_PACKAGE_RELEASE:-0} "* ]]
+fi
 
 id yaddnsc
 [[ -x /etc/init.d/yaddnsc ]]

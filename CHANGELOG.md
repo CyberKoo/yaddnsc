@@ -11,8 +11,9 @@ section here.
 
 ### Changed
 
-- Bundled Glaze now installs only under yaddnsc-owned paths in every package,
-  avoiding conflicts with a distro-provided Glaze.
+- The plugin SDK now uses only its bundled private Glaze 7.8.2 under
+  yaddnsc-owned paths. System and externally supplied Glaze installations are
+  not supported, avoiding conflicts with distro-provided packages.
 
 ### Added
 

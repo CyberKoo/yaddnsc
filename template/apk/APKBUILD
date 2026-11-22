@@ -1,8 +1,8 @@
 pkgname=yaddnsc
 maintainer="CyberKoo <2918558+CyberKoo@users.noreply.github.com>"
 builddir="/src"
-pkgver=$(sed -n 's/^project(yaddnsc VERSION \([0-9][0-9.]*\)).*/\1/p' "$builddir/CMakeLists.txt")
-pkgrel=0
+pkgver=${YADDNSC_APK_PACKAGE_VERSION:-$(sed -n 's/^project(yaddnsc VERSION \([0-9][0-9.]*\)).*/\1/p' "$builddir/CMakeLists.txt")}
+pkgrel=${YADDNSC_APK_PACKAGE_RELEASE:-0}
 pkgdesc="Yet Another Dynamic DNS Client"
 url="https://github.com/CyberKoo/yaddnsc"
 arch="x86_64 aarch64"

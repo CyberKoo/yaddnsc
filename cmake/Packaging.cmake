@@ -19,11 +19,14 @@ else ()
 endif ()
 
 # ---------------------------------------------------------------------------
-# Package version — use git describe for dev builds
+# Package version — explicit snapshot override, otherwise git describe for dev builds
 # ---------------------------------------------------------------------------
+set(YADDNSC_PACKAGE_VERSION "" CACHE STRING "Override the DEB/RPM package version")
 set(PACKAGE_VERSION "${PROJECT_VERSION}")
 
-if (YADDNSC_DEVELOPMENT AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
+if (YADDNSC_PACKAGE_VERSION)
+    set(PACKAGE_VERSION "${YADDNSC_PACKAGE_VERSION}")
+elseif (YADDNSC_DEVELOPMENT AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
     include(GitVersion)
     if (GIT_ON_TAG AND GIT_PRERELEASE)
         set(PACKAGE_VERSION "${PROJECT_VERSION}~${GIT_PRERELEASE}")

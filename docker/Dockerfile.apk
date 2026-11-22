@@ -7,6 +7,7 @@ FROM ${BASE_IMAGE} AS builder
 
 ARG YADDNSC_DEFAULT_DNS_SERVER=1.1.1.1
 ARG YADDNSC_DEFAULT_DNS_PORT=53
+ARG YADDNSC_PACKAGE_VERSION=""
 ARG YADDNSC_APK_PACKAGE_RELEASE=0
 ARG BUILD_JOBS=2
 ARG CMAKE_EXTRA_ARGS=""
@@ -14,6 +15,8 @@ ARG CMAKE_EXTRA_ARGS=""
 ENV ABUILD_JOBS=${BUILD_JOBS} \
     YADDNSC_DEFAULT_DNS_SERVER=${YADDNSC_DEFAULT_DNS_SERVER} \
     YADDNSC_DEFAULT_DNS_PORT=${YADDNSC_DEFAULT_DNS_PORT} \
+    YADDNSC_APK_PACKAGE_VERSION=${YADDNSC_PACKAGE_VERSION} \
+    YADDNSC_APK_PACKAGE_RELEASE=${YADDNSC_APK_PACKAGE_RELEASE} \
     YADDNSC_CMAKE_EXTRA_ARGS=${CMAKE_EXTRA_ARGS}
 
 RUN . /etc/os-release && \
@@ -30,17 +33,14 @@ COPY . /src
 
 RUN cp /src/template/apk/APKBUILD /src/template/apk/yaddnsc.pre-install \
         /src/template/apk/yaddnsc.pre-deinstall . && \
-    sed -i "s/^pkgrel=0$/pkgrel=${YADDNSC_APK_PACKAGE_RELEASE}/" APKBUILD && \
     abuild-keygen -a -n && \
     cp /root/.abuild/*.rsa.pub /etc/apk/keys/ && \
     abuild -F -P /apk-out
 
 RUN rm -rf /build/apk/pkg && \
-    sed -i 's/^pkgrel=.*$/pkgrel=0/' APKBUILD && \
-    abuild -F -P /apk-upgrade/v1 rootpkg && \
+    YADDNSC_APK_PACKAGE_RELEASE=0 abuild -F -P /apk-upgrade/v1 rootpkg && \
     rm -rf /build/apk/pkg && \
-    sed -i 's/^pkgrel=.*$/pkgrel=1/' APKBUILD && \
-    abuild -F -P /apk-upgrade/v2 rootpkg
+    YADDNSC_APK_PACKAGE_RELEASE=1 abuild -F -P /apk-upgrade/v2 rootpkg
 
 RUN mkdir -p /apk-flat /apk-upgrade-flat/v1 /apk-upgrade-flat/v2 && \
     find /apk-out -name '*.apk' -exec cp {} /apk-flat/ \; && \
@@ -51,6 +51,11 @@ FROM scratch AS export-untested
 COPY --from=builder /apk-flat/*.apk /
 
 FROM ${BASE_IMAGE} AS verify
+
+ARG YADDNSC_PACKAGE_VERSION=""
+ARG YADDNSC_APK_PACKAGE_RELEASE=0
+ENV EXPECTED_PACKAGE_VERSION=${YADDNSC_PACKAGE_VERSION} \
+    EXPECTED_PACKAGE_RELEASE=${YADDNSC_APK_PACKAGE_RELEASE}
 
 COPY --from=builder /apk-flat /packages
 COPY --from=builder /apk-upgrade-flat /apk-upgrade

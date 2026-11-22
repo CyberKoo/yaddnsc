@@ -14,6 +14,7 @@ find_package(OpenSSL 3.0 REQUIRED)
 # as the Glaze subproject has captured its own rules.
 set(YADDNSC_GLAZE_VERSION "7.8.2")
 set(glaze_INSTALL ON CACHE BOOL "Install Glaze package metadata for the yaddnsc SDK" FORCE)
+set(glaze_INSTALL_CMAKEDIR "share/yaddnsc/vendor/glaze" CACHE PATH "Install Glaze metadata under the yaddnsc-private prefix" FORCE)
 set(YADDNSC_PROJECT_INSTALL_INCLUDEDIR "${CMAKE_INSTALL_INCLUDEDIR}")
 set(YADDNSC_PROJECT_INSTALL_DATADIR "${CMAKE_INSTALL_DATADIR}")
 set(CMAKE_INSTALL_INCLUDEDIR "include/yaddnsc/vendor")

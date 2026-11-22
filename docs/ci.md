@@ -39,11 +39,12 @@ by `ci.yml` path filters.
 - `native-packages` — x86_64 package generation on Debian 13, Ubuntu
   24.04/26.04, Fedora 43, openSUSE Leap 16.0 / Tumbleweed, and Alpine;
 - `native-packages-arm64` — representative AArch64 package generation on
-  Debian 13, Fedora 43, and Alpine. Both matrices export packages without running
-  installation/upgrade scenarios;
-- `nightly-release` — after both package matrices pass, updates the same
-  `nightly` pre-release in place with the current commit, notes, and x86_64 /
-  AArch64 assets rather than deleting and recreating it;
+  Debian 13, Fedora 43, and Alpine. Both matrices run installation, SDK consumer,
+  and configuration-upgrade checks before exporting packages;
+- `nightly-release` — after the complete nightly test, lint, and package matrix
+  passes, updates the same `nightly` pre-release in place with the pinned commit,
+  notes, and x86_64 / AArch64 assets. Fixed asset names replace the previous
+  build, and stale assets are removed after the new upload succeeds;
 - `linux-amd64-lint` — compile-only static analysis under upstream Clang
   (no tests run): compiler warnings fail the build via `-Werror`; IWYU
   findings are reported without `--error` and do not fail the build;
@@ -54,8 +55,21 @@ by `ci.yml` path filters.
 Scheduled nightly builds run only when the recent-commit check passes; manual
 runs bypass that check. Scheduled runs execute from the default branch's
 workflow file but check out, build, and test the `dev` branch (`NIGHTLY_REF`);
-manual runs build the branch selected in the dispatch UI. Linux arm64 is
-nightly/manual coverage, not a PR check.
+manual runs build the branch selected in the dispatch UI. Every job uses the
+same commit selected by `should_run`. Only `dev` commits without an exact
+release/pre-release tag can update the public nightly; other manual branches
+produce workflow artifacts only. Linux arm64 is nightly/manual coverage, not a
+PR check.
+
+Nightly versions derive from the source, not workflow run numbers. The
+first-parent commit count is the snapshot sequence, so skipped runs consume no
+number and rerunning a commit reproduces its version. DEB/RPM use
+`<version>~dev.<count>.g<sha>`; APK uses
+`<version>_alpha0_git<count>-r0`. APK `pkgrel` and RPM `Release` therefore reset
+normally for each new source version, and a stable release sorts above every
+nightly of the same minor version. Official alpha/rc tags and nightly are
+separate pre-release channels and do not promise automatic cross-channel
+upgrades.
 
 `yaddnsc_warnings` supplies `-Wall -Wextra -Wpedantic -Wshadow -Werror` to
 production modules, the executable, header checks, and tests that link the shared

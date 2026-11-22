@@ -112,7 +112,8 @@ file(WRITE "${conflict}/glazeConfigVersion.cmake" "set(PACKAGE_VERSION ${require
 run("${CMAKE_COMMAND}" -S "${WORK_DIR}/probe" -B "${WORK_DIR}/fallback"
     "-DCMAKE_PREFIX_PATH=${WORK_DIR}/conflict;${SDK_PREFIX}")
 
-# Relocation and an install without Glaze metadata must give a useful diagnosis.
+# Relocation works only with the private Glaze. An external exact copy must not
+# substitute for missing private metadata, and the failure must be diagnostic.
 file(MAKE_DIRECTORY "${WORK_DIR}/relocated/include" "${WORK_DIR}/relocated/share")
 file(COPY "${SDK_PREFIX}/include/yaddnsc" DESTINATION "${WORK_DIR}/relocated/include")
 file(COPY "${SDK_PREFIX}/share/yaddnsc/vendor/glaze"
@@ -141,6 +142,7 @@ foreach(config IN LISTS glaze_configs)
 endforeach()
 execute_process(COMMAND "${CMAKE_COMMAND}" --fresh -S "${WORK_DIR}/probe" -B "${WORK_DIR}/mismatch"
     "-DCMAKE_PREFIX_PATH=${WORK_DIR}/conflict;${WORK_DIR}/relocated"
+    "-Dglaze_DIR=${SDK_PREFIX}/share/yaddnsc/vendor/glaze"
     "-DCMAKE_IGNORE_PREFIX_PATH=${SDK_PREFIX}" -DCMAKE_FIND_USE_CMAKE_SYSTEM_PATH=OFF -DCMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH=OFF
     -DCMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH=OFF -DCMAKE_MAKE_PROGRAM=/usr/bin/make
     RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE error)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build yaddnsc DEB packages in Debian or Ubuntu containers.
+# Build and install-test yaddnsc DEB packages in Debian or Ubuntu containers.
 #
 # Usage:
 #   ./docker/build-deb.sh                                # Ubuntu 24.04

@@ -11,6 +11,9 @@ if [[ ${#devel[@]} -ne 1 || ! -f "${devel[0]}" ]]; then
     echo "Expected exactly one development RPM" >&2
     exit 1
 fi
+if [[ -n "${EXPECTED_PACKAGE_VERSION:-}" ]]; then
+    [[ "$(rpm -qp --qf '%{VERSION}' "${runtime[0]}")" == "${EXPECTED_PACKAGE_VERSION}" ]]
+fi
 
 upgrade_v1=(/rpm-upgrade/v1/yaddnsc-[0-9]*.rpm)
 upgrade_v2=(/rpm-upgrade/v2/yaddnsc-[0-9]*.rpm)

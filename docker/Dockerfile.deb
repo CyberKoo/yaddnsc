@@ -14,6 +14,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG YADDNSC_USE_SYSTEM_SPDLOG=ON
 ARG YADDNSC_DEFAULT_DNS_SERVER=1.1.1.1
 ARG YADDNSC_DEFAULT_DNS_PORT=53
+ARG YADDNSC_PACKAGE_VERSION=""
 ARG BUILD_JOBS=2
 ARG CMAKE_EXTRA_ARGS=""
 
@@ -55,17 +56,35 @@ RUN . /etc/os-release && \
     cmake -B build -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=/usr \
         -DYADDNSC_USE_SYSTEM_SPDLOG=${YADDNSC_USE_SYSTEM_SPDLOG} \
+        -DYADDNSC_PACKAGE_VERSION=${YADDNSC_PACKAGE_VERSION} \
         -DYADDNSC_DEFAULT_DNS_SERVER=${YADDNSC_DEFAULT_DNS_SERVER} \
         -DYADDNSC_DEFAULT_DNS_PORT=${YADDNSC_DEFAULT_DNS_PORT} \
         -DYADDNSC_ENABLE_DEB=ON \
         ${CMAKE_EXTRA_ARGS}
 
 RUN cmake --build build -j "${BUILD_JOBS}"
-RUN cpack --config build/CPackConfig.cmake -G DEB
-RUN mkdir -p /deb-out && mv yaddnsc*.deb /deb-out/
+RUN mkdir -p /deb-out /deb-upgrade/v1 /deb-upgrade/v2
+RUN cpack --config build/CPackConfig.cmake -G DEB && \
+    mv yaddnsc*.deb /deb-out/
+RUN base_version="$(sed -n 's/^project(yaddnsc VERSION \([0-9][0-9.]*\)).*/\1/p' CMakeLists.txt)" && \
+    cmake -B build -DYADDNSC_PACKAGE_VERSION="${base_version}~upgrade.1" && \
+    cpack --config build/CPackConfig.cmake -G DEB -B /deb-upgrade/v1
+RUN base_version="$(sed -n 's/^project(yaddnsc VERSION \([0-9][0-9.]*\)).*/\1/p' CMakeLists.txt)" && \
+    cmake -B build -DYADDNSC_PACKAGE_VERSION="${base_version}~upgrade.2" && \
+    cpack --config build/CPackConfig.cmake -G DEB -B /deb-upgrade/v2
 
 FROM scratch AS export-untested
 COPY --from=builder /deb-out/*.deb /
 
+FROM ${BASE_IMAGE} AS verify
+
+ARG YADDNSC_PACKAGE_VERSION=""
+ENV EXPECTED_PACKAGE_VERSION=${YADDNSC_PACKAGE_VERSION}
+
+COPY --from=builder /deb-out /packages
+COPY --from=builder /deb-upgrade /deb-upgrade
+COPY --chmod=0755 test/packaging/verify-deb.sh /usr/local/bin/verify-deb
+RUN /usr/local/bin/verify-deb
+
 FROM scratch AS export
-COPY --from=builder /deb-out/*.deb /
+COPY --from=verify /packages/*.deb /
