@@ -248,7 +248,9 @@ jobs:
         run: |
           set -euo pipefail
           NIGHTLY_SHA="$(git rev-parse HEAD)"
-          NOTES="Rolling development build for ${NIGHTLY_REF} at ${NIGHTLY_SHA}, updated $(date -u +'%Y-%m-%d %H:%M UTC'). Includes x86_64 and AArch64 packages; not a stable release."
+          SHORT_SHA="$(git rev-parse --short HEAD)"
+          BUILD_TIME="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          NOTES="$(printf 'This release contains the latest automated Nightly build of yaddnsc.\n\n- **Commit**: `%s`\n- **Branch**: `%s`\n- **Build Time**: %s\n\nThese packages are automatically compiled and updated on every nightly build / manual run.\nIncludes x86_64 and AArch64 packages. This is a development pre-release, not a stable release.' "${SHORT_SHA}" "${NIGHTLY_REF}" "${BUILD_TIME}")"
           if gh release view nightly >/dev/null 2>&1; then
             gh release edit nightly \
               --target "${NIGHTLY_SHA}" \
