@@ -28,12 +28,22 @@ by `ci.yml` path filters.
 - `plugin-contract` — builds the whiteboard test plugin and runs the dlopen /
   Host Services ABI contract tests explicitly; also verifies the frozen ABI 1.0
   baseline header by sha256 and runs the frozen-plugin compatibility test
-  (`test_abi_freeze_compat`).
+  (`test_abi_freeze_compat`);
+- `sdk-package` — builds the Ubuntu DEB development package, installs it in a
+  clean container, and runs SDK consumer checks.
 
 `nightly.yml`:
 
 - Linux arm64 Debug tests, Release builds with bundled/system spdlog (tests
   disabled), and the dedicated `Sanitizer` build/tests;
+- `native-packages` — x86_64 package generation on Debian 13, Ubuntu
+  24.04/26.04, Fedora 43, openSUSE Leap 16.0 / Tumbleweed, and Alpine;
+- `native-packages-arm64` — representative AArch64 package generation on
+  Debian 13, Fedora 43, and Alpine. Both matrices export packages without running
+  installation/upgrade scenarios;
+- `nightly-release` — after both package matrices pass, updates the same
+  `nightly` pre-release in place with the current commit, notes, and x86_64 /
+  AArch64 assets rather than deleting and recreating it;
 - `linux-amd64-lint` — compile-only static analysis under upstream Clang
   (no tests run): compiler warnings fail the build via `-Werror`; IWYU
   findings are reported without `--error` and do not fail the build;

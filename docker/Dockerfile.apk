@@ -47,6 +47,9 @@ RUN mkdir -p /apk-flat /apk-upgrade-flat/v1 /apk-upgrade-flat/v2 && \
     find /apk-upgrade/v1 -name '*.apk' -exec cp {} /apk-upgrade-flat/v1/ \; && \
     find /apk-upgrade/v2 -name '*.apk' -exec cp {} /apk-upgrade-flat/v2/ \;
 
+FROM scratch AS export-untested
+COPY --from=builder /apk-flat/*.apk /
+
 FROM ${BASE_IMAGE} AS verify
 
 COPY --from=builder /apk-flat /packages

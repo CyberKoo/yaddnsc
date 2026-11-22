@@ -45,6 +45,9 @@ RUN cmake -B build -DYADDNSC_RPM_PACKAGE_RELEASE=1 && \
 RUN cmake -B build -DYADDNSC_RPM_PACKAGE_RELEASE=2 && \
     cpack --config build/CPackConfig.cmake -G RPM -B /rpm-upgrade/v2
 
+FROM scratch AS export-untested
+COPY --from=builder /rpm-out/*.rpm /
+
 FROM ${BASE_IMAGE} AS verify
 
 COPY --from=builder /rpm-out /packages

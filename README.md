@@ -66,8 +66,9 @@ Driver parameters and credential requirements are documented in
 
 ## Installation
 
-No pre-built packages are published at this time. The options are building
-from source, producing Debian, RPM, or Alpine packages, or building a container image.
+Pre-built packages are available on [GitHub Releases](https://github.com/CyberKoo/yaddnsc/releases),
+including the continuously updated [Nightly pre-release](https://github.com/CyberKoo/yaddnsc/releases/tag/nightly).
+You can also build from source, produce Debian, RPM, or Alpine packages, or build a container image.
 
 ### Build from Source
 

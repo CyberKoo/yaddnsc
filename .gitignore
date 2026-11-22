@@ -47,6 +47,9 @@ cmake-build-*/
 /deb-out/
 /rpm-out/
 /apk-out/
+/nightly-out/
+/release/
+/release-artifacts/
 /_CPack_Packages/
 /yaddnsc*.deb
 /yaddnsc*.rpm

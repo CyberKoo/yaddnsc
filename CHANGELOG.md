@@ -21,6 +21,7 @@ section here.
   installation checks.
 - DEB container builds for Debian as well as Ubuntu.
 - Alpine APK packages with optional OpenRC integration and upgrade checks.
+- A continuously updated `nightly` pre-release with x86_64 and AArch64 packages.
 
 ## [1.1.0] - 2026-11-21
 

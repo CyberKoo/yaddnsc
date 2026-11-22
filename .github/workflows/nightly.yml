@@ -57,7 +57,7 @@ jobs:
     needs: [should_run]
     if: needs.should_run.outputs.result == 'true'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       CC: gcc-14
       CXX: g++-14
@@ -85,7 +85,7 @@ jobs:
     needs: [should_run]
     if: needs.should_run.outputs.result == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       CC: gcc-14
       CXX: g++-14
@@ -119,11 +119,156 @@ jobs:
       - name: Build
         run: ninja -C build -j$(nproc)
 
-  linux-amd64-sanitizer:
+  native-packages:
     needs: [should_run]
     if: needs.should_run.outputs.result == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: debian-13
+            target: debian:13
+            builder: deb
+          - id: ubuntu-24.04
+            target: ubuntu:24.04
+            builder: deb
+          - id: ubuntu-26.04
+            target: ubuntu:26.04
+            builder: deb
+          - id: fedora-43
+            target: fedora:43
+            builder: rpm
+          - id: opensuse-leap-16.0
+            target: opensuse/leap:16.0
+            builder: rpm
+          - id: opensuse-tumbleweed
+            target: opensuse/tumbleweed:latest
+            builder: rpm
+          - id: alpine-3
+            target: alpine:3
+            builder: apk
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.NIGHTLY_REF }}
+      - name: Build native packages
+        run: |
+          docker build --target export-untested \
+            --file "docker/Dockerfile.${{ matrix.builder }}" \
+            --build-arg "BASE_IMAGE=${{ matrix.target }}" \
+            --build-arg BUILD_JOBS=2 \
+            --output "nightly-out/${{ matrix.id }}" \
+            .
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          for package in "nightly-out/${{ matrix.id }}"/*.${{ matrix.builder }}; do
+            mv "${package}" "release/${{ matrix.id }}-${package##*/}"
+          done
+      - name: Upload native packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: packages-${{ matrix.id }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 3
+
+  native-packages-arm64:
+    needs: [should_run]
+    if: needs.should_run.outputs.result == 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: debian-13-arm64
+            target: debian:13
+            builder: deb
+          - id: fedora-43-arm64
+            target: fedora:43
+            builder: rpm
+          - id: alpine-3-arm64
+            target: alpine:3
+            builder: apk
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.NIGHTLY_REF }}
+      - name: Build native packages
+        run: |
+          docker build --target export-untested \
+            --file "docker/Dockerfile.${{ matrix.builder }}" \
+            --build-arg "BASE_IMAGE=${{ matrix.target }}" \
+            --build-arg BUILD_JOBS=2 \
+            --output "nightly-out/${{ matrix.id }}" \
+            .
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          for package in "nightly-out/${{ matrix.id }}"/*.${{ matrix.builder }}; do
+            mv "${package}" "release/${{ matrix.id }}-${package##*/}"
+          done
+      - name: Upload native packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: packages-${{ matrix.id }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 3
+
+  nightly-release:
+    needs: [native-packages, native-packages-arm64]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: write
+    concurrency:
+      group: nightly-release
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.NIGHTLY_REF }}
+      - name: Download native packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: packages-*
+          path: release-artifacts
+          merge-multiple: true
+      - name: Update nightly pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          NIGHTLY_SHA="$(git rev-parse HEAD)"
+          NOTES="Rolling development build for ${NIGHTLY_REF} at ${NIGHTLY_SHA}, updated $(date -u +'%Y-%m-%d %H:%M UTC'). Includes x86_64 and AArch64 packages; not a stable release."
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release edit nightly \
+              --target "${NIGHTLY_SHA}" \
+              --title "Nightly" \
+              --prerelease \
+              --notes "${NOTES}"
+          else
+            gh release create nightly \
+              --target "${NIGHTLY_SHA}" \
+              --title "Nightly" \
+              --prerelease \
+              --notes "${NOTES}"
+          fi
+          gh release upload nightly release-artifacts/* --clobber
+
+  linux-amd64-sanitizer:
+    needs: [should_run]
+    if: needs.should_run.outputs.result == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     env:
       CC: gcc-14
       CXX: g++-14
@@ -162,7 +307,7 @@ jobs:
     needs: [should_run]
     if: needs.should_run.outputs.result == 'true'
     runs-on: ubuntu-26.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       CC: clang
       CXX: clang++

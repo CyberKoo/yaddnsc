@@ -357,8 +357,9 @@ different limit. The RPM verification checks configuration and systemd metadata,
 installs both packages with the native package manager, queries every bundled
 driver, validates the installed configuration, and runs the installed SDK
 consumer checks. It also upgrades from RPM release 1 to release 2 and verifies
-that a modified `config.json` remains byte-for-byte unchanged. This repository
-has no release workflow.
+that a modified `config.json` remains byte-for-byte unchanged. Nightly package
+matrices feed a continuously updated `nightly` pre-release; there is no
+stable-release workflow.
 
 The APK helper builds runtime, development, and OpenRC packages with abuild,
 then runs `test/packaging/verify-apk.sh` in a clean Alpine container:

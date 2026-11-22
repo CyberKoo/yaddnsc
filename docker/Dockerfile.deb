@@ -64,5 +64,8 @@ RUN cmake --build build -j "${BUILD_JOBS}"
 RUN cpack --config build/CPackConfig.cmake -G DEB
 RUN mkdir -p /deb-out && mv yaddnsc*.deb /deb-out/
 
+FROM scratch AS export-untested
+COPY --from=builder /deb-out/*.deb /
+
 FROM scratch AS export
 COPY --from=builder /deb-out/*.deb /

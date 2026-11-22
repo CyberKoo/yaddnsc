@@ -56,7 +56,9 @@ yaddnsc 是一个动态 DNS 客户端。它按配置周期性地获取每条记�
 
 ## 安装
 
-目前不提供预编译软件包。可选方式为从源码构建、生成 Debian、RPM 或 Alpine 软件包，或构建容器镜像。
+预编译软件包可在 [GitHub Releases](https://github.com/CyberKoo/yaddnsc/releases) 获取，
+包括持续更新的 [Nightly 预发布版本](https://github.com/CyberKoo/yaddnsc/releases/tag/nightly)。
+也可以从源码构建、生成 Debian、RPM 或 Alpine 软件包，或构建容器镜像。
 
 ### 从源码构建
 
