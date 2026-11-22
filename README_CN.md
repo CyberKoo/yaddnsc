@@ -56,7 +56,7 @@ yaddnsc 是一个动态 DNS 客户端。它按配置周期性地获取每条记�
 
 ## 安装
 
-目前不提供预编译软件包。可选方式为从源码构建、生成 Debian 或 RPM 软件包，或构建容器镜像。
+目前不提供预编译软件包。可选方式为从源码构建、生成 Debian、RPM 或 Alpine 软件包，或构建容器镜像。
 
 ### 从源码构建
 
@@ -120,6 +120,12 @@ cpack --config build/CPackConfig.cmake -G DEB
 Fedora 和 openSUSE 的 RPM 构建提供用于客户端及内置驱动的 `yaddnsc`，以及用于
 插件开发的 `yaddnsc-devel`。运行时软件包在升级时会保留已修改的 `config.json`，
 并包含 systemd 集成。软件包构建方法见 [RPM 软件包构建](docs/development.md#rpm-package-build)。
+
+### Alpine 软件包
+
+Alpine 构建提供用于客户端及驱动的 `yaddnsc`、用于插件开发的 `yaddnsc-dev`，
+以及可选的 `yaddnsc-openrc` 服务软件包。升级时会保留已修改的配置。构建方法见
+[APK 软件包构建](docs/development.md#apk-package-build)。
 
 ### 容器镜像
 
@@ -414,6 +420,17 @@ journalctl -u yaddnsc
 单元默认读取 `/etc/yaddnsc/config.json`。如需使用其他路径，可在可选环境文件
 `/etc/yaddnsc/default/yaddnsc` 中设置 `YADDNSC_CONFIG`。由于服务以动态用户运行，
 配置文件须对服务可读，同时仍应拒绝无关账户访问。
+
+### Alpine 上的 OpenRC
+
+可选的 `yaddnsc-openrc` 软件包会安装 OpenRC 服务，配置文件路径由
+`/etc/conf.d/yaddnsc` 指定。
+
+```bash
+sudo rc-update add yaddnsc default
+sudo rc-service yaddnsc start
+sudo rc-service yaddnsc status
+```
 
 ## 故障排查
 

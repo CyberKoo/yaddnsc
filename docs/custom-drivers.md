@@ -223,8 +223,8 @@ services. The bundled drivers use the async SDK and therefore require ABI
 
 ## Recommended build
 
-Third-party drivers build against the installed SDK — `yaddnsc-dev` from DEB or
-`yaddnsc-devel` from RPM — with no host sources needed:
+Third-party drivers build against the installed SDK — `yaddnsc-dev` from DEB/APK
+or `yaddnsc-devel` from RPM — with no host sources needed:
 
 ```cmake
 find_package(yaddnsc CONFIG REQUIRED COMPONENTS plugin_sdk)  # + plugin_sdk_xml / plugin_sdk_crypto if needed
@@ -302,14 +302,14 @@ package, not the source tree.
 ## SDK distribution
 
 The SDK can be installed independently of the host so third-party drivers can build
-without the host sources. DEB and RPM packaging split these files into
-`yaddnsc` (binary, bundled drivers, config, systemd unit, shell completions)
-and `yaddnsc-dev` / `yaddnsc-devel` respectively (SDK headers, CMake metadata,
-helper headers, and examples):
+without the host sources. Native packaging splits these files into `yaddnsc`
+(binary, bundled drivers, config, service integration, shell completions) and
+the development package (`yaddnsc-dev` for DEB/APK or `yaddnsc-devel` for RPM),
+which contains SDK headers, CMake metadata, helper headers, and examples:
 
 - headers: `<prefix>/include/yaddnsc/sdk/` (the C ABI + C++ helper layer) and
   `<prefix>/include/yaddnsc/util/` (shared string/format/URL utilities);
-- CMake package: `${CMAKE_INSTALL_LIBDIR}/cmake/yaddnsc` for normal installs
+- CMake package: `${CMAKE_INSTALL_LIBDIR}/cmake/yaddnsc` for normal/APK installs
   (normally `<prefix>/lib/cmake/yaddnsc/`) or `share/cmake/yaddnsc` for DEB/RPM,
   exporting four components — `yaddnsc::plugin_abi`, `yaddnsc::plugin_sdk`
   (the default), `yaddnsc::plugin_sdk_xml`, and

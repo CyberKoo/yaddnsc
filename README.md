@@ -67,7 +67,7 @@ Driver parameters and credential requirements are documented in
 ## Installation
 
 No pre-built packages are published at this time. The options are building
-from source, producing Debian or RPM packages, or building a container image.
+from source, producing Debian, RPM, or Alpine packages, or building a container image.
 
 ### Build from Source
 
@@ -136,6 +136,13 @@ Fedora and openSUSE RPM builds provide `yaddnsc` for the client and bundled
 drivers, and `yaddnsc-devel` for plugin development. The runtime package
 preserves a modified `config.json` on upgrade and includes systemd integration.
 See [RPM package build](docs/development.md#rpm-package-build) for build instructions.
+
+### Alpine Package
+
+Alpine builds provide `yaddnsc` for the client and drivers, `yaddnsc-dev` for
+plugin development, and an optional `yaddnsc-openrc` service package. Modified
+configuration is preserved on upgrade. See
+[APK package build](docs/development.md#apk-package-build) for build instructions.
 
 ### Container Image
 
@@ -460,6 +467,17 @@ The unit reads `/etc/yaddnsc/config.json`. To use a different path, set
 `/etc/yaddnsc/default/yaddnsc`. Because the service runs under a dynamic user,
 the configuration file must be readable by the service while remaining
 inaccessible to unrelated accounts.
+
+### OpenRC on Alpine
+
+The optional `yaddnsc-openrc` package installs an OpenRC service. Its
+`/etc/conf.d/yaddnsc` file selects the configuration path.
+
+```bash
+sudo rc-update add yaddnsc default
+sudo rc-service yaddnsc start
+sudo rc-service yaddnsc status
+```
 
 ## Troubleshooting
 

@@ -77,6 +77,20 @@ DEB and RPM must use separate build directories because their native systemd
 paths can differ. Containerized build and installation verification is covered
 in [Testing](testing.md#tests).
 
+### APK package build
+
+Alpine uses `template/apk/APKBUILD` and abuild rather than CPack. The container
+entry point builds `yaddnsc`, `yaddnsc-dev`, and `yaddnsc-openrc` packages into
+`apk-out/`:
+
+```bash
+./docker/build-apk.sh alpine:3 --jobs 2
+```
+
+Targets must use `alpine:<tag>`. `--release N` selects the APK `pkgrel`, while
+`--jobs N` limits compile jobs. Containerized installation and upgrade checks
+are covered in [Testing](testing.md#tests).
+
 ### Build layout
 
 The root `CMakeLists.txt` orchestrates the build. Edit the module under `cmake/`

@@ -20,6 +20,7 @@ section here.
   packages, configuration preservation, systemd scripts, and containerized
   installation checks.
 - DEB container builds for Debian as well as Ubuntu.
+- Alpine APK packages with optional OpenRC integration and upgrade checks.
 
 ## [1.1.0] - 2026-11-21
 

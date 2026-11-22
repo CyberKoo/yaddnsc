@@ -1,0 +1,18 @@
+#!/sbin/openrc-run
+
+name="yaddnsc"
+description="Yet Another Dynamic DNS Client"
+command="/usr/bin/yaddnsc"
+command_args="run -c ${YADDNSC_CONFIG:-/etc/yaddnsc/config.json}"
+command_background="yes"
+command_user="yaddnsc:yaddnsc"
+pidfile="/run/${RC_SVCNAME}.pid"
+
+depend() {
+    need net
+    after firewall
+}
+
+start_pre() {
+    /usr/bin/yaddnsc config test -c "${YADDNSC_CONFIG:-/etc/yaddnsc/config.json}" -q
+}

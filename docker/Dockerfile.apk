@@ -1,0 +1,58 @@
+# Usage: docker build -f docker/Dockerfile.apk \
+#   --build-arg BASE_IMAGE=alpine:3 -o apk-out .
+
+ARG BASE_IMAGE=alpine:3
+
+FROM ${BASE_IMAGE} AS builder
+
+ARG YADDNSC_DEFAULT_DNS_SERVER=1.1.1.1
+ARG YADDNSC_DEFAULT_DNS_PORT=53
+ARG YADDNSC_APK_PACKAGE_RELEASE=0
+ARG BUILD_JOBS=2
+ARG CMAKE_EXTRA_ARGS=""
+
+ENV ABUILD_JOBS=${BUILD_JOBS} \
+    YADDNSC_DEFAULT_DNS_SERVER=${YADDNSC_DEFAULT_DNS_SERVER} \
+    YADDNSC_DEFAULT_DNS_PORT=${YADDNSC_DEFAULT_DNS_PORT} \
+    YADDNSC_CMAKE_EXTRA_ARGS=${CMAKE_EXTRA_ARGS}
+
+RUN . /etc/os-release && \
+    if [ "${ID}" != "alpine" ]; then \
+        echo "Unsupported APK base image: ${ID}; use alpine" >&2; \
+        exit 1; \
+    fi
+
+RUN apk add --no-cache \
+        abuild build-base cmake git openssl-dev libxml2-dev pkgconf samurai ca-certificates
+
+WORKDIR /build/apk
+COPY . /src
+
+RUN cp /src/template/apk/APKBUILD /src/template/apk/yaddnsc.pre-install \
+        /src/template/apk/yaddnsc.pre-deinstall . && \
+    sed -i "s/^pkgrel=0$/pkgrel=${YADDNSC_APK_PACKAGE_RELEASE}/" APKBUILD && \
+    abuild-keygen -a -n && \
+    cp /root/.abuild/*.rsa.pub /etc/apk/keys/ && \
+    abuild -F -P /apk-out
+
+RUN rm -rf /build/apk/pkg && \
+    sed -i 's/^pkgrel=.*$/pkgrel=0/' APKBUILD && \
+    abuild -F -P /apk-upgrade/v1 rootpkg && \
+    rm -rf /build/apk/pkg && \
+    sed -i 's/^pkgrel=.*$/pkgrel=1/' APKBUILD && \
+    abuild -F -P /apk-upgrade/v2 rootpkg
+
+RUN mkdir -p /apk-flat /apk-upgrade-flat/v1 /apk-upgrade-flat/v2 && \
+    find /apk-out -name '*.apk' -exec cp {} /apk-flat/ \; && \
+    find /apk-upgrade/v1 -name '*.apk' -exec cp {} /apk-upgrade-flat/v1/ \; && \
+    find /apk-upgrade/v2 -name '*.apk' -exec cp {} /apk-upgrade-flat/v2/ \;
+
+FROM ${BASE_IMAGE} AS verify
+
+COPY --from=builder /apk-flat /packages
+COPY --from=builder /apk-upgrade-flat /apk-upgrade
+COPY --chmod=0755 test/packaging/verify-apk.sh /usr/local/bin/verify-apk
+RUN apk add --no-cache bash && /usr/local/bin/verify-apk
+
+FROM scratch AS export
+COPY --from=verify /packages/*.apk /

@@ -360,6 +360,18 @@ consumer checks. It also upgrades from RPM release 1 to release 2 and verifies
 that a modified `config.json` remains byte-for-byte unchanged. This repository
 has no release workflow.
 
+The APK helper builds runtime, development, and OpenRC packages with abuild,
+then runs `test/packaging/verify-apk.sh` in a clean Alpine container:
+
+```bash
+./docker/build-apk.sh alpine:3 --jobs 2
+```
+
+The APK verification installs all three packages, checks the service integration
+and bundled drivers, validates the configuration, and runs the installed SDK
+consumer checks. It also upgrades from `pkgrel` 0 to 1 and verifies that a
+modified `config.json` remains byte-for-byte unchanged.
+
 ## Coverage
 
 The CI `coverage` job (see [ci.md](ci.md#ci-and-warning-gates)) runs this

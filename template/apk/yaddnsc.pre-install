@@ -1,0 +1,5 @@
+#!/bin/sh
+
+addgroup -S yaddnsc 2>/dev/null || true
+adduser -S -D -H -G yaddnsc -s /sbin/nologin yaddnsc 2>/dev/null || true
+exit 0
