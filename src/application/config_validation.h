@@ -13,7 +13,7 @@ struct RuntimeConfig;
 
 namespace app {
 
-class GatewayPort;
+class DriverValidationPort;
 
 /// How a driver without the optional validation entry is treated.
 enum class ConfigValidationMode {
@@ -39,17 +39,17 @@ struct ConfigValidationOutcome {
     std::string rejection;
 };
 
-/// Check each subdomain's driver parameters through the gateway, stopping at
-/// the first rejection. Each record gets its own `budget`, so one slow plugin
-/// cannot consume the whole sweep; a record that runs out stops the sweep and
-/// is reported as a rejection. Records sharing an identical (driver,
-/// driver_params) pair are validated once — a duplicate reuses the first
-/// verdict instead of another plugin round-trip. Cancellation (an ancestor
-/// scope, including the shutdown the signal watchers request) aborts the sweep
-/// and propagates; a validation call already inside a plugin is synchronous
-/// and runs to completion. Defects propagate. The borrowed gateway/config must
-/// outlive this loop-thread task.
-[[nodiscard]] coro::Task<ConfigValidationOutcome> validate_driver_configs(GatewayPort& gateway,
+/// Check each subdomain's driver parameters through the validation port,
+/// stopping at the first rejection. Each record gets its own `budget`, so one
+/// slow plugin cannot consume the whole sweep; a record that runs out stops
+/// the sweep and is reported as a rejection. Records sharing an identical
+/// (driver, driver_params) pair are validated once — a duplicate reuses the
+/// first verdict instead of another plugin round-trip. Cancellation (an
+/// ancestor scope, including the shutdown the signal watchers request) aborts
+/// the sweep and propagates; a validation call already inside a plugin is
+/// synchronous and runs to completion. Defects propagate. The borrowed
+/// validation port and config must outlive this loop-thread task.
+[[nodiscard]] coro::Task<ConfigValidationOutcome> validate_driver_configs(DriverValidationPort& gateway,
                                                                           const domain::RuntimeConfig& config,
                                                                           ConfigValidationMode mode,
                                                                           coro::Duration budget);

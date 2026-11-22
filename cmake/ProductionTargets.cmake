@@ -119,6 +119,7 @@ add_library(yaddnsc_domain STATIC
     src/domain/network/inet_address.cpp
     src/domain/error/dns_error.cpp
     src/domain/dns/record_kind.cpp
+    src/domain/driver/capabilities.cpp
     src/domain/address_policy.cpp
     src/domain/fqdn.cpp
 )
@@ -193,39 +194,35 @@ target_link_libraries(yaddnsc_ip_source_infrastructure
     PRIVATE yaddnsc_dns_classic spdlog::spdlog yaddnsc_fmt
 )
 
-# Plugin host infrastructure — the v1 C ABI loader, catalog and leases.
+# Plugin host — loading, immutable packages, catalog, ABI adapters and both
+# session protocols. These objects form one subsystem: package vtables create
+# sessions, so splitting them across static archives introduces a link cycle.
 add_library(yaddnsc_plugin_infrastructure STATIC
     src/infrastructure/plugin/shared_library.cpp
     src/infrastructure/plugin/plugin_loader.cpp
+    src/infrastructure/plugin/plugin_package.cpp
+    src/infrastructure/plugin/detail/entry_error.cpp
+    src/infrastructure/plugin/sync/package.cpp
+    src/infrastructure/plugin/async/package.cpp
     src/infrastructure/plugin/sync/driver_instance.cpp
     src/infrastructure/plugin/driver_catalog.cpp
+    src/infrastructure/plugin/driver_loader.cpp
+    src/infrastructure/plugin/driver_gateway.cpp
+    src/infrastructure/plugin/detail/abi_result.cpp
+    src/infrastructure/plugin/detail/host_services.cpp
+    src/infrastructure/plugin/detail/cycle_runner.cpp
+    src/infrastructure/plugin/sync/bridge.cpp
+    src/infrastructure/plugin/sync/host_services.cpp
+    src/infrastructure/plugin/sync/session.cpp
+    src/infrastructure/plugin/async/services.cpp
+    src/infrastructure/plugin/async/step.cpp
+    src/infrastructure/plugin/async/http.cpp
+    src/infrastructure/plugin/async/session.cpp
 )
 yaddnsc_production_module(yaddnsc_plugin_infrastructure)
 target_link_libraries(yaddnsc_plugin_infrastructure
     PUBLIC yaddnsc_application
-    PRIVATE spdlog::spdlog yaddnsc_fmt ${CMAKE_DL_LIBS}
-)
-
-# Coroutine plugin bridge — the worker ↔ loop HTTP bridge, Host Services over
-# it, and the coroutine driver gateway (src/infrastructure/plugin/).
-add_library(yaddnsc_coro_plugin STATIC
-    src/infrastructure/plugin/driver_gateway.cpp
-    src/infrastructure/plugin/detail/abi_result.cpp
-    src/infrastructure/plugin/detail/host_services.cpp
-    src/infrastructure/plugin/detail/cycle.cpp
-    src/infrastructure/plugin/sync/bridge.cpp
-    src/infrastructure/plugin/sync/host_services.cpp
-    src/infrastructure/plugin/sync/cycle.cpp
-    src/infrastructure/plugin/async/services.cpp
-    src/infrastructure/plugin/async/step.cpp
-    src/infrastructure/plugin/async/http.cpp
-    src/infrastructure/plugin/async/cycle.cpp
-    src/infrastructure/plugin/async/validation.cpp
-)
-yaddnsc_production_module(yaddnsc_coro_plugin)
-target_link_libraries(yaddnsc_coro_plugin
-    PUBLIC yaddnsc_plugin_infrastructure
-    PRIVATE yaddnsc_http yaddnsc_net spdlog::spdlog yaddnsc_fmt
+    PRIVATE yaddnsc_http yaddnsc_net spdlog::spdlog yaddnsc_fmt ${CMAKE_DL_LIBS}
 )
 
 # Coroutine application layer — the per-subdomain scheduling coroutines, the run
@@ -258,17 +255,6 @@ target_link_libraries(yaddnsc_coro_ip_source
     PRIVATE yaddnsc_ip_source_infrastructure spdlog::spdlog yaddnsc_fmt
 )
 
-# Concrete adapters stay separate so their target dependencies express their
-# actual ports and infrastructure requirements.
-add_library(yaddnsc_plugin_loader_adapter STATIC
-    src/infrastructure/plugin/driver_loader.cpp
-)
-yaddnsc_production_module(yaddnsc_plugin_loader_adapter)
-target_link_libraries(yaddnsc_plugin_loader_adapter
-    PUBLIC yaddnsc_plugin_infrastructure
-    PRIVATE spdlog::spdlog yaddnsc_fmt
-)
-
 add_library(yaddnsc_logging_adapter STATIC
     src/infrastructure/logging/async_logging.cpp
     src/infrastructure/logging/spdlog_logger.cpp
@@ -287,7 +273,7 @@ add_library(yaddnsc_cli_adapter STATIC
 yaddnsc_production_module(yaddnsc_cli_adapter)
 target_link_libraries(yaddnsc_cli_adapter
     PUBLIC yaddnsc_application
-    PRIVATE CLI11::CLI11 magic_enum yaddnsc_fmt yaddnsc_net yaddnsc_uri
+    PRIVATE CLI11::CLI11 magic_enum yaddnsc_fmt
 )
 
 # Composition root — assembles concrete dependencies and dispatches commands.
@@ -307,12 +293,11 @@ target_link_libraries(yaddnsc_composition
         yaddnsc_coro_dns
         yaddnsc_ip_source_infrastructure
         yaddnsc_plugin_infrastructure
-        yaddnsc_plugin_loader_adapter
         yaddnsc_logging_adapter
         yaddnsc_net
+        yaddnsc_uri
         yaddnsc_cli_adapter
         yaddnsc_coro_application
         yaddnsc_coro_ip_source
-        yaddnsc_coro_plugin
     PRIVATE spdlog::spdlog magic_enum yaddnsc_fmt
 )

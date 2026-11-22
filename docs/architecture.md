@@ -38,7 +38,9 @@ its script and is not restated here.
   through injection and never includes a concrete sibling; adapters bind
   ports to implementations.
 - `src/cli/`: argument parsing and output presentation. User-facing output is
-  presentation, not logging.
+  presentation, not logging. Presenters consume structured views and do not
+  parse configuration or reach infrastructure; composition owns those
+  translations.
 - `src/composition/`: the composition root — the only place concrete
   infrastructure is assembled. Shared assembly recipes live here, so no
   command handler re-derives them.
@@ -96,15 +98,26 @@ driver-authoring guide is [custom-drivers.md](custom-drivers.md).
 
 Host-side wiring:
 
-- The loader fixes one execution group per module. A synchronous cycle runs
-  on an offload worker; an asynchronous cycle is driven as loop-side steps
-  whose HTTP waits occupy no worker.
+- The loader validates one execution group and produces an immutable driver
+  package. The package owns the loaded image, its descriptor and the canonical
+  record capabilities; raw ABI bits and loading state do not escape it. The
+  catalog is only a package registry, while package creation and registration
+  are coordinated by composition.
+- The gateway checks capabilities and asks the package for a protocol session;
+  it does not branch on the execution mode. Synchronous sessions occupy an
+  offload worker for the ABI cycle. Asynchronous sessions are driven as
+  loop-side steps whose HTTP waits occupy no worker.
+- One cycle runner owns cancellation, result publication, defect observation
+  and subscriber release for every protocol. Each session drains its real
+  worker/HTTP resources before publication. Async HTTP has its own actor:
+  protocol steps submit commands and consume immutable completion events
+  instead of sharing mutable operation state with HTTP tasks.
 - Host Services contexts track a cycle's phase and are destroyed with it;
-  HTTP is accepted only during an update.
-- The host owns the HTTP client and the log sink behind Host Services, and
-  calls every plugin entry point through an exception firewall.
-- Each update runs on a fresh driver instance; instances of one module may
-  update concurrently, each instance serving one update at a time.
+  HTTP is accepted only during an update. The host owns the HTTP client and
+  log sink, and calls every plugin entry through an exception firewall.
+- Each update runs on a fresh driver instance. Package leases keep the loaded
+  image alive until every instance and callback has retired; instances of one
+  package may update concurrently, each serving one update at a time.
 
 See [plugin-abi.md](plugin-abi.md) before changing the interface, and
 [custom-drivers.md](custom-drivers.md) before building a module outside the

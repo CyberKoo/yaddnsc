@@ -269,13 +269,17 @@ TEST(CliConfigTest, RunTest_EmptyDriverDir_ReturnsFailure) {
     // driver_dir set but empty → ConfigException at load time.
     TempConfigFile cfg(
         R"({"drivers":{"auto_discover":false,"driver_dir":"","load":["simple/simple.so"]},"resolver":{"use_custom_servers":false},"domains":[]})");
+    StreamCapture err{STDERR_FILENO};
     EXPECT_EQ(Composition::run(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
+    EXPECT_NE(err.str().find("Configuration verification failed:"), std::string::npos);
 }
 
 TEST(CliConfigTest, RunTest_BadDriver_ReturnsFailure) {
     // A driver file that does not exist → PluginLoadException (YaddnscException).
     TempConfigFile cfg(config_bad_driver());
+    StreamCapture err{STDERR_FILENO};
     EXPECT_EQ(Composition::run(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
+    EXPECT_NE(err.str().find("Fatal error: unrecoverable exception:"), std::string::npos);
 }
 
 TEST(CliConfigTest, RunTest_EmptyCustomResolverFailsBeforeDriverLoading) {

@@ -1,9 +1,10 @@
 /// Plugin lifecycle contract tests for the v1 ABI: descriptor validation, create → update → destroy ordering,
-/// concurrent instances of one module, module lease vs. dlclose ordering, and the loader's rejection matrix (missing
+/// concurrent instances of one package, package lease vs. dlclose ordering, and the loader's rejection matrix (missing
 /// file/symbols, magic, revision, descriptor struct_size) including the manual-load fail-fast vs. auto-discover skip
 /// policy from the README behaviour table.
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -11,6 +12,7 @@
 #include <filesystem>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -26,13 +28,17 @@
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "domain/config/runtime_config.h"
+#include "domain/dns/record_kind.h"
+#include "infrastructure/plugin/async/package.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_loader.h"
 #include "infrastructure/plugin/plugin_error.h"
-#include "infrastructure/plugin/plugin_load_exception.h"
 #include "infrastructure/plugin/plugin_loader.h"
+#include "infrastructure/plugin/plugin_package.h"
 #include "infrastructure/plugin/shared_library.h"
 #include "infrastructure/plugin/sync/driver_instance.h"
+#include "infrastructure/plugin/sync/package.h"
+#include "mocks/allocation_fault.h"
 #include "plugin/plugin_test_doubles.h"
 
 namespace {
@@ -72,23 +78,25 @@ struct PluginControl {
 }  // namespace
 
 TEST(PluginLifecycle, DescriptorIsCopiedIntoHostStorage) {
-    auto module = PluginModule::load(std::string(PLUGIN_PATH));
-    ASSERT_TRUE(module.has_value()) << module.error().message;
+    auto loaded = test::load_sync_package(std::string(PLUGIN_PATH));
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
 
-    const auto& descriptor = module->descriptor();
+    const auto& package = *loaded;
+    const auto& descriptor = package->descriptor();
     EXPECT_EQ(descriptor.name, "test_driver_plugin");
     EXPECT_EQ(descriptor.version, "0.0.0");
     EXPECT_EQ(descriptor.author, "yaddnsc");
     EXPECT_EQ(descriptor.description, "Contract-test whiteboard driver");
-    EXPECT_EQ(descriptor.capabilities, YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA);
+    EXPECT_TRUE(package->capabilities().supports(domain::RecordKind::A));
+    EXPECT_TRUE(package->capabilities().supports(domain::RecordKind::AAAA));
+    EXPECT_FALSE(package->capabilities().supports(domain::RecordKind::TXT));
     EXPECT_EQ(descriptor.abi_major, YADDNSC_DRIVER_ABI_MAJOR);
     EXPECT_EQ(descriptor.abi_minor, UINT16_C(0));  // the whiteboard plugin declares its minimum as ABI 1.0
-    EXPECT_EQ(module->mode(), ExecutionMode::Sync);
 }
 
 TEST(PluginLifecycle, CreateUpdateDestroyOrdering) {
-    auto module = PluginModule::load(std::string(PLUGIN_PATH));
-    ASSERT_TRUE(module.has_value()) << module.error().message;
+    auto loaded = test::load_sync_package(std::string(PLUGIN_PATH));
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
     auto control = resolve_control();
     ASSERT_NE(control.reset_state, nullptr);
     ASSERT_NE(control.get_state, nullptr);
@@ -97,7 +105,7 @@ TEST(PluginLifecycle, CreateUpdateDestroyOrdering) {
     {
         HostUpdateContext host;
         const auto services = host.context.make_services();
-        const auto result = run_module_cycle(*module, services, R"({"op":"success"})");
+        const auto result = run_sync_cycle(**loaded, services, R"({"op":"success"})");
         ASSERT_EQ(result.update_status, YADDNSC_STATUS_OK) << result.error_message;
     }
 
@@ -111,22 +119,22 @@ TEST(PluginLifecycle, CreateUpdateDestroyOrdering) {
 }
 
 TEST(PluginLifecycle, ConcurrentInstancesOfOneModule) {
-    auto module = PluginModule::load(std::string(PLUGIN_PATH));
-    ASSERT_TRUE(module.has_value()) << module.error().message;
+    auto loaded = test::load_sync_package(std::string(PLUGIN_PATH));
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
     auto control = resolve_control();
     ASSERT_NE(control.reset_state, nullptr);
     ASSERT_NE(control.get_state, nullptr);
     control.reset_state();
 
-    // Two instances of the same module may be updated concurrently.
+    // Two instances of the same package may be updated concurrently.
     constexpr size_t THREAD_COUNT = 4;
-    std::array<ModuleCycleResult, THREAD_COUNT> results{};
+    std::array<SyncCycleResult, THREAD_COUNT> results{};
     std::array<std::thread, THREAD_COUNT> threads{};
     for (size_t i = 0; i < THREAD_COUNT; ++i) {
         threads[i] = std::thread([&, i] {
             HostUpdateContext host;
             const auto services = host.context.make_services();
-            results[i] = run_module_cycle(*module, services, R"({"op":"success"})");
+            results[i] = run_sync_cycle(**loaded, services, R"({"op":"success"})");
         });
     }
     for (auto& thread : threads) {
@@ -147,10 +155,16 @@ TEST(PluginLifecycle, ConcurrentInstancesOfOneModule) {
 
 TEST(PluginLifecycle, InstanceLeaseKeepsModuleAliveAfterCatalogRemoval) {
     DriverCatalog catalog;
-    ASSERT_NO_THROW(catalog.load_driver(std::string(PLUGIN_PATH)));
+    {
+        // The catalog keeps the only package reference: the test proves that
+        // the instance lease alone keeps the image mapped afterwards.
+        auto loaded = test::load_sync_package(std::string(PLUGIN_PATH));
+        ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+        catalog.register_package(*loaded);
+    }
 
-    auto module = catalog.find("test_driver_plugin");
-    ASSERT_NE(module, nullptr);
+    auto package = std::dynamic_pointer_cast<const plugin::SyncPluginPackage>(catalog.find("test_driver_plugin"));
+    ASSERT_NE(package, nullptr);
 
     HostUpdateContext host;
     const auto services = host.context.make_services();
@@ -158,14 +172,14 @@ TEST(PluginLifecycle, InstanceLeaseKeepsModuleAliveAfterCatalogRemoval) {
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     yaddnsc_driver* handle = nullptr;
-    ASSERT_EQ(module->create(services, &handle, error), YADDNSC_STATUS_OK);
+    ASSERT_EQ(package->create(services, &handle, error), YADDNSC_STATUS_OK);
     ASSERT_NE(handle, nullptr);
 
     // The instance holds the only remaining lease after the catalog entry is
     // removed; the plugin code must stay mapped until destroy() has run.
-    DriverInstance instance(module, handle);
+    DriverInstance instance(package, handle);
     ASSERT_NO_THROW(catalog.unload_driver("test_driver_plugin"));
-    EXPECT_TRUE(catalog.get_loaded_drivers().empty());
+    EXPECT_TRUE(catalog.loaded_drivers().empty());
 
     const auto request =
         make_update_request("192.0.2.1", "A", "example.com", "www", "www.example.com", R"({"op":"success"})");
@@ -178,7 +192,11 @@ TEST(PluginLifecycle, InstanceLeaseKeepsModuleAliveAfterCatalogRemoval) {
 
 TEST(PluginLifecycle, DestroyRunsAfterFailedUpdate) {
     DriverCatalog catalog;
-    ASSERT_NO_THROW(catalog.load_driver(std::string(PLUGIN_PATH)));
+    {
+        auto loaded = test::load_sync_package(std::string(PLUGIN_PATH));
+        ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+        catalog.register_package(*loaded);
+    }
 
     auto control = resolve_control();
     ASSERT_NE(control.reset_state, nullptr);
@@ -192,18 +210,18 @@ TEST(PluginLifecycle, DestroyRunsAfterFailedUpdate) {
 
     yaddnsc_driver* handle = nullptr;
     {
-        auto module = catalog.find("test_driver_plugin");
-        ASSERT_NE(module, nullptr);
-        ASSERT_EQ(module->create(services, &handle, error), YADDNSC_STATUS_OK);
+        auto package = std::dynamic_pointer_cast<const plugin::SyncPluginPackage>(catalog.find("test_driver_plugin"));
+        ASSERT_NE(package, nullptr);
+        ASSERT_EQ(package->create(services, &handle, error), YADDNSC_STATUS_OK);
         ASSERT_NE(handle, nullptr);
 
         // The instance holds the only remaining lease once the catalog entry
         // is gone; a failed update must not skip destroy(), and destroy()
         // must still run before the module is dlclose'd.
-        DriverInstance instance(module, handle);
-        module.reset();
+        DriverInstance instance(package, handle);
+        package.reset();
         ASSERT_NO_THROW(catalog.unload_driver("test_driver_plugin"));
-        EXPECT_TRUE(catalog.get_loaded_drivers().empty());
+        EXPECT_TRUE(catalog.loaded_drivers().empty());
 
         const auto request =
             make_update_request("192.0.2.1", "A", "example.com", "www", "www.example.com",
@@ -231,18 +249,19 @@ TEST(PluginLifecycle, DestroyRunsAfterFailedUpdate) {
 // ===========================================================================
 
 TEST(PluginLifecycle, LoaderRejectsMissingFile) {
-    DriverCatalog catalog;
-    try {
-        catalog.load_driver("/nonexistent/driver.so");
-        FAIL() << "expected PluginLoadException";
-    } catch (const PluginLoadException& e) {
-        EXPECT_THAT(std::string(e.what()),
-                    ::testing::HasSubstr("Driver library 'driver.so' not found at /nonexistent/driver.so"));
-    }
+    domain::DriverSettings settings;
+    settings.auto_discover = false;
+    settings.load.emplace_back("/nonexistent/driver.so");  // absolute path is used as-is
+
+    const auto loaded = DriverLoader::load(settings);
+    ASSERT_FALSE(loaded.has_value());
+    EXPECT_EQ(loaded.error().code, plugin::DriverLoadError::Code::LOAD_FAILED);
+    EXPECT_THAT(loaded.error().message,
+                ::testing::HasSubstr("Driver library 'driver.so' not found at /nonexistent/driver.so"));
 }
 
 TEST(PluginLifecycle, LoaderRejectsWrongRevision) {
-    auto module = PluginModule::load(BAD_REVISION_FIXTURE);
+    auto module = PluginLoader::load(BAD_REVISION_FIXTURE);
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(BAD_REVISION_FIXTURE));
@@ -252,7 +271,7 @@ TEST(PluginLifecycle, LoaderRejectsWrongRevision) {
 }
 
 TEST(PluginLifecycle, LoaderRejectsWrongMagic) {
-    auto module = PluginModule::load(BAD_MAGIC_FIXTURE);
+    auto module = PluginLoader::load(BAD_MAGIC_FIXTURE);
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("is not a valid yaddnsc driver (magic mismatch)"));
@@ -260,7 +279,7 @@ TEST(PluginLifecycle, LoaderRejectsWrongMagic) {
 }
 
 TEST(PluginLifecycle, LoaderRejectsMissingEntryPoints) {
-    auto module = PluginModule::load(MISSING_SYMBOL_FIXTURE);
+    auto module = PluginLoader::load(MISSING_SYMBOL_FIXTURE);
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, plugin::PluginError::Code::MISSING_SYMBOL);
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("does not export the required v1 entry points"));
@@ -269,7 +288,7 @@ TEST(PluginLifecycle, LoaderRejectsMissingEntryPoints) {
 }
 
 TEST(PluginLifecycle, LoaderRejectsNewerMinor) {
-    auto module = PluginModule::load(NEWER_MINOR_FIXTURE);
+    auto module = PluginLoader::load(NEWER_MINOR_FIXTURE);
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(NEWER_MINOR_FIXTURE));
@@ -279,7 +298,7 @@ TEST(PluginLifecycle, LoaderRejectsNewerMinor) {
 }
 
 TEST(PluginLifecycle, LoaderRejectsBaselineBelowAbi10) {
-    auto module = PluginModule::load(SHORT_DESCRIPTOR_FIXTURE);
+    auto module = PluginLoader::load(SHORT_DESCRIPTOR_FIXTURE);
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(SHORT_DESCRIPTOR_FIXTURE));
@@ -287,7 +306,7 @@ TEST(PluginLifecycle, LoaderRejectsBaselineBelowAbi10) {
 }
 
 TEST(PluginLifecycle, LoaderRejectsTruncatedDescriptor) {
-    auto module = PluginModule::load(SMALL_DESCRIPTOR_FIXTURE);
+    auto module = PluginLoader::load(SMALL_DESCRIPTOR_FIXTURE);
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
     EXPECT_THAT(module.error().message,
@@ -305,12 +324,134 @@ TEST(PluginLifecycle, LoaderRejectsInvalidDescriptorViewsAndCapabilities) {
     };
 
     for (const auto& [path, field] : fixtures) {
-        auto module = PluginModule::load(std::string(path));
+        auto module = PluginLoader::load(std::string(path));
         ASSERT_FALSE(module.has_value()) << path;
         EXPECT_EQ(module.error().code, plugin::PluginError::Code::CONTRACT_VIOLATION) << path;
         EXPECT_THAT(module.error().message, ::testing::HasSubstr(path)) << path;
         EXPECT_THAT(module.error().message, ::testing::HasSubstr(field)) << path;
     }
+}
+
+// ===========================================================================
+//  Descriptor exception firewall — a plugin whose get_descriptor() throws
+//  across the C ABI. The loader is the boundary that contains the escape: it
+//  must report a contract violation and let no exception reach the caller,
+//  not even std::bad_alloc and not a second exception raised while the
+//  detailed diagnostic is being formatted.
+// ===========================================================================
+
+TEST(PluginLifecycle, LoaderContainsDescriptorRuntimeError) {
+    // A standard exception keeps its detail: the path and the what() text.
+    const auto module = PluginLoader::load(THROWING_DESCRIPTOR_RUNTIME_ERROR_FIXTURE);
+
+    ASSERT_FALSE(module.has_value());
+    EXPECT_EQ(module.error().code, plugin::PluginError::Code::CONTRACT_VIOLATION);
+    const std::string diagnostic(module.error().diagnostic());
+    EXPECT_THAT(diagnostic, ::testing::HasSubstr("get_descriptor() threw"));
+    EXPECT_THAT(diagnostic, ::testing::HasSubstr("descriptor exploded"));
+    EXPECT_THAT(diagnostic, ::testing::HasSubstr(THROWING_DESCRIPTOR_RUNTIME_ERROR_FIXTURE));
+}
+
+TEST(PluginLifecycle, LoaderContainsNonStandardDescriptorException) {
+    // An exception outside the std::exception hierarchy has no what() text;
+    // the loader still reports where the escape happened.
+    const auto module = PluginLoader::load(THROWING_DESCRIPTOR_NON_STD_FIXTURE);
+
+    ASSERT_FALSE(module.has_value());
+    EXPECT_EQ(module.error().code, plugin::PluginError::Code::CONTRACT_VIOLATION);
+    const std::string diagnostic(module.error().diagnostic());
+    EXPECT_THAT(diagnostic, ::testing::HasSubstr("unknown exception"));
+    EXPECT_THAT(diagnostic, ::testing::HasSubstr(THROWING_DESCRIPTOR_NON_STD_FIXTURE));
+}
+
+TEST(PluginLifecycle, LoaderContainsDescriptorBadAllocWithoutFormatting) {
+    // An out-of-memory exception is answered with the static fallback: no
+    // detailed text is built, because building one would need the very
+    // resource the plugin exhausted.
+    const auto module = PluginLoader::load(THROWING_DESCRIPTOR_BAD_ALLOC_FIXTURE);
+
+    ASSERT_FALSE(module.has_value());
+    EXPECT_EQ(module.error().code, plugin::PluginError::Code::CONTRACT_VIOLATION);
+    EXPECT_TRUE(module.error().message.empty());
+    EXPECT_FALSE(module.error().diagnostic().empty());
+}
+
+namespace {
+
+/// Allocation-fault injection state for the loader's diagnostic firewall.
+///
+/// The replaced global allocator calls the armed hook for every allocation;
+/// the hook fails the g_fail_at-th allocation of the armed window.
+std::size_t g_allocations_seen = 0;
+std::size_t g_fail_at = 0;
+
+void fail_selected_allocation(std::size_t /*size*/) {
+    ++g_allocations_seen;
+    if (g_fail_at != 0 && g_allocations_seen == g_fail_at) {
+        throw std::bad_alloc{};
+    }
+}
+
+}  // namespace
+
+TEST(PluginLifecycle, DescriptorDiagnosticFallsBackWhenFormattingFails) {
+    // A failure while the detailed diagnostic is formatted must not become a
+    // second exception crossing the loader boundary: the static fallback
+    // answers it.
+    //
+    // The non-standard fixture is used on purpose: it throws without
+    // allocating, so an injected allocation fault can only be absorbed by the
+    // host's diagnostic formatting. The allocation index is swept because it
+    // is an implementation detail of the formatter.
+    constexpr std::size_t MAX_INJECTED_ALLOCATIONS = 64;
+
+    // Baseline: without an injected fault the detailed diagnostic is built.
+    {
+        const auto module = PluginLoader::load(THROWING_DESCRIPTOR_NON_STD_FIXTURE);
+        ASSERT_FALSE(module.has_value());
+        EXPECT_FALSE(module.error().message.empty());
+    }
+
+    bool saw_fallback = false;
+    for (std::size_t fail_at = 1; fail_at <= MAX_INJECTED_ALLOCATIONS && !saw_fallback; ++fail_at) {
+        std::expected<std::shared_ptr<const plugin::PluginPackage>, plugin::PluginError> module;
+        g_fail_at = fail_at;
+        g_allocations_seen = 0;
+        test::set_allocation_fault_hook(&fail_selected_allocation);
+        try {
+            module = PluginLoader::load(THROWING_DESCRIPTOR_NON_STD_FIXTURE);
+        } catch (const std::bad_alloc&) {
+            // The injected fault hit a host-side allocation outside the
+            // plugin's exception handling. That is a host defect, not the
+            // loader's contract; the next index targets the diagnostic.
+        }
+        test::set_allocation_fault_hook(nullptr);
+        g_fail_at = 0;
+
+        if (!module) {
+            std::optional<plugin::PluginError> error = std::move(module.error());
+            saw_fallback = error->message.empty() && !error->diagnostic().empty();
+        }
+    }
+    EXPECT_TRUE(saw_fallback) << "no injected allocation failure reached the diagnostic formatting";
+}
+
+// ===========================================================================
+//  Path validation — an embedded NUL byte must be rejected before the path
+//  reaches dlopen(), which takes a C string and would truncate it there.
+// ===========================================================================
+
+TEST(PluginLifecycle, SharedLibraryRejectsPathWithEmbeddedNul) {
+    // Without the rejection the path would be truncated at the NUL and a
+    // different image — the real plugin — would be loaded.
+    std::string path{PLUGIN_PATH};
+    path.push_back('\0');
+    path += "ignored";
+
+    const auto library = SharedLibrary::open(path);
+
+    ASSERT_FALSE(library.has_value());
+    EXPECT_THAT(library.error(), ::testing::HasSubstr("embedded NUL byte"));
 }
 
 // ===========================================================================
@@ -320,15 +461,15 @@ TEST(PluginLifecycle, LoaderRejectsInvalidDescriptorViewsAndCapabilities) {
 TEST(PluginLifecycle, LoaderAcceptsPluginWithoutOptionalValidateEntry) {
     // A complete plugin built against an SDK predating yaddnsc_driver_validate
     // must load exactly like before — the missing entry is not an error.
-    auto module = PluginModule::load(NO_VALIDATE_FIXTURE);
+    auto module = PluginLoader::load(NO_VALIDATE_FIXTURE);
     ASSERT_TRUE(module.has_value()) << module.error().message;
-    EXPECT_EQ(module->descriptor().name, "no_validate");
-    EXPECT_FALSE(module->supports_validate());
+    EXPECT_EQ((*module)->descriptor().name, "no_validate");
+    EXPECT_FALSE((*module)->supports_validate());
 }
 
 TEST(PluginLifecycle, LoaderValidateFailsClosedWhenEntryIsMissing) {
-    auto module = PluginModule::load(NO_VALIDATE_FIXTURE);
-    ASSERT_TRUE(module.has_value()) << module.error().message;
+    auto loaded = test::load_sync_package(NO_VALIDATE_FIXTURE);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
 
     // The trampoline fails closed without calling a plugin: without the entry
     // the host cannot confirm driver_params, so the absence is a validation
@@ -336,16 +477,16 @@ TEST(PluginLifecycle, LoaderValidateFailsClosedWhenEntryIsMissing) {
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     const yaddnsc_string param{R"({"anything":true})", 16};
-    EXPECT_EQ(module->validate(nullptr, param, error), YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_EQ((*loaded)->validate(nullptr, param, error), YADDNSC_STATUS_INVALID_CONFIG);
     EXPECT_EQ(error.status, YADDNSC_STATUS_INVALID_CONFIG);
     EXPECT_THAT(std::string(error.message.data, error.message.size),
                 ::testing::HasSubstr("does not export yaddnsc_driver_validate"));
 }
 
 TEST(PluginLifecycle, ValidateEntryAvailableOnCurrentSdkPlugin) {
-    auto module = PluginModule::load(std::string(PLUGIN_PATH));
+    auto module = PluginLoader::load(std::string(PLUGIN_PATH));
     ASSERT_TRUE(module.has_value()) << module.error().message;
-    EXPECT_TRUE(module->supports_validate());
+    EXPECT_TRUE((*module)->supports_validate());
 }
 
 // ===========================================================================
@@ -356,22 +497,22 @@ TEST(PluginLifecycle, ValidateEntryAvailableOnCurrentSdkPlugin) {
 // ===========================================================================
 
 TEST(PluginLifecycle, EntryFirewallTranslatesCreateException) {
-    auto module = PluginModule::load(THROWING_FIXTURE);
-    ASSERT_TRUE(module.has_value()) << module.error().message;
+    auto loaded = test::load_sync_package(THROWING_FIXTURE);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
 
     HostUpdateContext host;
     const auto services = host.context.make_services();
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     yaddnsc_driver* handle = nullptr;
-    EXPECT_EQ(module->create(services, &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ((*loaded)->create(services, &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
     EXPECT_EQ(handle, nullptr);
     EXPECT_EQ(std::string(error.message.data, error.message.size), "create exploded");
 }
 
 TEST(PluginLifecycle, EntryFirewallTranslatesUpdateException) {
-    auto module = PluginModule::load(THROWING_FIXTURE);
-    ASSERT_TRUE(module.has_value()) << module.error().message;
+    auto loaded = test::load_sync_package(THROWING_FIXTURE);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
 
     // create throws, so no real handle exists; the fixture's update throws
     // before touching the handle and the firewall must still translate it.
@@ -380,13 +521,13 @@ TEST(PluginLifecycle, EntryFirewallTranslatesUpdateException) {
     int token = 0;
     auto* handle = reinterpret_cast<yaddnsc_driver*>(&token);  // NOLINT
     const auto request = make_update_request("192.0.2.1", "A", "example.com", "www", "www.example.com", "{}");
-    EXPECT_EQ(module->update(handle, request, error), YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ((*loaded)->update(handle, request, error), YADDNSC_STATUS_INTERNAL_ERROR);
     EXPECT_EQ(std::string(error.message.data, error.message.size), "update exploded");
 }
 
 TEST(PluginLifecycle, EntryFirewallTranslatesValidateException) {
-    auto module = PluginModule::load(THROWING_FIXTURE);
-    ASSERT_TRUE(module.has_value()) << module.error().message;
+    auto loaded = test::load_sync_package(THROWING_FIXTURE);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
 
     // validate throws a non-std type → the catch-all arm reports the generic
     // wording rather than the exception's (nonexistent) what().
@@ -395,23 +536,22 @@ TEST(PluginLifecycle, EntryFirewallTranslatesValidateException) {
     int token = 0;
     auto* handle = reinterpret_cast<yaddnsc_driver*>(&token);  // NOLINT
     const yaddnsc_string param{"{}", 2};
-    EXPECT_EQ(module->validate(handle, param, error), YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ((*loaded)->validate(handle, param, error), YADDNSC_STATUS_INTERNAL_ERROR);
     EXPECT_EQ(std::string(error.message.data, error.message.size), "unknown exception from plugin validate");
 }
 
 TEST(PluginLifecycle, DestroyFirewallContainsPluginException) {
-    auto module = PluginModule::load(THROWING_FIXTURE);
-    ASSERT_TRUE(module.has_value()) << module.error().message;
+    auto loaded = test::load_sync_package(THROWING_FIXTURE);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
 
     int token = 0;
     auto* handle = reinterpret_cast<yaddnsc_driver*>(&token);  // NOLINT
-    EXPECT_NO_THROW(module->destroy(handle));
+    EXPECT_NO_THROW((*loaded)->destroy(handle));
 }
 
 TEST(PluginLifecycle, AsyncDestroyFailureIsFatal) {
-    auto module = PluginModule::load(ASYNC_THROWING_DESTROY_FIXTURE);
-    ASSERT_TRUE(module.has_value()) << module.error().message;
-    ASSERT_EQ(module->mode(), ExecutionMode::Async);
+    auto loaded = test::load_async_package(ASYNC_THROWING_DESTROY_FIXTURE);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
 
     yaddnsc_async_services services{};
     services.struct_size = static_cast<uint32_t>(sizeof(services));
@@ -420,15 +560,15 @@ TEST(PluginLifecycle, AsyncDestroyFailureIsFatal) {
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     yaddnsc_async_driver* handle = nullptr;
-    ASSERT_EQ(module->async_create(services, &handle, error), YADDNSC_STATUS_OK);
+    ASSERT_EQ((*loaded)->async_create(services, &handle, error), YADDNSC_STATUS_OK);
     ASSERT_NE(handle, nullptr);
 
-    EXPECT_DEATH(module->async_destroy(handle), "");
+    EXPECT_DEATH((*loaded)->async_destroy(handle), "");
 }
 
 TEST(PluginLifecycle, DestroyFirewallContainsNonStdException) {
-    auto module = PluginModule::load(THROWING_DESTROY_FIXTURE);
-    ASSERT_TRUE(module.has_value()) << module.error().message;
+    auto loaded = test::load_sync_package(THROWING_DESTROY_FIXTURE);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
 
     // create/update succeed so the cycle reaches destroy; destroy throws a
     // non-std type (int) — the catch-all firewall arm must swallow the
@@ -439,14 +579,14 @@ TEST(PluginLifecycle, DestroyFirewallContainsNonStdException) {
     error.struct_size = static_cast<uint32_t>(sizeof(error));
 
     yaddnsc_driver* handle = nullptr;
-    ASSERT_EQ(module->create(services, &handle, error), YADDNSC_STATUS_OK);
+    ASSERT_EQ((*loaded)->create(services, &handle, error), YADDNSC_STATUS_OK);
     ASSERT_NE(handle, nullptr);
 
     const auto request = make_update_request("192.0.2.1", "A", "example.com", "www", "www.example.com", "{}");
-    EXPECT_EQ(module->update(handle, request, error), YADDNSC_STATUS_OK)
+    EXPECT_EQ((*loaded)->update(handle, request, error), YADDNSC_STATUS_OK)
         << std::string_view(error.message.data, error.message.size);
 
-    EXPECT_NO_THROW(module->destroy(handle));
+    EXPECT_NO_THROW((*loaded)->destroy(handle));
 }
 
 // ===========================================================================
@@ -457,8 +597,8 @@ TEST(PluginLifecycle, DestroyFirewallContainsNonStdException) {
 // ===========================================================================
 
 TEST(PluginLifecycle, CreateFailureAfterStoringHandleDestroysAndClearsIt) {
-    auto module = PluginModule::load(LEAKY_CREATE_FIXTURE);
-    ASSERT_TRUE(module.has_value()) << module.error().message;
+    auto loaded = test::load_sync_package(LEAKY_CREATE_FIXTURE);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
 
     // Second dlopen of the same module: shares the fixture's globals and
     // keeps the mapping alive for the control exports.
@@ -482,7 +622,7 @@ TEST(PluginLifecycle, CreateFailureAfterStoringHandleDestroysAndClearsIt) {
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     yaddnsc_driver* handle = nullptr;
-    EXPECT_EQ(module->create(services, &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ((*loaded)->create(services, &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
     EXPECT_EQ(handle, nullptr);
     EXPECT_EQ(std::string(error.message.data, error.message.size), "create failed after storing a handle");
 
@@ -498,7 +638,7 @@ TEST(PluginLifecycle, CreateFailureAfterStoringHandleDestroysAndClearsIt) {
     error = {};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     handle = nullptr;
-    EXPECT_EQ(module->create(services, &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ((*loaded)->create(services, &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
     EXPECT_EQ(handle, nullptr);
     EXPECT_EQ(std::string(error.message.data, error.message.size), "create exploded after storing a handle");
 
@@ -511,7 +651,7 @@ TEST(PluginLifecycle, CreateFailureAfterStoringHandleDestroysAndClearsIt) {
     error = {};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     handle = nullptr;
-    EXPECT_EQ(module->create(services, &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ((*loaded)->create(services, &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
     EXPECT_EQ(handle, nullptr);
     EXPECT_EQ(std::string(error.message.data, error.message.size), "create failed after storing a handle");
 
@@ -525,9 +665,9 @@ namespace {
 class AsyncCreateCleanupTest : public testing::Test {
 protected:
     void SetUp() override {
-        auto loaded = PluginModule::load(ASYNC_CREATE_CLEANUP_FIXTURE);
+        auto loaded = test::load_async_package(ASYNC_CREATE_CLEANUP_FIXTURE);
         ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
-        module = std::move(*loaded);
+        package = *loaded;
         auto library = SharedLibrary::open(ASYNC_CREATE_CLEANUP_FIXTURE);
         ASSERT_TRUE(library.has_value()) << library.error();
         control = std::move(*library);
@@ -549,7 +689,7 @@ protected:
         }
     }
 
-    std::optional<PluginModule> module;
+    std::optional<std::shared_ptr<const plugin::AsyncPluginPackage>> package;
     std::optional<SharedLibrary> control;
     void (*set_scenario)(int) = nullptr;
     void (*get_state)(uint64_t*, uint64_t*, uintptr_t*) = nullptr;
@@ -583,7 +723,7 @@ TEST_F(AsyncCreateCleanupTest, CapturesValidReportsBeforeDestroyAndPreservesInva
         error.struct_size = scenario == 11 ? YADDNSC_ERROR_MIN_SIZE - 1 : static_cast<uint32_t>(sizeof(error));
         int caller_token = 0;
         auto* handle = reinterpret_cast<yaddnsc_async_driver*>(&caller_token);  // NOLINT
-        const auto status = module->async_create(services, &handle, error);
+        const auto status = (*package)->async_create(services, &handle, error);
         EXPECT_EQ(handle, nullptr);
         uint64_t creates = 0;
         uint64_t destroys = 0;
@@ -631,7 +771,7 @@ TEST_F(AsyncCreateCleanupTest, DiagnosticExceptionsCannotSkipCleanupOrReplaceSna
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     yaddnsc_async_driver* handle = nullptr;
-    EXPECT_EQ(module->async_create(services, &handle, error), YADDNSC_STATUS_RATE_LIMITED);
+    EXPECT_EQ((*package)->async_create(services, &handle, error), YADDNSC_STATUS_RATE_LIMITED);
     EXPECT_EQ(handle, nullptr);
     EXPECT_EQ(std::string_view(error.message.data, error.message.size), std::string(23, 'm'));
     EXPECT_EQ(error.retry_after_seconds, 73u);
@@ -649,12 +789,12 @@ TEST_F(AsyncCreateCleanupTest, FailedCreateDestroyExceptionIsFatal) {
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     yaddnsc_async_driver* handle = nullptr;
-    EXPECT_DEATH({ [[maybe_unused]] const auto status = module->async_create(services, &handle, error); }, "");
+    EXPECT_DEATH({ [[maybe_unused]] const auto status = (*package)->async_create(services, &handle, error); }, "");
 }
 
 TEST(PluginLifecycle, CreateNullOutDriverIsInvalidArgument) {
-    auto module = PluginModule::load(std::string(PLUGIN_PATH));
-    ASSERT_TRUE(module.has_value()) << module.error().message;
+    auto loaded = test::load_sync_package(std::string(PLUGIN_PATH));
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
     const auto control = resolve_control();
     ASSERT_NE(control.reset_state, nullptr);
     ASSERT_NE(control.get_state, nullptr);
@@ -663,7 +803,7 @@ TEST(PluginLifecycle, CreateNullOutDriverIsInvalidArgument) {
     HostUpdateContext host;
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
-    EXPECT_EQ(module->create(host.services(), nullptr, error), YADDNSC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ((*loaded)->create(host.services(), nullptr, error), YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(error.status, YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(std::string_view(error.message.data, error.message.size), "out_driver must not be null");
 
@@ -678,8 +818,8 @@ TEST(PluginLifecycle, CreateNullOutDriverIsInvalidArgument) {
 }
 
 TEST(PluginLifecycle, CreateOkWithNullHandleIsInternalError) {
-    auto module = PluginModule::load(CREATE_CONTRACT_FIXTURE);
-    ASSERT_TRUE(module.has_value()) << module.error().message;
+    auto loaded = test::load_sync_package(CREATE_CONTRACT_FIXTURE);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
     auto control_library = SharedLibrary::open(CREATE_CONTRACT_FIXTURE);
     ASSERT_TRUE(control_library.has_value()) << control_library.error();
     using SetMode = void (*)(int);
@@ -695,7 +835,7 @@ TEST(PluginLifecycle, CreateOkWithNullHandleIsInternalError) {
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     int sentinel = 0;
     auto* handle = reinterpret_cast<yaddnsc_driver*>(&sentinel);  // NOLINT
-    EXPECT_EQ(module->create(host.services(), &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ((*loaded)->create(host.services(), &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
     EXPECT_EQ(handle, nullptr);
     EXPECT_EQ(error.status, YADDNSC_STATUS_INTERNAL_ERROR);
     EXPECT_EQ(std::string_view(error.message.data, error.message.size), "create returned OK with a null handle");
@@ -707,8 +847,8 @@ TEST(PluginLifecycle, CreateOkWithNullHandleIsInternalError) {
 }
 
 TEST(PluginLifecycle, CreateFailureWithoutHandleLeavesNullAndDoesNotDestroyCallerPointer) {
-    auto module = PluginModule::load(CREATE_CONTRACT_FIXTURE);
-    ASSERT_TRUE(module.has_value()) << module.error().message;
+    auto loaded = test::load_sync_package(CREATE_CONTRACT_FIXTURE);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
     auto control_library = SharedLibrary::open(CREATE_CONTRACT_FIXTURE);
     ASSERT_TRUE(control_library.has_value()) << control_library.error();
     using SetMode = void (*)(int);
@@ -724,7 +864,7 @@ TEST(PluginLifecycle, CreateFailureWithoutHandleLeavesNullAndDoesNotDestroyCalle
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     int sentinel = 0;
     auto* handle = reinterpret_cast<yaddnsc_driver*>(&sentinel);  // NOLINT
-    EXPECT_EQ(module->create(host.services(), &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ((*loaded)->create(host.services(), &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
     EXPECT_EQ(handle, nullptr);
     EXPECT_EQ(error.status, YADDNSC_STATUS_INTERNAL_ERROR);
     EXPECT_EQ(std::string_view(error.message.data, error.message.size), "create failed without a handle");
@@ -742,8 +882,12 @@ TEST(PluginLifecycle, ManualLoadFailsFastOnAbiMismatch) {
     settings.auto_discover = false;
     settings.load.emplace_back(BAD_REVISION_FIXTURE);  // absolute path is used as-is
 
-    EXPECT_THROW({ DriverLoader::load(catalog, settings); }, PluginLoadException);
-    EXPECT_TRUE(catalog.get_loaded_drivers().empty());
+    // A manual load failure aborts the whole load: the loader reports the
+    // error instead of a report with the mismatched library skipped.
+    const auto loaded = DriverLoader::load(settings);
+    ASSERT_FALSE(loaded.has_value());
+    EXPECT_EQ(loaded.error().code, plugin::DriverLoadError::Code::ABI_MISMATCH);
+    EXPECT_TRUE(catalog.loaded_drivers().empty());
 }
 
 TEST(PluginLifecycle, AutoDiscoverSkipsAbiMismatchedLibraries) {
@@ -755,13 +899,18 @@ TEST(PluginLifecycle, AutoDiscoverSkipsAbiMismatchedLibraries) {
 
     std::filesystem::copy_file(BAD_REVISION_FIXTURE, std::string(dir) + "/bad_revision.so");
 
-    DriverCatalog catalog;
     domain::DriverSettings settings;
     settings.auto_discover = true;
     settings.driver_dir = dir;
 
-    EXPECT_NO_THROW({ DriverLoader::load(catalog, settings); });
-    EXPECT_TRUE(catalog.get_loaded_drivers().empty());
+    const auto loaded = DriverLoader::load(settings);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+    EXPECT_TRUE(loaded->packages.empty());
+    ASSERT_EQ(loaded->skipped.size(), 1u);
+    EXPECT_EQ(loaded->skipped.front().code, plugin::DriverLoadError::Code::ABI_MISMATCH);
+
+    DriverCatalog catalog{loaded->packages};
+    EXPECT_TRUE(catalog.loaded_drivers().empty());
 
     std::filesystem::remove_all(dir);
 }

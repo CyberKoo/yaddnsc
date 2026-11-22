@@ -12,7 +12,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <coroutine>
 #include <cstddef>
+#include <expected>
 #include <initializer_list>
 #include <new>
 #include <optional>
@@ -22,24 +24,21 @@
 #include <utility>
 #include <vector>
 
-#include <coroutine>
-
-#include <expected>
 #include <gtest/gtest.h>
 
 #include "application/config_validation.h"
 #include "application/diagnostics.h"
 #include "application/ports/driver_catalog.h"
-#include "application/ports/gateway.h"
+#include "application/ports/driver_validation.h"
 #include "application/ports/network_interfaces.h"
 #include "application/ports/resolver.h"
 #include "coro/coro.h"
 #include "domain/config/runtime_config.h"
 #include "domain/dns/record_kind.h"
+#include "domain/driver/capabilities.h"
 #include "domain/error/dns_error_info.h"
 #include "domain/error/error.h"
 #include "domain/network/inet_address.h"
-#include "domain/update/driver_update_command.h"
 
 namespace {
 
@@ -87,7 +86,7 @@ public:
             .version = "1.0",
             .author = "tests",
             .description = "scripted",
-            .supported_records = {domain::RecordKind::A},
+            .capabilities = domain::DriverCapabilities({domain::RecordKind::A}),
             .supports_validate = true,
         };
     }
@@ -144,7 +143,9 @@ public:
     }
 };
 
-class ScriptedGateway final : public app::GatewayPort {
+/// The validating half of the driver port: the configuration sweep never
+/// publishes a record, so the double implements the validation port alone.
+class ScriptedGateway final : public app::DriverValidationPort {
 public:
     /// Drivers without a validation entry; every other driver accepts.
     std::vector<std::string> unsupported;
@@ -157,11 +158,6 @@ public:
     [[nodiscard]] coro::Task<std::expected<void, domain::DriverError>> validate_config(std::string driver,
                                                                                        std::string params) override {
         validated.emplace_back(std::move(driver), std::move(params));
-        co_return std::expected<void, domain::DriverError>{};
-    }
-
-    [[nodiscard]] coro::Task<std::expected<void, domain::DriverError>> update(std::string,
-                                                                              domain::DriverUpdateCommand) override {
         co_return std::expected<void, domain::DriverError>{};
     }
 };

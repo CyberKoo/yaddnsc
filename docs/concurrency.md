@@ -55,12 +55,21 @@ non-cooperative one cannot be interrupted, and an indefinitely blocked worker
 prevents shutdown from completing — there is no hard kill. Submitted work
 drains before the runtime returns.
 
-**The plugin bridge.** The plugin host maps ABI cycles onto these primitives:
-a synchronous cycle occupies one worker for its whole duration; an
-asynchronous cycle runs as loop-driven steps whose HTTP waits occupy no
-worker. Every exchange with a plugin carries a wall-clock budget; cancelling
-a cycle cancels its worker wait and its in-flight HTTP, while the resources
-it borrowed survive to real completion.
+**The plugin bridge.** One cycle runner owns the delivery state of every
+plugin call: cancellation, defect observation, result publication and
+subscriber release. Protocol sessions never mutate that delivery state. A
+synchronous session occupies one worker for its whole ABI cycle; an
+asynchronous session runs loop-driven steps whose HTTP waits occupy no
+worker. Every exchange carries a wall-clock budget. Cancelling a cycle
+cancels its worker wait and in-flight HTTP, while borrowed resources survive
+to real completion; only then is the result published.
+
+The synchronous bridge returns its own result or defect to the worker instead
+of writing into the cycle. Async protocol and HTTP ownership are separate:
+the ABI session submits commands, an HTTP actor alone mutates operation and
+active-task state, and HTTP tasks publish immutable completion events. Global
+cancellation is latched without allocation and wakes that actor, so an
+allocation failure cannot prevent cancellation of in-flight exchanges.
 
 ## Blocking-operation inventory
 

@@ -2,6 +2,6 @@
 
 DriverInstance::~DriverInstance() noexcept {
     if (handle_ != nullptr) {
-        module_->destroy(handle_);
+        package_->destroy(handle_);
     }
 }

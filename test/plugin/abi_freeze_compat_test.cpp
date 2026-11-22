@@ -2,7 +2,7 @@
 ///
 /// The frozen plugin (abi_baseline/frozen_v1_0_plugin.cpp) compiles against
 /// the frozen v1.0 header copy, never the live header. These tests drive it
-/// through the production PluginModule: a host-side change that breaks ABI
+/// through the production plugin package: a host-side change that breaks ABI
 /// 1.0 compatibility turns them red even though every test built against the
 /// live header still passes.
 ///
@@ -18,8 +18,10 @@
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
+#include "domain/dns/record_kind.h"
 #include "infrastructure/plugin/plugin_error.h"
 #include "infrastructure/plugin/plugin_loader.h"
+#include "infrastructure/plugin/sync/package.h"
 #include "mocks/recording_logger.h"
 #include "plugin/plugin_test_doubles.h"
 
@@ -30,27 +32,28 @@ constexpr std::string_view FROZEN_PLUGIN_PATH = FROZEN_V1_0_FIXTURE;
 }  // namespace
 
 TEST(AbiFreezeCompat, FrozenV10PluginLoadsAgainstCurrentHost) {
-    auto module = PluginModule::load(std::string(FROZEN_PLUGIN_PATH));
+    auto module = test::load_sync_package(std::string(FROZEN_PLUGIN_PATH));
     ASSERT_TRUE(module.has_value()) << module.error().message;
 
-    const auto& descriptor = module->descriptor();
+    const auto& descriptor = (*module)->descriptor();
     EXPECT_EQ(descriptor.name, "frozen_v1_0");
     EXPECT_EQ(descriptor.version, "1.0.0");
     EXPECT_EQ(descriptor.abi_major, UINT16_C(1));
     EXPECT_EQ(descriptor.abi_minor, UINT16_C(0));
-    EXPECT_EQ(descriptor.capabilities, YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA);
-    EXPECT_TRUE(module->supports_validate());
+    EXPECT_TRUE((*module)->capabilities().supports(domain::RecordKind::A));
+    EXPECT_TRUE((*module)->capabilities().supports(domain::RecordKind::AAAA));
+    EXPECT_TRUE((*module)->supports_validate());
 }
 
 TEST(AbiFreezeCompat, FullUpdateCycleThroughFrozenAbi) {
-    auto module = PluginModule::load(std::string(FROZEN_PLUGIN_PATH));
+    auto module = test::load_sync_package(std::string(FROZEN_PLUGIN_PATH));
     ASSERT_TRUE(module.has_value()) << module.error().message;
 
     HostUpdateContext host;
     host.client.queue_response(204, "", {});
     const auto services = host.services();
 
-    const auto result = run_module_cycle(*module, services, R"({"token":"t"})");
+    const auto result = run_sync_cycle(**module, services, R"({"token":"t"})");
     EXPECT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
     ASSERT_EQ(result.update_status, YADDNSC_STATUS_OK) << result.error_message;
 
@@ -67,20 +70,20 @@ TEST(AbiFreezeCompat, FullUpdateCycleThroughFrozenAbi) {
 }
 
 TEST(AbiFreezeCompat, ExchangeFailurePropagatesThroughFrozenAbi) {
-    auto module = PluginModule::load(std::string(FROZEN_PLUGIN_PATH));
+    auto module = test::load_sync_package(std::string(FROZEN_PLUGIN_PATH));
     ASSERT_TRUE(module.has_value()) << module.error().message;
 
     HostUpdateContext host;
     host.client.queue_error(false, "connection refused", 0);
     const auto services = host.services();
 
-    const auto result = run_module_cycle(*module, services, R"({"token":"t"})");
+    const auto result = run_sync_cycle(**module, services, R"({"token":"t"})");
     ASSERT_EQ(result.update_status, YADDNSC_STATUS_NETWORK_ERROR);
     EXPECT_EQ(result.error_message, "connection refused");
 }
 
 TEST(AbiFreezeCompat, ValidateEntryThroughFrozenAbi) {
-    auto module = PluginModule::load(std::string(FROZEN_PLUGIN_PATH));
+    auto module = test::load_sync_package(std::string(FROZEN_PLUGIN_PATH));
     ASSERT_TRUE(module.has_value()) << module.error().message;
 
     // The validate table refuses HTTP, exactly like config test's table.
@@ -90,14 +93,14 @@ TEST(AbiFreezeCompat, ValidateEntryThroughFrozenAbi) {
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     yaddnsc_driver* handle = nullptr;
-    ASSERT_EQ(module->create(services, &handle, error), YADDNSC_STATUS_OK);
+    ASSERT_EQ((*module)->create(services, &handle, error), YADDNSC_STATUS_OK);
 
     constexpr std::string_view VALID_JSON = R"({"token":"t"})";
     const yaddnsc_string valid{VALID_JSON.data(), VALID_JSON.size()};
-    EXPECT_EQ(module->validate(handle, valid, error), YADDNSC_STATUS_OK);
+    EXPECT_EQ((*module)->validate(handle, valid, error), YADDNSC_STATUS_OK);
 
     const yaddnsc_string empty{};
-    EXPECT_EQ(module->validate(handle, empty, error), YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_EQ((*module)->validate(handle, empty, error), YADDNSC_STATUS_INVALID_CONFIG);
 
-    module->destroy(handle);
+    (*module)->destroy(handle);
 }

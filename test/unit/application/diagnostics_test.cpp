@@ -16,7 +16,7 @@
 
 #include "application/config_validation.h"
 #include "application/ports/driver_catalog.h"
-#include "application/ports/gateway.h"
+#include "application/ports/driver_validation.h"
 #include "application/ports/network_interfaces.h"
 #include "application/ports/resolver.h"
 #include "coro/coro.h"
@@ -28,20 +28,18 @@
 #include "domain/network/inet_address.h"
 #include "mocks/mock_ports.h"
 
-namespace domain {
-struct DriverUpdateCommand;
-}  // namespace domain
-
 namespace {
+
 using namespace std::chrono_literals;
 using DriverResult = std::expected<void, domain::DriverError>;
 using LookupResult = std::expected<std::vector<std::string>, domain::DnsErrorInfo>;
 
-class MockGateway : public app::GatewayPort {
+/// The validating half of the driver port: the configuration sweep never
+/// publishes a record, so the mock implements the validation port alone.
+class MockGateway : public app::DriverValidationPort {
 public:
     MOCK_METHOD(bool, supports_validate, (std::string_view), (const, override));
     MOCK_METHOD(coro::Task<DriverResult>, validate_config, (std::string, std::string), (override));
-    MOCK_METHOD(coro::Task<DriverResult>, update, (std::string, domain::DriverUpdateCommand), (override));
 };
 
 class MockResolver : public app::ResolverPort {
@@ -104,8 +102,8 @@ TEST(ApplicationDiagnostics, ValidateDriverConfigs_AllAccepted_ChecksEverySubdom
     EXPECT_CALL(gateway, validate_config("fake", R"({"zone_id":"ok"})")).WillOnce([] { return accepted(); });
     EXPECT_CALL(gateway, validate_config("other", "{}")).WillOnce([] { return accepted(); });
     coro::Loop loop;
-    const auto outcome =
-        coro::run(loop, app::validate_driver_configs(gateway, runtime, app::ConfigValidationMode::WARN_AND_CONTINUE, 5s));
+    const auto outcome = coro::run(
+        loop, app::validate_driver_configs(gateway, runtime, app::ConfigValidationMode::WARN_AND_CONTINUE, 5s));
     EXPECT_TRUE(outcome.rejection.empty());
     EXPECT_TRUE(outcome.unchecked_drivers.empty());
 }
@@ -116,8 +114,8 @@ TEST(ApplicationDiagnostics, ValidateDriverConfigs_Rejection_ReportsFqdnAndStops
     EXPECT_CALL(gateway, supports_validate).WillRepeatedly(testing::Return(true));
     EXPECT_CALL(gateway, validate_config("fake", "{}")).WillOnce([] { return rejected(); });
     coro::Loop loop;
-    const auto outcome =
-        coro::run(loop, app::validate_driver_configs(gateway, runtime, app::ConfigValidationMode::WARN_AND_CONTINUE, 5s));
+    const auto outcome = coro::run(
+        loop, app::validate_driver_configs(gateway, runtime, app::ConfigValidationMode::WARN_AND_CONTINUE, 5s));
     EXPECT_EQ(outcome.rejection, "Driver 'fake' rejected configuration for example.com: missing zone_id");
 }
 
@@ -136,8 +134,8 @@ TEST(ApplicationDiagnostics, ValidateDriverConfigs_DuplicateDriverParams_Validat
     EXPECT_CALL(gateway, validate_config("fake", "{}")).WillOnce([] { return accepted(); });
     EXPECT_CALL(gateway, validate_config("fake", R"({"zone_id":"ok"})")).WillOnce([] { return accepted(); });
     coro::Loop loop;
-    const auto outcome =
-        coro::run(loop, app::validate_driver_configs(gateway, runtime, app::ConfigValidationMode::WARN_AND_CONTINUE, 5s));
+    const auto outcome = coro::run(
+        loop, app::validate_driver_configs(gateway, runtime, app::ConfigValidationMode::WARN_AND_CONTINUE, 5s));
     EXPECT_TRUE(outcome.rejection.empty());
     EXPECT_TRUE(outcome.unchecked_drivers.empty());
 }
@@ -149,8 +147,8 @@ TEST(ApplicationDiagnostics, ValidateDriverConfigs_RequireValidation_TreatsMissi
     const auto runtime = config();
     EXPECT_CALL(gateway, supports_validate("fake")).WillOnce(testing::Return(false));
     coro::Loop loop;
-    const auto outcome =
-        coro::run(loop, app::validate_driver_configs(gateway, runtime, app::ConfigValidationMode::REQUIRE_VALIDATION, 5s));
+    const auto outcome = coro::run(
+        loop, app::validate_driver_configs(gateway, runtime, app::ConfigValidationMode::REQUIRE_VALIDATION, 5s));
     EXPECT_EQ(outcome.rejection,
               "Driver 'fake' does not provide yaddnsc_driver_validate; its configuration was not checked");
 }
@@ -169,8 +167,8 @@ TEST(ApplicationDiagnostics, ValidateDriverConfigs_WarnAndContinue_SkipsDriverWi
     EXPECT_CALL(gateway, validate_config("fake", "{}")).WillOnce([] { return accepted(); });
     EXPECT_CALL(gateway, validate_config("fake", R"({"zone_id":"ok"})")).WillOnce([] { return accepted(); });
     coro::Loop loop;
-    const auto outcome =
-        coro::run(loop, app::validate_driver_configs(gateway, runtime, app::ConfigValidationMode::WARN_AND_CONTINUE, 5s));
+    const auto outcome = coro::run(
+        loop, app::validate_driver_configs(gateway, runtime, app::ConfigValidationMode::WARN_AND_CONTINUE, 5s));
     EXPECT_TRUE(outcome.rejection.empty());
     EXPECT_THAT(outcome.unchecked_drivers, testing::ElementsAre("legacy"));
 }
@@ -185,8 +183,8 @@ TEST(ApplicationDiagnostics, ValidateDriverConfigs_Timeout_RejectsAndNamesTheRec
     });
     coro::ManualClock clock;
     coro::Loop loop{clock};
-    const auto outcome =
-        coro::run(loop, app::validate_driver_configs(gateway, runtime, app::ConfigValidationMode::WARN_AND_CONTINUE, 5s));
+    const auto outcome = coro::run(
+        loop, app::validate_driver_configs(gateway, runtime, app::ConfigValidationMode::WARN_AND_CONTINUE, 5s));
     EXPECT_EQ(outcome.rejection, "Driver 'fake' did not finish validating the configuration for example.com within 5s");
 }
 

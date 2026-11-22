@@ -351,7 +351,22 @@ auto note = "net::Stream; class NetworkInterfaces;";
         GuardCase{"PluginSdkFacadeAllowed", "#include <yaddnsc/sdk/driver.hpp>\n#include <yaddnsc/sdk/format.hpp>\n",
                   true, "driver/probe.cpp"},
         GuardCase{"PluginUtilBypass", "#include <yaddnsc/util/format.hpp>\n", false, "driver/probe.cpp",
-                  "host src/ module headers"}),
+                  "host src/ module headers"},
+        // The CLI formats what the composition root parsed; it reaches no
+        // infrastructure module itself.
+        GuardCase{"CliIncludesInfrastructure", "#include \"infrastructure/uri/uri.h\"\n", false, "src/cli/probe.cpp",
+                  "must not include infrastructure/"},
+        GuardCase{"CliIncludesInfrastructureAngle", "#include <infrastructure/config/config.h>\n", false,
+                  "src/cli/probe.cpp", "must not include infrastructure/"},
+        GuardCase{"CliIncludesDomain", "#include \"domain/config/dns_config.h\"\n", true, "src/cli/probe.cpp"},
+        // The plugin host is handed its settings; it does not read the
+        // configuration module.
+        GuardCase{"PluginIncludesConfig", "#include \"infrastructure/config/config.h\"\n", false,
+                  "src/infrastructure/plugin/probe.cpp", "must not include the configuration module"},
+        GuardCase{"PluginIncludesConfigAngle", "#include <infrastructure/config/redaction.h>\n", false,
+                  "src/infrastructure/plugin/probe.cpp", "must not include the configuration module"},
+        GuardCase{"PluginIncludesInfrastructureAllowed", "#include \"infrastructure/plugin/driver_catalog.h\"\n", true,
+                  "src/infrastructure/plugin/probe.cpp"}),
     [](const ::testing::TestParamInfo<GuardCase>& case_info) { return case_info.param.name; });
 
 // A normative rule states a discipline and links the owner document. Naming a

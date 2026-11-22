@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <expected>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -16,9 +17,12 @@
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
+#include "infrastructure/plugin/async/package.h"
 #include "infrastructure/plugin/plugin_error.h"
 #include "infrastructure/plugin/plugin_loader.h"
+#include "infrastructure/plugin/plugin_package.h"
 #include "infrastructure/plugin/shared_library.h"
+#include "infrastructure/plugin/sync/package.h"
 
 namespace {
 
@@ -60,8 +64,8 @@ struct AsyncHost {
                                      : static_cast<uint32_t>(sizeof(yaddnsc_error));
     }
 
-    static yaddnsc_status http_start_entry(void* context, const yaddnsc_http_request* request,
-                                           uint64_t* out_op_id, yaddnsc_error* out_error) {
+    static yaddnsc_status http_start_entry(void* context, const yaddnsc_http_request* request, uint64_t* out_op_id,
+                                           yaddnsc_error* out_error) {
         auto& self = *static_cast<AsyncHost*>(context);
         ++self.start_calls;
         if (request == nullptr || out_op_id == nullptr || request->struct_size < YADDNSC_HTTP_REQUEST_MIN_SIZE ||
@@ -98,9 +102,7 @@ struct AsyncHost {
         return YADDNSC_STATUS_OK;
     }
 
-    static int32_t is_cancelled_entry(void* context) {
-        return static_cast<AsyncHost*>(context)->cancelled ? 1 : 0;
-    }
+    static int32_t is_cancelled_entry(void* context) { return static_cast<AsyncHost*>(context)->cancelled ? 1 : 0; }
 
     static void log_entry(void* context, yaddnsc_log_level, yaddnsc_string, const yaddnsc_source_location*) {
         ++static_cast<AsyncHost*>(context)->log_calls;
@@ -129,10 +131,10 @@ struct AsyncFixture {
     fixture.library = std::move(*library);
     fixture.get_descriptor = reinterpret_cast<decltype(fixture.get_descriptor)>(
         fixture.library.resolve("yaddnsc_driver_get_descriptor"));  // NOLINT
-    fixture.create = reinterpret_cast<decltype(fixture.create)>(
-        fixture.library.resolve("yaddnsc_driver_async_create"));  // NOLINT
-    fixture.destroy = reinterpret_cast<decltype(fixture.destroy)>(
-        fixture.library.resolve("yaddnsc_driver_async_destroy"));  // NOLINT
+    fixture.create =
+        reinterpret_cast<decltype(fixture.create)>(fixture.library.resolve("yaddnsc_driver_async_create"));  // NOLINT
+    fixture.destroy =
+        reinterpret_cast<decltype(fixture.destroy)>(fixture.library.resolve("yaddnsc_driver_async_destroy"));  // NOLINT
     fixture.begin = reinterpret_cast<decltype(fixture.begin)>(
         fixture.library.resolve("yaddnsc_driver_update_async_begin"));  // NOLINT
     fixture.resume = reinterpret_cast<decltype(fixture.resume)>(
@@ -237,34 +239,35 @@ protected:
 };
 
 TEST(AsyncLoader, SyncMinorOneWithoutAsyncSymbolsStaysSync) {
-    auto module = PluginModule::load(std::string(SYNC_MINOR_ONE_FIXTURE));
+    auto module = PluginLoader::load(std::string(SYNC_MINOR_ONE_FIXTURE));
     ASSERT_TRUE(module.has_value()) << module.error().message;
-    EXPECT_EQ(module->mode(), ExecutionMode::Sync);
+    EXPECT_NE(std::dynamic_pointer_cast<const plugin::SyncPluginPackage>(*module), nullptr);
+    EXPECT_EQ(std::dynamic_pointer_cast<const plugin::AsyncPluginPackage>(*module), nullptr);
 }
 
 TEST(AsyncLoader, RejectsMixedGroups) {
-    auto module = PluginModule::load(std::string(ASYNC_MIXED_FIXTURE));
+    auto module = PluginLoader::load(std::string(ASYNC_MIXED_FIXTURE));
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, plugin::PluginError::Code::CONTRACT_VIOLATION);
     EXPECT_NE(module.error().message.find("mixes"), std::string::npos);
 }
 
 TEST(AsyncLoader, RejectsIncompleteAsyncGroup) {
-    auto module = PluginModule::load(std::string(ASYNC_INCOMPLETE_FIXTURE));
+    auto module = PluginLoader::load(std::string(ASYNC_INCOMPLETE_FIXTURE));
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, plugin::PluginError::Code::MISSING_SYMBOL);
     EXPECT_NE(module.error().message.find("complete async execution group"), std::string::npos);
 }
 
 TEST(AsyncLoader, RejectsAsyncGroupBelowMinorOne) {
-    auto module = PluginModule::load(std::string(ASYNC_OLD_MINOR_FIXTURE));
+    auto module = PluginLoader::load(std::string(ASYNC_OLD_MINOR_FIXTURE));
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
     EXPECT_NE(module.error().message.find("async mode requires"), std::string::npos);
 }
 
 TEST(AsyncLoader, RejectsAsyncGroupWithSyncValidate) {
-    auto module = PluginModule::load(std::string(ASYNC_WITH_SYNC_VALIDATE_FIXTURE));
+    auto module = PluginLoader::load(std::string(ASYNC_WITH_SYNC_VALIDATE_FIXTURE));
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, plugin::PluginError::Code::CONTRACT_VIOLATION);
     EXPECT_NE(module.error().message.find("mixes"), std::string::npos);
@@ -273,7 +276,7 @@ TEST(AsyncLoader, RejectsAsyncGroupWithSyncValidate) {
 TEST(AsyncLoader, AsyncOnlyGroupRequiringNewerMinorReportsHostTooOld) {
     // An async-only module whose descriptor requires a newer minor names the
     // host as the outdated side, not the plugin's symbol set.
-    auto module = PluginModule::load(std::string(ASYNC_NEWER_MINOR_FIXTURE));
+    auto module = PluginLoader::load(std::string(ASYNC_NEWER_MINOR_FIXTURE));
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
     EXPECT_NE(module.error().message.find("requires ABI 1.2"), std::string::npos);
@@ -284,7 +287,7 @@ TEST(AsyncLoader, AsyncOnlyGroupRequiringNewerMinorReportsHostTooOld) {
 TEST(AsyncLoader, UnrecognizedGroupRequiringNewerMinorReportsHostTooOld) {
     // A future execution mode resolves to no group this host knows; the
     // version handshake must still win over the symbol check.
-    auto module = PluginModule::load(std::string(NEWER_MINOR_UNKNOWN_GROUP_FIXTURE));
+    auto module = PluginLoader::load(std::string(NEWER_MINOR_UNKNOWN_GROUP_FIXTURE));
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
     EXPECT_NE(module.error().message.find("requires ABI 1.2"), std::string::npos);
@@ -293,16 +296,18 @@ TEST(AsyncLoader, UnrecognizedGroupRequiringNewerMinorReportsHostTooOld) {
 }
 
 TEST(AsyncLoader, LegacySyncWithExtraAsyncNamesStaysSync) {
-    auto module = PluginModule::load(std::string(SYNC_LEGACY_EXTRA_ASYNC_FIXTURE));
+    auto module = PluginLoader::load(std::string(SYNC_LEGACY_EXTRA_ASYNC_FIXTURE));
     ASSERT_TRUE(module.has_value()) << module.error().message;
-    EXPECT_EQ(module->mode(), ExecutionMode::Sync);
-    EXPECT_TRUE(module->supports_validate());
+    EXPECT_NE(std::dynamic_pointer_cast<const plugin::SyncPluginPackage>(*module), nullptr);
+    EXPECT_TRUE((*module)->supports_validate());
 }
 
 TEST(AsyncLoader, SelectsAsyncModeAndDrivesTheGroup) {
-    auto module = PluginModule::load(std::string(PLUGIN_PATH));
-    ASSERT_TRUE(module.has_value()) << module.error().message;
-    EXPECT_EQ(module->mode(), ExecutionMode::Async);
+    auto loaded = PluginLoader::load(std::string(PLUGIN_PATH));
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+    auto module = std::dynamic_pointer_cast<const plugin::AsyncPluginPackage>(*loaded);
+    ASSERT_NE(module, nullptr);
+    EXPECT_EQ(std::dynamic_pointer_cast<const plugin::SyncPluginPackage>(*loaded), nullptr);
     EXPECT_TRUE(module->supports_validate());
 
     AsyncHost host;

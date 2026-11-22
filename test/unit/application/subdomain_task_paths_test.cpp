@@ -11,18 +11,17 @@
 //
 
 #include <chrono>
+#include <coroutine>  // IWYU pragma: keep — required by coroutine lowering
 #include <cstddef>
+#include <expected>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include <coroutine>  // IWYU pragma: keep — required by coroutine lowering
-
-#include <expected>
 #include <gtest/gtest.h>
 
-#include "application/ports/gateway.h"
+#include "application/ports/driver_update.h"
 #include "application/ports/ip_source.h"
 #include "application/ports/log.h"
 #include "application/ports/resolver.h"
@@ -77,16 +76,12 @@ public:
     }
 };
 
-class ScriptedGateway final : public app::GatewayPort {
+/// The publishing half of the driver port: the scheduling task never
+/// validates a driver's parameters, so the double implements the update port
+/// alone.
+class ScriptedGateway final : public app::DriverUpdatePort {
 public:
     int calls = 0;
-
-    [[nodiscard]] bool supports_validate(std::string_view) const override { return true; }
-
-    [[nodiscard]] coro::Task<std::expected<void, domain::DriverError>> validate_config(std::string,
-                                                                                       std::string) override {
-        co_return std::expected<void, domain::DriverError>{};
-    }
 
     [[nodiscard]] coro::Task<std::expected<void, domain::DriverError>> update(std::string,
                                                                               domain::DriverUpdateCommand) override {

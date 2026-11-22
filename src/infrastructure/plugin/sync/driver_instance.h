@@ -6,18 +6,14 @@
 
 #include <yaddnsc/sdk/driver_abi.h>
 
-#include "infrastructure/plugin/plugin_loader.h"
+#include "infrastructure/plugin/sync/package.h"
 
-/// DriverInstance — one live driver instance plus a lease on its module.
-///
-/// The shared_ptr lease guarantees the module (and thus the code backing the
-/// instance) outlives the instance even if the catalog entry is concurrently
-/// removed. The destructor calls the plugin's destroy() while the lease is
-/// still held, so no code is ever unloaded under a live instance.
+/// One live synchronous driver instance plus a lease on its package. The
+/// package outlives the matching destroy call even if the catalog is changed.
 class DriverInstance {
 public:
-    DriverInstance(std::shared_ptr<const PluginModule> module, yaddnsc_driver* handle) noexcept
-        : module_(std::move(module)), handle_(handle) {}
+    DriverInstance(std::shared_ptr<const plugin::SyncPluginPackage> package, yaddnsc_driver* handle) noexcept
+        : package_(std::move(package)), handle_(handle) {}
 
     ~DriverInstance() noexcept;
 
@@ -27,17 +23,15 @@ public:
     DriverInstance& operator=(const DriverInstance&) = delete;
 
     [[nodiscard]] yaddnsc_status update(const yaddnsc_update_request& request, yaddnsc_error& out_error) const {
-        return module_->update(handle_, request, out_error);
+        return package_->update(handle_, request, out_error);
     }
 
-    /// Driver-side driver_params validation (optional ABI entry; the module
-    /// fails closed with INVALID_CONFIG when the plugin does not export it).
     [[nodiscard]] yaddnsc_status validate(yaddnsc_string driver_param_json, yaddnsc_error& out_error) const {
-        return module_->validate(handle_, driver_param_json, out_error);
+        return package_->validate(handle_, driver_param_json, out_error);
     }
 
 private:
-    std::shared_ptr<const PluginModule> module_;
+    std::shared_ptr<const plugin::SyncPluginPackage> package_;
     yaddnsc_driver* handle_;
 };
 

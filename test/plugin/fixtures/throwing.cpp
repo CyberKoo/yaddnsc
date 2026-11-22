@@ -1,10 +1,10 @@
 /// Loader fixture: a plugin whose entry points THROW across the C ABI — the
 /// shape of a misbehaving third-party plugin. The ABI forbids exceptions, so
-/// the host's PluginModule trampolines carry an exception firewall: it must
+/// the host's protocol package trampolines carry an exception firewall: it must
 /// translate every escaping exception into YADDNSC_STATUS_INTERNAL_ERROR with
 /// a usable message instead of letting it propagate into the host's frame.
 ///
-/// get_descriptor succeeds so PluginModule::load() accepts the library; the
+/// get_descriptor succeeds so PluginLoader::load() accepts the library; the
 /// create/update/destroy entries throw std::exceptions (covered arm) and
 /// validate throws a non-std type (the catch-all arm).
 

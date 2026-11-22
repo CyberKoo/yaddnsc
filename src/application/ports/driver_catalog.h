@@ -1,13 +1,12 @@
 #ifndef YADDNSC_APPLICATION_PORTS_DRIVER_CATALOG_H
 #define YADDNSC_APPLICATION_PORTS_DRIVER_CATALOG_H
 
+#include <expected>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include <expected>
-
-#include "domain/dns/record_kind.h"
+#include "domain/driver/capabilities.h"
 #include "domain/error/error.h"
 
 namespace app {
@@ -23,7 +22,7 @@ struct DriverDescription {
     /// Record types this driver can publish, translated from the plugin's ABI
     /// capability bits. Empty is legal and means the driver supports no ABI
     /// 1.0 record type — a configuration naming one cannot work.
-    std::vector<domain::RecordKind> supported_records;
+    domain::DriverCapabilities capabilities;
     /// Whether the plugin exports the optional yaddnsc_driver_validate entry.
     /// False means the host cannot confirm this driver's driver_params; the
     /// driver still loads and updates.

@@ -13,7 +13,6 @@
 
 #include "application/ports/log.h"
 #include "infrastructure/plugin/detail/abi_string.h"
-#include "infrastructure/plugin/detail/cycle.h"
 #include "infrastructure/plugin/detail/host_services.h"
 
 namespace plugin {
@@ -68,8 +67,9 @@ using detail::write_error;
 
 }  // namespace
 
-HostAsyncServicesContext::HostAsyncServicesContext(const app::LoggerPort& logger, std::shared_ptr<CallState> state)
-    : logger_(logger), state_(std::move(state)) {
+HostAsyncServicesContext::HostAsyncServicesContext(const app::LoggerPort& logger,
+                                                   std::shared_ptr<AsyncCancellation> cancellation)
+    : logger_(logger), cancellation_(std::move(cancellation)) {
     services_ = yaddnsc_async_services{
         .struct_size = static_cast<uint32_t>(sizeof(yaddnsc_async_services)),
         .abi_major = YADDNSC_DRIVER_ABI_MAJOR,
@@ -84,7 +84,7 @@ HostAsyncServicesContext::HostAsyncServicesContext(const app::LoggerPort& logger
 }
 
 std::int32_t HostAsyncServicesContext::is_cancelled() const noexcept {
-    return state_ != nullptr && state_->cancelled.load(std::memory_order_acquire) ? 1 : 0;
+    return cancellation_ != nullptr && cancellation_->cancelled() ? 1 : 0;
 }
 
 void HostAsyncServicesContext::log(yaddnsc_log_level level, yaddnsc_string message,

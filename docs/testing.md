@@ -190,6 +190,13 @@ and checks interface filtering, IPv6 scope IDs and structured SIGTERM cancellati
 Gateway tests verify same-thread ABI cycles, host cancellation of validation,
 overlapping retiring HTTP requests, and cancellation after result publication.
 Host defects reach active callers or the root error boundary after abandonment.
+`test_cycle_runner` isolates the delivery state machine with fake sessions:
+publication follows drain, plugin cancellation maps to an error value, active
+callers receive defects after drain, abandoned waits still cancel and drain
+before an unobserved defect reaches the root boundary, and pre-protocol
+allocation failure still drains exactly once. `test_async_destroy_step` proves
+that an empty destroy outcome enters the fatal cleanup policy in both Debug and
+Release rather than degrading to a cancellable result.
 The certificate suite snapshots multiple issuers and AUX, rejects misnamed roots,
 and fixes the fail-closed policy for malformed entries, directories and dangling
 links alongside valid roots. `test_trust_fallback` runs the real context factory

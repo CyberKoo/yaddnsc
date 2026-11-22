@@ -47,6 +47,10 @@ add_unit_test(dns_error    SOURCE domain/dns/dns_error_test.cpp)
 add_unit_test(dns_type     SOURCE domain/dns/dns_type_test.cpp)
 add_unit_test(record_kind  SOURCE domain/dns/record_kind_test.cpp)
 
+# driver_capabilities — the record kinds one driver can publish: the empty
+# capability set, membership and the read-only view of the set
+add_unit_test(driver_capabilities SOURCE domain/driver/capabilities_test.cpp)
+
 # ============================================================================
 #  application/  —  retained use cases and ports
 # ============================================================================
@@ -227,7 +231,9 @@ target_link_libraries(test_diagnostics_error_adapter PRIVATE yaddnsc_config_infr
 #  infrastructure/plugin/  —  driver loading
 # ============================================================================
 
-# driver_loader + driver_catalog — dlopen-based plugin loading
+# driver_loader + driver_catalog — dlopen-based plugin loading. The loader
+# discovers and validates the images and reports what it could not load; the
+# catalog only registers the packages it produced.
 # Fixture: a shared library that is deliberately NOT a yaddnsc driver —
 # verifies that auto-discovery skips foreign libraries instead of aborting.
 # MODULE produces a .so on both Linux and macOS (SHARED would be .dylib).
@@ -269,8 +275,9 @@ target_link_libraries(test_async_services PRIVATE yaddnsc_prod_all)
 add_unit_test(async_services_host SOURCE infrastructure/plugin/async_services_host_test.cpp)
 target_link_libraries(test_async_services_host PRIVATE yaddnsc_prod_all)
 
-# bridge_branch — the Bridge ingress closure arms: closed-group start_cycle,
-# spawn / dispatch allocation failures, and the cancel() no-op arms
+# bridge_branch — the Bridge ingress closure arms: a cycle refused by a closed
+# group, the allocation and dispatch failures, the admission rejections, and
+# the cancel() no-op arms
 add_unit_test(bridge_branch SOURCE infrastructure/plugin/bridge_branch_test.cpp)
 target_link_libraries(test_bridge_branch PRIVATE yaddnsc_prod_all test_allocation_fault)
 

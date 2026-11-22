@@ -14,7 +14,7 @@
 #include <utility>
 #include <vector>
 
-#include "application/ports/gateway.h"
+#include "application/ports/driver_validation.h"
 #include "coro/scope.hpp"
 #include "domain/config/runtime_config.h"
 #include "domain/error/error.h"
@@ -24,7 +24,8 @@
 
 namespace app {
 
-coro::Task<ConfigValidationOutcome> validate_driver_configs(GatewayPort& gateway, const domain::RuntimeConfig& config,
+coro::Task<ConfigValidationOutcome> validate_driver_configs(DriverValidationPort& gateway,
+                                                            const domain::RuntimeConfig& config,
                                                             ConfigValidationMode mode, coro::Duration budget) {
     ConfigValidationOutcome outcome;
     const auto budget_seconds = std::chrono::duration_cast<std::chrono::seconds>(budget).count();
@@ -41,9 +42,9 @@ coro::Task<ConfigValidationOutcome> validate_driver_configs(GatewayPort& gateway
                 if (mode == ConfigValidationMode::REQUIRE_VALIDATION) {
                     // This command exists to answer "is this configuration
                     // good?"; an unchecked driver is not an answer.
-                    outcome.rejection =
-                        fmt::format("Driver '{}' does not provide yaddnsc_driver_validate; its configuration was not checked",
-                                    domain_config.driver);
+                    outcome.rejection = fmt::format(
+                        "Driver '{}' does not provide yaddnsc_driver_validate; its configuration was not checked",
+                        domain_config.driver);
                     co_return outcome;
                 }
                 if (std::ranges::find(outcome.unchecked_drivers, domain_config.driver) ==
@@ -61,14 +62,14 @@ coro::Task<ConfigValidationOutcome> validate_driver_configs(GatewayPort& gateway
                 return gateway.validate_config(domain_config.driver, subdomain.driver_params);
             });
             if (checked.timed_out) {
-                outcome.rejection = fmt::format("Driver '{}' did not finish validating the configuration for {} within {}s",
-                                                domain_config.driver, fqdn, budget_seconds);
+                outcome.rejection =
+                    fmt::format("Driver '{}' did not finish validating the configuration for {} within {}s",
+                                domain_config.driver, fqdn, budget_seconds);
                 co_return outcome;
             }
             if (!*checked) {
-                outcome.rejection =
-                    fmt::format("Driver '{}' rejected configuration for {}: {}", domain_config.driver, fqdn,
-                                checked->error().message);
+                outcome.rejection = fmt::format("Driver '{}' rejected configuration for {}: {}", domain_config.driver,
+                                                fqdn, checked->error().message);
                 co_return outcome;
             }
         }

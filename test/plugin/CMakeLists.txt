@@ -58,6 +58,21 @@ add_library(yaddnsc_fixture_throwing_destroy MODULE fixtures/throwing_destroy.cp
 set_target_properties(yaddnsc_fixture_throwing_destroy PROPERTIES PREFIX "" OUTPUT_NAME "throwing_destroy")
 target_include_directories(yaddnsc_fixture_throwing_destroy PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
+# Descriptor-firewall fixtures — get_descriptor() throws across the C ABI.
+# One source, three variants selected by a compile definition: a standard
+# exception, a non-standard type, and std::bad_alloc. The loader must contain
+# every escape and report a contract violation instead of letting an exception
+# cross back into the host.
+foreach(variant runtime_error non_std bad_alloc)
+    string(TOUPPER "${variant}" variant_upper)
+    add_library(yaddnsc_fixture_throwing_descriptor_${variant} MODULE fixtures/throwing_descriptor.cpp)
+    set_target_properties(yaddnsc_fixture_throwing_descriptor_${variant} PROPERTIES
+        PREFIX "" OUTPUT_NAME "throwing_descriptor_${variant}")
+    target_include_directories(yaddnsc_fixture_throwing_descriptor_${variant} PRIVATE ${PROJECT_SOURCE_DIR}/include)
+    target_compile_definitions(yaddnsc_fixture_throwing_descriptor_${variant} PRIVATE
+        "YADDNSC_FIXTURE_DESCRIPTOR_${variant_upper}")
+endforeach()
+
 # Create-contract fixture — create() stores a handle and THEN fails/throws;
 # the host must destroy and clear the leaked handle before returning.
 add_library(yaddnsc_fixture_leaky_create MODULE fixtures/leaky_create.cpp)
@@ -105,7 +120,7 @@ add_unit_test(plugin_abi_contract SOURCE driver_abi_contract_test.cpp)
 add_unit_test(plugin_lifecycle SOURCE plugin_lifecycle_test.cpp)
 
 # Frozen ABI 1.0 baseline — dlopen the frozen-header plugin and drive a full
-# cycle through the production PluginModule.
+# cycle through the production package and synchronous session.
 add_unit_test(abi_freeze_compat SOURCE abi_freeze_compat_test.cpp)
 target_link_libraries(test_abi_freeze_compat PRIVATE yaddnsc_prod_all ${CMAKE_DL_LIBS})
 set_tests_properties(test_abi_freeze_compat PROPERTIES
@@ -117,8 +132,16 @@ add_dependencies(test_abi_freeze_compat yaddnsc_fixture_frozen_v1_0)
 # Coroutine driver gateway — drives the same whiteboard plugin through the
 # coroutine bridge (worker ↔ loop HTTP, concurrent cycles, abandon, shutdown
 # cancel) against an in-process HTTP server.
+add_unit_test(cycle_runner SOURCE cycle_runner_test.cpp)
+target_link_libraries(test_cycle_runner PRIVATE yaddnsc_prod_all test_allocation_fault)
+
+# Async destroy completion policy — a missing result is a fatal cleanup
+# failure, never a cancellation that may release a live instance.
+add_unit_test(async_destroy_step SOURCE async_destroy_step_test.cpp)
+target_link_libraries(test_async_destroy_step PRIVATE yaddnsc_prod_all)
+
 add_unit_test(coro_driver_gateway SOURCE coro_driver_gateway_test.cpp)
-target_link_libraries(test_coro_driver_gateway PRIVATE yaddnsc_prod_all yaddnsc_coro_plugin ${CMAKE_DL_LIBS})
+target_link_libraries(test_coro_driver_gateway PRIVATE yaddnsc_prod_all yaddnsc_plugin_infrastructure ${CMAKE_DL_LIBS})
 set_tests_properties(test_coro_driver_gateway PROPERTIES
     ENVIRONMENT "${YADDNSC_TEST_ASAN_OPTIONS}"
     TIMEOUT 120)
@@ -148,7 +171,7 @@ foreach(caps aaaa_only no_caps)
     target_include_directories(yaddnsc_fixture_${caps} PRIVATE ${PROJECT_SOURCE_DIR}/include)
 endforeach()
 add_unit_test(gateway_abi_contract SOURCE gateway_abi_contract_test.cpp)
-target_link_libraries(test_gateway_abi_contract PRIVATE yaddnsc_prod_all yaddnsc_coro_plugin ${CMAKE_DL_LIBS})
+target_link_libraries(test_gateway_abi_contract PRIVATE yaddnsc_prod_all yaddnsc_plugin_infrastructure ${CMAKE_DL_LIBS})
 set_tests_properties(test_gateway_abi_contract PROPERTIES
     ENVIRONMENT "${YADDNSC_TEST_ASAN_OPTIONS}")
 target_compile_definitions(test_gateway_abi_contract PRIVATE
@@ -203,7 +226,7 @@ endforeach()
 
 # Separate allocator rendezvous: does not affect dlopen or other test binaries.
 add_unit_test(plugin_cancellation_publication SOURCE cancellation_publication_test.cpp)
-target_link_libraries(test_plugin_cancellation_publication PRIVATE yaddnsc_coro_plugin test_allocation_fault)
+target_link_libraries(test_plugin_cancellation_publication PRIVATE yaddnsc_plugin_infrastructure test_allocation_fault)
 target_compile_definitions(test_plugin_cancellation_publication PRIVATE
     TEST_PLUGIN_PATH="$<TARGET_FILE:yaddnsc_test_driver_plugin>"
 )
@@ -315,3 +338,19 @@ add_dependencies(test_coro_driver_gateway yaddnsc_fixture_async_slow_resume)
 target_compile_definitions(test_plugin_lifecycle PRIVATE
     ASYNC_CREATE_CLEANUP_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_async_create_cleanup>")
 add_dependencies(test_plugin_lifecycle yaddnsc_fixture_async_create_cleanup)
+
+# Descriptor-firewall fixtures — the loader's get_descriptor() exception
+# firewall: a standard exception, a non-standard type and std::bad_alloc.
+target_compile_definitions(test_plugin_lifecycle PRIVATE
+    THROWING_DESCRIPTOR_RUNTIME_ERROR_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_throwing_descriptor_runtime_error>"
+    THROWING_DESCRIPTOR_NON_STD_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_throwing_descriptor_non_std>"
+    THROWING_DESCRIPTOR_BAD_ALLOC_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_throwing_descriptor_bad_alloc>")
+add_dependencies(test_plugin_lifecycle
+    yaddnsc_fixture_throwing_descriptor_runtime_error
+    yaddnsc_fixture_throwing_descriptor_non_std
+    yaddnsc_fixture_throwing_descriptor_bad_alloc)
+
+# The loader's diagnostic firewall needs allocation-fault injection to prove
+# that a failure while formatting the diagnostic yields the static fallback
+# instead of a second exception crossing the loader boundary.
+target_link_libraries(test_plugin_lifecycle PRIVATE test_allocation_fault)

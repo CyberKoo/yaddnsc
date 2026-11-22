@@ -9,6 +9,7 @@
 #include <functional>
 #include <memory>
 
+#include "application/ports/driver_update.h"
 #include "application/ports/gateway.h"
 #include "application/ports/ip_source.h"
 #include "application/ports/log.h"
@@ -31,7 +32,9 @@ struct UpdatePolicy {
 struct Services {
     ResolverPort& resolver;
     IpSourcePort& ip_source;
-    GatewayPort& gateway;
+    /// The publishing half of the driver port: one update cycle never
+    /// validates a driver's parameters.
+    DriverUpdatePort& gateway;
     const LoggerPort& logger;
     UpdatePolicy policy{};
 };

@@ -1,50 +1,34 @@
 #include "driver_gateway.h"
 
-#include <coroutine>
-#include <cstdint>
 #include <expected>
 #include <memory>
-#include <optional>
+#include <string>
+#include <string_view>
 #include <utility>
 
-#include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/util/format.hpp>
 
-#include "coro/cancel_scope.h"
-#include "coro/notification.hpp"
 #include "coro/scope.hpp"
-#include "coro/task.hpp"
+#include "domain/dns/record_kind.h"
 #include "domain/error/error.h"
 #include "domain/update/driver_update_command.h"
-#include "infrastructure/plugin/async/cycle.h"
-#include "infrastructure/plugin/detail/cycle.h"
+#include "infrastructure/plugin/detail/cycle_runner.h"
+#include "infrastructure/plugin/detail/session_dependencies.h"
 #include "infrastructure/plugin/driver_catalog.h"
-#include "infrastructure/plugin/plugin_loader.h"
-#include "infrastructure/plugin/sync/bridge.h"
-#include "infrastructure/plugin/sync/cycle.h"
+#include "infrastructure/plugin/plugin_package.h"
 #include "support/fmt.hpp"
 
 namespace plugin {
 namespace {
 
-/// The host rejects unsupported records before any plugin entry is called.
-[[nodiscard]] std::optional<uint64_t> required_capability(std::string_view record_type) noexcept {
-    if (record_type == "A") {
-        return YADDNSC_DRIVER_CAPABILITY_A;
-    }
-    if (record_type == "AAAA") {
-        return YADDNSC_DRIVER_CAPABILITY_AAAA;
-    }
-    return std::nullopt;
-}
-
-[[nodiscard]] domain::DriverError unsupported_record(std::string_view driver_name, std::string_view record_type,
-                                                     std::optional<uint64_t> required) {
-    const std::string message =
-        required.has_value()
-            ? fmt::format("Driver '{}' does not support record type {} (missing capability {})", driver_name,
-                          record_type, *required == YADDNSC_DRIVER_CAPABILITY_AAAA ? "AAAA" : "A")
-            : fmt::format("Driver '{}' does not support record type {} (no v1 capability)", driver_name, record_type);
+[[nodiscard]] domain::DriverError unsupported_record(std::string_view driver_name,
+                                                     const domain::RecordKind record_kind) {
+    const auto text = domain::record_kind_to_str(record_kind);
+    const auto message =
+        record_kind == domain::RecordKind::A || record_kind == domain::RecordKind::AAAA
+            ? fmt::format("Driver '{}' does not support record type {} (missing capability {})", driver_name, text,
+                          text)
+            : fmt::format("Driver '{}' does not support record type {} (no v1 capability)", driver_name, text);
     return {domain::DriverError::Code::UPDATE_FAILED, message, 0};
 }
 
@@ -56,64 +40,57 @@ DriverGateway::DriverGateway(const DriverCatalog& catalog, const app::LoggerPort
 
 DriverGateway::DriverGateway(const DriverCatalog& catalog, const app::LoggerPort& logger, coro::Loop& loop,
                              coro::Nursery& cycle_nursery, Options options)
-    : catalog_(catalog), logger_(logger), options_(std::move(options)),
-      bridge_(std::make_shared<Bridge>(loop, cycle_nursery, options_.http, options_.bridge_wait_budget)),
-      cycle_nursery_(coro::nursery_token(cycle_nursery)) {}
+    : catalog_(catalog), logger_(logger), loop_(loop), cycle_nursery_(cycle_nursery),
+      cycle_nursery_token_(coro::nursery_token(cycle_nursery)), options_(std::move(options)) {}
+
+SessionDependencies DriverGateway::dependencies() const {
+    return {logger_, loop_, cycle_nursery_, options_.http, options_.bridge_wait_budget};
+}
 
 coro::Task<std::expected<void, domain::DriverError>> DriverGateway::update(std::string driver_name,
                                                                            domain::DriverUpdateCommand command) {
-    auto module = catalog_.find(driver_name);
-    if (module == nullptr) {
+    auto package = catalog_.find(driver_name);
+    if (package == nullptr) {
         co_return std::unexpected(domain::DriverError{domain::DriverError::Code::NOT_FOUND,
                                                       fmt::format("Driver '{}' is not loaded", driver_name)});
     }
-    const auto required = required_capability(command.rd_type);
-    if (!required.has_value() || (module->descriptor().capabilities & *required) == 0) {
-        co_return std::unexpected(unsupported_record(driver_name, command.rd_type, required));
+    if (!package->capabilities().supports(command.record_kind)) {
+        co_return std::unexpected(unsupported_record(driver_name, command.record_kind));
     }
-    auto state = std::make_shared<CallState>();
+
     const std::string fqdn = command.fqdn;
-    auto owner = module->mode() == ExecutionMode::Async
-                     ? make_async_update_owner(state, module, std::move(command), logger_, options_.http,
-                                               options_.bridge_wait_budget)
-                     : make_sync_update_owner(state, module, std::move(command), bridge_, logger_);
+    auto session = package->create_update_session(std::move(command), dependencies());
     auto& scope = co_await coro::current_scope();
-    scope.throw_if_cancelled();
-    const CycleSubscription subscription{*state, scope};
-    start_cycle(cycle_nursery_, state, std::move(owner));
-    co_await subscription.wait();
-    co_return subscription.take_result(driver_name, fqdn);
+    plugin::CycleRunner runner{scope, std::move(session), cycle_nursery_token_, driver_name, fqdn};
+    co_await runner.result_ready().wait();
+    co_return runner.take_result();
 }
 
-bool DriverGateway::supports_validate(std::string_view driver_name) const {
-    const auto module = catalog_.find(driver_name);
-    return module != nullptr && module->supports_validate();
+bool DriverGateway::supports_validate(const std::string_view driver_name) const {
+    const auto package = catalog_.find(driver_name);
+    return package != nullptr && package->supports_validate();
 }
 
 coro::Task<std::expected<void, domain::DriverError>> DriverGateway::validate_config(std::string driver_name,
                                                                                     std::string driver_param_json) {
-    auto module = catalog_.find(driver_name);
-    if (module == nullptr) {
+    auto package = catalog_.find(driver_name);
+    if (package == nullptr) {
         co_return std::unexpected(domain::DriverError{domain::DriverError::Code::NOT_FOUND,
                                                       fmt::format("Driver '{}' is not loaded", driver_name)});
     }
-    if (!module->supports_validate()) {
-        const auto entry =
-            module->mode() == ExecutionMode::Async ? "yaddnsc_driver_async_validate" : "yaddnsc_driver_validate";
-        co_return std::unexpected(domain::DriverError{
-            domain::DriverError::Code::UNKNOWN,
-            fmt::format("Driver '{}' does not provide {}; its configuration was not checked", driver_name, entry), 0});
+    if (!package->supports_validate()) {
+        co_return std::unexpected(
+            domain::DriverError{domain::DriverError::Code::UNKNOWN,
+                                fmt::format("Driver '{}' does not provide {}; its configuration was not checked",
+                                            driver_name, package->validation_entry_name()),
+                                0});
     }
-    auto state = std::make_shared<CallState>();
-    auto owner = module->mode() == ExecutionMode::Async
-                     ? make_async_validate_owner(state, module, std::move(driver_param_json), logger_)
-                     : make_sync_validate_owner(state, module, std::move(driver_param_json), bridge_, logger_);
+
+    auto session = package->create_validation_session(std::move(driver_param_json), dependencies());
     auto& scope = co_await coro::current_scope();
-    scope.throw_if_cancelled();
-    const CycleSubscription subscription{*state, scope};
-    start_cycle(cycle_nursery_, state, std::move(owner));
-    co_await subscription.wait();
-    co_return subscription.take_result(driver_name);
+    plugin::CycleRunner runner{scope, std::move(session), cycle_nursery_token_, driver_name};
+    co_await runner.result_ready().wait();
+    co_return runner.take_result();
 }
 
 }  // namespace plugin

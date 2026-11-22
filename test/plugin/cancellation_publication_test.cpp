@@ -20,16 +20,20 @@
 #include "coro/coro.h"
 #include "coro/detail/nursery_join.hpp"
 #include "coro/host.hpp"
+#include "domain/dns/record_kind.h"
 #include "domain/error/error.h"
+#include "domain/network/inet_address.h"
 #include "domain/update/driver_update_command.h"
 #include "infrastructure/http/types.h"
-#include "infrastructure/plugin/detail/cycle.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_gateway.h"
+#include "infrastructure/plugin/plugin_loader.h"
+#include "infrastructure/plugin/plugin_package.h"
 #include "infrastructure/plugin/sync/bridge.h"
 #include "infrastructure/plugin/sync/host_services.h"
 #include "mocks/allocation_fault.h"
 #include "mocks/null_logger.h"
+#include "plugin/plugin_test_doubles.h"
 #include "yaddnsc/sdk/driver_abi.h"
 
 namespace {
@@ -76,12 +80,11 @@ TEST(PluginCancellationPublication, CancelDuringRequestCopy_LoopRejectsLateAdmis
     yaddnsc_status status = YADDNSC_STATUS_OK;
     auto root = [&]() -> coro::Task<void> {
         co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
-            auto cycle = std::make_shared<plugin::CallState>();
-            cycle->lifetime = coro::nursery_token(group);
+            auto session = std::make_shared<test::TestBridgeSession>(coro::nursery_token(group));
             auto bridge = std::make_shared<plugin::Bridge>(loop, group, http::Options{}, std::chrono::seconds{5});
             {
                 auto worker = coro::offload_joined([&] {
-                    plugin::HostServicesContext context{*bridge, logger, cycle};
+                    plugin::HostServicesContext context{*bridge, logger, session};
                     context.set_phase(plugin::HostServicesContext::Phase::UPDATE);
                     const auto services = context.make_services();
                     constexpr std::string_view url = "http://127.0.0.1:1/never-admit";
@@ -102,11 +105,11 @@ TEST(PluginCancellationPublication, CancelDuringRequestCopy_LoopRejectsLateAdmis
                     co_await coro::checkpoint();
                 }
                 // HostServices passed is_cancelled(), but has not built a BridgeCall.
-                cycle->request_cancel();
+                session->request_cancel();
                 release_allocation.store(true);
                 release_allocation.notify_one();
                 co_await worker_handle;
-                EXPECT_TRUE(cycle->calls.empty());
+                EXPECT_EQ(session->live_call_count(), 0u);
             }
         });
     };
@@ -118,11 +121,10 @@ TEST(PluginAllocationFailure, PostAllocationFailure_ReportsWorkerDefectWithoutRe
     coro::Loop loop;
     auto root = [&]() -> coro::Task<void> {
         co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
-            auto cycle = std::make_shared<plugin::CallState>();
-            cycle->lifetime = coro::nursery_token(group);
+            auto session = std::make_shared<test::TestBridgeSession>(coro::nursery_token(group));
             auto bridge = std::make_shared<plugin::Bridge>(loop, group, http::Options{}, std::chrono::seconds{5});
             auto call = std::make_shared<plugin::BridgeCall>();
-            call->cycle = cycle;
+            call->session = session;
             call->url = "http://127.0.0.1/";
             const std::weak_ptr<plugin::BridgeCall> weak = call;
             auto response = co_await coro::offload_joined([bridge, call = std::move(call)] {
@@ -136,8 +138,11 @@ TEST(PluginAllocationFailure, PostAllocationFailure_ReportsWorkerDefectWithoutRe
             });
             EXPECT_FALSE(response);
             EXPECT_EQ(response.error().code, YADDNSC_STATUS_INTERNAL_ERROR);
-            EXPECT_TRUE(cycle->worker_error);
-            EXPECT_TRUE(cycle->calls.empty());
+            // The worker's own dispatch failed, so the defect travels back
+            // through the bridge error rather than through the session.
+            EXPECT_NE(response.error().defect, nullptr);
+            EXPECT_EQ(response.error().message, "the request could not be dispatched");
+            EXPECT_EQ(session->live_call_count(), 0u);
             EXPECT_TRUE(weak.expired());
         });
     };
@@ -148,11 +153,10 @@ TEST(PluginAllocationFailure, LoopAdmissionAllocationFailure_CompletesPromiseAnd
     coro::Loop loop;
     auto root = [&]() -> coro::Task<void> {
         co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
-            auto cycle = std::make_shared<plugin::CallState>();
-            cycle->lifetime = coro::nursery_token(group);
+            auto session = std::make_shared<test::TestBridgeSession>(coro::nursery_token(group));
             auto bridge = std::make_shared<plugin::Bridge>(loop, group, http::Options{}, std::chrono::seconds{5});
             auto call = std::make_shared<plugin::BridgeCall>();
-            call->cycle = cycle;
+            call->session = session;
             call->url = "http://127.0.0.1/";
             const std::weak_ptr<plugin::BridgeCall> weak = call;
             const auto response = co_await coro::offload_joined([&loop, bridge, call = std::move(call)] {
@@ -168,9 +172,11 @@ TEST(PluginAllocationFailure, LoopAdmissionAllocationFailure_CompletesPromiseAnd
             failure_size = 0;
             EXPECT_FALSE(response);
             EXPECT_EQ(response.error().code, YADDNSC_STATUS_INTERNAL_ERROR);
-            EXPECT_TRUE(cycle->error);
-            EXPECT_FALSE(cycle->worker_error);
-            EXPECT_TRUE(cycle->calls.empty());
+            // The loop-side admission failed, so the defect is reported there
+            // and the worker only sees the mapped failure.
+            EXPECT_NE(response.error().defect, nullptr);
+            EXPECT_TRUE(response.error().message.empty());
+            EXPECT_EQ(session->live_call_count(), 0u);
             EXPECT_TRUE(weak.expired());
         });
     };
@@ -195,7 +201,9 @@ public:
 
 TEST(PluginAllocationFailure, Gateway_HostRequestCopyFailure_RethrownAfterActualCycleDrain) {
     DriverCatalog catalog;
-    ASSERT_NO_THROW(catalog.load_driver(TEST_PLUGIN_PATH));
+    auto loaded = PluginLoader::load(TEST_PLUGIN_PATH);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+    catalog.register_package(*loaded);
     AllocationFaultLogger logger;
     // Measure make_shared's control block on this standard library, rather
     // than assuming a layout or failing the plugin's SDK request marshalling.
@@ -211,8 +219,8 @@ TEST(PluginAllocationFailure, Gateway_HostRequestCopyFailure_RethrownAfterActual
                 {
                     domain::DriverUpdateCommand command{
                         .driver_params = R"({"op":"log_then_exchange","url":"http://127.0.0.1/"})",
-                        .ip_addr = "192.0.2.1",
-                        .rd_type = "A",
+                        .ip_address = domain::InetAddress::parse("192.0.2.1").value(),
+                        .record_kind = domain::RecordKind::A,
                         .domain = "example.test",
                         .subdomain = "www",
                         .fqdn = "www.example.test"};

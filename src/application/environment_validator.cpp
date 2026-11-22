@@ -1,6 +1,7 @@
 #include "environment_validator.h"
 
 #include <algorithm>
+#include <expected>
 #include <optional>
 #include <ranges>  // IWYU pragma: keep — IWYU attributes std::ranges::find (__find_fn) here; clangd attributes it to <algorithm>
 #include <string>
@@ -8,7 +9,6 @@
 #include <utility>
 #include <vector>
 
-#include <expected>
 #include <yaddnsc/util/format.hpp>
 
 #include "application/ports/driver_catalog.h"
@@ -60,8 +60,7 @@ std::expected<void, std::vector<domain::ConfigError>> validate_environment(const
             // The capability gate is host-enforced (see the ABI capability
             // bits); reporting it here turns a silent per-cycle failure into a
             // startup configuration error.
-            if (description.has_value() && std::ranges::find(description->supported_records, subdomain.type) ==
-                                               description->supported_records.end()) {
+            if (description.has_value() && !description->capabilities.supports(subdomain.type)) {
                 errors.push_back(
                     {domain::ConfigError::Code::DRIVER_UNSUPPORTED_RECORD,
                      fmt::format("Driver {} does not support record type {} required by {}.{}", domain_config.driver,

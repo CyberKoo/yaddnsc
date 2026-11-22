@@ -32,6 +32,7 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include "application/ports/driver_update.h"
 #include "application/ports/gateway.h"
 #include "application/ports/ip_source.h"
 #include "application/ports/log.h"
@@ -108,7 +109,9 @@ public:
     }
 };
 
-class FakeGateway final : public app::GatewayPort {
+/// The publishing half of the driver port: the update cycle never validates a
+/// driver's parameters, so this double implements the update port alone.
+class FakeGateway final : public app::DriverUpdatePort {
 public:
     int calls = 0;
     /// Fail the first call with this retry_after (0 = never fail).
@@ -117,27 +120,6 @@ public:
     std::chrono::seconds hang{0};
     /// Invoked on every call, after the counters are updated.
     std::function<void()> on_call;
-
-    /// Validation surface: counts calls, optionally rejects or hangs.
-    struct Validation {
-        bool available{true};
-        int calls{0};
-        std::optional<domain::DriverError> rejection;
-        std::chrono::seconds hang{0};
-    } validation{};
-
-    [[nodiscard]] bool supports_validate(std::string_view) const override { return validation.available; }
-
-    coro::Task<std::expected<void, domain::DriverError>> validate_config(std::string, std::string) override {
-        ++validation.calls;
-        if (validation.hang.count() > 0) {
-            co_await coro::sleep_for(validation.hang);
-        }
-        if (validation.rejection.has_value()) {
-            co_return std::unexpected(*validation.rejection);
-        }
-        co_return std::expected<void, domain::DriverError>{};
-    }
 
     coro::Task<std::expected<void, domain::DriverError>> update(std::string,
                                                                 domain::DriverUpdateCommand command) override {

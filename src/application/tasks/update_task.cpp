@@ -5,19 +5,17 @@
 #include "update_task.h"
 
 #include <chrono>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <exception>  // IWYU pragma: keep — std::exception is caught below
+#include <expected>
 #include <new>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-
-#include <expected>
-
 #include "application/log_macros.h"
-#include "application/ports/gateway.h"
+#include "application/ports/driver_update.h"
 #include "application/ports/ip_source.h"
 #include "application/ports/resolver.h"
 #include "application/services.h"
@@ -148,12 +146,12 @@ coro::Task<UpdateCycleOutcome> update_task(const domain::UpdateTask& task, const
                 break;
         }
 
-        // --- Step 4: delegate to the driver gateway ---------------------------
+        // --- Step 4: delegate to the driver update port -----------------------
 
         const domain::DriverUpdateCommand command{
             .driver_params = subdomain.driver_params,
-            .ip_addr = local_addr,
-            .rd_type = std::string(rd_type),
+            .ip_address = *local_ip,
+            .record_kind = subdomain.type,
             .domain = task.domain.name,
             .subdomain = subdomain.name,
             .fqdn = task.fqdn,

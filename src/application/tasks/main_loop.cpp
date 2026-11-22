@@ -15,6 +15,7 @@
 
 #include "application/config_validation.h"
 #include "application/log_macros.h"
+#include "application/ports/driver_validation.h"
 #include "application/ports/gateway.h"
 #include "application/services.h"
 #include "application/tasks/subdomain_task.h"
@@ -51,7 +52,8 @@ coro::Task<void> watch_stop(const RuntimeServices& services, coro::CancelScope*&
 /// Publish the group's scope so the stop watcher can cancel validation/work.
 /// Returns false on validation rejection; cancellation follows scope semantics.
 coro::Task<bool> run_work(const std::shared_ptr<const domain::RuntimeConfig>& config, const Services& services,
-                          coro::CancelScope*& work_scope, const std::function<bool()>& stop_requested) {
+                          DriverValidationPort& validation, coro::CancelScope*& work_scope,
+                          const std::function<bool()>& stop_requested) {
     // Runner-owned publication: only its post-drain destruction clears the borrow.
     struct WorkResources {
         coro::CancelScope** published;
@@ -84,9 +86,8 @@ coro::Task<bool> run_work(const std::shared_ptr<const domain::RuntimeConfig>& co
 
             // Missing optional validation is compatible; explicit rejection
             // stops startup before any update task is spawned.
-            const auto validated =
-                co_await validate_driver_configs(services.gateway, *config, ConfigValidationMode::WARN_AND_CONTINUE,
-                                                 services.policy.driver_validation_budget);
+            const auto validated = co_await validate_driver_configs(
+                validation, *config, ConfigValidationMode::WARN_AND_CONTINUE, services.policy.driver_validation_budget);
             for (const auto& driver : validated.unchecked_drivers) {
                 YLOG_WARN(services.logger,
                           "Driver '{}' provides no configuration validation; its driver_params were not checked",
@@ -136,7 +137,8 @@ coro::Task<MainLoopOutcome> main_loop(std::shared_ptr<const domain::RuntimeConfi
             resources.services.emplace(services.resolver, services.ip_source, *resources.gateway, services.logger,
                                        services.policy);
             root.spawn(watch_stop(services, work_scope));
-            ran_updates = co_await run_work(config, *resources.services, work_scope, services.stop_requested);
+            ran_updates =
+                co_await run_work(config, *resources.services, *resources.gateway, work_scope, services.stop_requested);
             root.cancel();
         });
     YLOG_INFO(services.logger, "All tasks drained, shutting down");

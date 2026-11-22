@@ -8,6 +8,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 #include <magic_enum/magic_enum.hpp>
 
@@ -33,6 +34,7 @@
 #include "infrastructure/logging/spdlog_logger.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_gateway.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "infrastructure/uri/uri.h"
 #include "support/exception.h"
 
 namespace coro {
@@ -41,6 +43,29 @@ class Nursery;
 }  // namespace coro
 
 namespace Composition {
+namespace {
+
+/// Presentation view of one configured DNS server. URI parsing belongs to
+/// the composition root; the CLI only formats what it is handed. A
+/// malformed address keeps its raw text, so an invalid configuration stays
+/// inspectable.
+[[nodiscard]] Cli::DnsServerView make_dns_server_view(const domain::DnsServer& server) {
+    Cli::DnsServerView view{.original = server.address, .port = server.port};
+
+    const auto uri = Uri::parse(server.address);
+    if (!uri.has_value()) {
+        return view;
+    }
+
+    view.endpoint = Cli::DnsServerEndpoint{.origin = uri->get_origin(),
+                                           .host_literal = std::string{uri->get_host_literal()},
+                                           .path = std::string{uri->get_path()},
+                                           .has_scheme = !uri->get_schema().empty()};
+    return view;
+}
+
+}  // namespace
+
 int execute_command(const Cli::DriverListCommand& command) {
     const auto catalog = internal::load_driver_catalog(command.config_path);
     return Cli::present_driver_list(app::list_drivers(catalog));
@@ -76,8 +101,12 @@ int execute_command(const Cli::DnsResolveCommand& command) {
 int execute_command(const Cli::DnsResolverCommand& command) {
     // Intentionally show the raw DTO: inspection must work even when runtime validation fails.
     const auto resolver = Config::load_config(command.config_path).resolver;
-    return Cli::present_dns_resolver(resolver.use_custom_servers, magic_enum::enum_name(resolver.strategy),
-                                     resolver.servers);
+    std::vector<Cli::DnsServerView> servers;
+    servers.reserve(resolver.servers.size());
+    for (const auto& server : resolver.servers) {
+        servers.push_back(make_dns_server_view(server));
+    }
+    return Cli::present_dns_resolver(resolver.use_custom_servers, magic_enum::enum_name(resolver.strategy), servers);
 }
 
 int execute_command(const Cli::ConfigShowCommand& command) {

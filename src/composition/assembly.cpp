@@ -28,6 +28,7 @@
 #include "infrastructure/network/tls/context.h"
 #include "infrastructure/network/transport/options.h"
 #include "infrastructure/plugin/driver_loader.h"
+#include "infrastructure/plugin/plugin_load_exception.h"
 
 #include "version.h"
 
@@ -194,8 +195,31 @@ void fill_bootstrap_servers(domain::ResolverSettings& resolver) {
 
 /// Fill a catalog with the configured drivers.
 DriverCatalog load_catalog(const domain::DriverSettings& settings) {
-    DriverCatalog catalog;
-    DriverLoader::load(catalog, settings);
+    auto loaded = DriverLoader::load(settings);
+    if (!loaded) {
+        if (loaded.error().code == plugin::DriverLoadError::Code::INVALID_SETTINGS) {
+            throw ConfigException(loaded.error().message);
+        }
+        throw PluginLoadException(loaded.error().message);
+    }
+
+    for (const auto& warning : loaded->warnings) {
+        SPDLOG_WARN("{}", warning);
+    }
+    for (const auto& skipped : loaded->skipped) {
+        const std::string_view path{skipped.driver};
+        const auto separator = path.rfind('/');
+        const auto filename = separator == std::string_view::npos ? path : path.substr(separator + 1);
+        SPDLOG_WARN("Skipping driver '{}': {}", filename, skipped.message);
+    }
+
+    DriverCatalog catalog{std::move(loaded->packages)};
+    const auto drivers = catalog.loaded_drivers();
+    if (drivers.empty()) {
+        SPDLOG_WARN("No drivers were loaded, DDNS updates will not be performed");
+    } else {
+        SPDLOG_INFO("Loaded {} driver(s)", drivers.size());
+    }
     return catalog;
 }
 

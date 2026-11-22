@@ -8,6 +8,12 @@
 SharedLibrary::SharedLibrary(void* handle, std::string path) noexcept : handle_(handle), path_(std::move(path)) {}
 
 std::expected<SharedLibrary, std::string> SharedLibrary::open(const std::string& path) {
+    // dlopen() takes a C string: a path with an embedded NUL would be
+    // truncated, and the call would load a different image than requested.
+    if (path.find('\0') != std::string::npos) {
+        return std::unexpected("Shared library path contains an embedded NUL byte");
+    }
+
     void* raw_handle = ::dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (raw_handle == nullptr) {
         const char* error = ::dlerror();

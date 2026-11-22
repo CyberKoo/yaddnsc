@@ -260,7 +260,10 @@ shares an ABI-compatible C++ runtime with the host. An exception escaping
 from a plugin built with an incompatible runtime is undefined behaviour
 before the firewall can run. SDK-built plugins never rely on it — the
 SDK driver macros' entry points forward to `noexcept` helpers that
-catch everything.
+catch everything. During loading, an exception from `get_descriptor` is also
+contained and reported as a contract violation. If constructing that diagnostic
+itself runs out of memory, the loader uses a static fallback message rather
+than allowing another exception to escape.
 
 Handle ownership: on `YADDNSC_STATUS_OK`, `*out_driver` is non-NULL and the
 host owns the instance, including the matching `yaddnsc_driver_destroy()`

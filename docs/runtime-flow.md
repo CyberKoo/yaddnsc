@@ -71,3 +71,27 @@ provider update through the driver.
   actually publishes.
 - **A defect inside a cycle is logged and retried** after a full interval; it
   never retires the subdomain task.
+
+## Driver cycle delivery
+
+Every update or validation session has one delivery owner. Its phases are:
+
+```text
+Created -> Running -> Completing or Cancelling -> Draining
+        -> Publishing -> AwaitingSubscriberRelease -> Done
+```
+
+The cycle runner alone advances these phases. A protocol session produces an
+ordinary result, reports plugin-originated cancellation, or lets a host defect
+escape; it does not write the runner's result or subscriber state. Caller
+cancellation abandons the wait, not the actual cleanup: the session's worker
+and HTTP resources are drained before the result becomes visible. The first
+host defect is preserved, and an unconsumed defect is rethrown to the root
+error boundary after the caller has left.
+
+Synchronous sessions join their worker and bridge nursery inside the session.
+Asynchronous sessions keep protocol ownership in one coroutine and HTTP
+ownership in an actor. Commands go from the protocol to the actor; immutable
+completion events come back. This preserves cancellation during a joined ABI
+step without allowing step and HTTP coroutines to mutate one shared resource
+bag.

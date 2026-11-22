@@ -37,6 +37,7 @@ add_library(test_support STATIC
     ${PROJECT_SOURCE_DIR}/src/domain/network/inet_address.cpp
     ${PROJECT_SOURCE_DIR}/src/domain/update/update_decision.cpp
     ${PROJECT_SOURCE_DIR}/src/domain/dns/record_kind.cpp
+    ${PROJECT_SOURCE_DIR}/src/domain/driver/capabilities.cpp
     ${PROJECT_SOURCE_DIR}/src/domain/address_policy.cpp
     ${PROJECT_SOURCE_DIR}/src/domain/fqdn.cpp
 )
@@ -126,7 +127,6 @@ target_link_libraries(yaddnsc_prod_all INTERFACE
     yaddnsc_config_infrastructure
     yaddnsc_domain
     yaddnsc_application
-    yaddnsc_plugin_loader_adapter
     yaddnsc_logging_adapter
     yaddnsc_plugin_infrastructure
     yaddnsc_cli_adapter
@@ -140,7 +140,6 @@ target_link_libraries(yaddnsc_prod_all INTERFACE
     yaddnsc_coro_dns
     yaddnsc_coro_application
     yaddnsc_coro_ip_source
-    yaddnsc_coro_plugin
 )
 
 # ---------------------------------------------------------------------------

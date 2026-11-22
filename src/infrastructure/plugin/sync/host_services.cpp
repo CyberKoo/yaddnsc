@@ -51,8 +51,8 @@ using detail::write_error;
 }  // namespace
 
 HostServicesContext::HostServicesContext(Bridge& bridge, const app::LoggerPort& logger,
-                                         std::shared_ptr<CallState> state)
-    : bridge_(bridge), logger_(logger), state_(std::move(state)) {}
+                                         std::shared_ptr<BridgeSession> session)
+    : bridge_(bridge), logger_(logger), session_(std::move(session)) {}
 
 std::string_view HostServicesContext::arena_copy(std::string_view value) {
     return string_arena_.emplace_back(value);
@@ -115,10 +115,10 @@ yaddnsc_status HostServicesContext::http_exchange_entry(void* context, const yad
         write_error(out_error, YADDNSC_STATUS_CANCELLED, "the request was cancelled");
         return YADDNSC_STATUS_CANCELLED;
     } catch (const std::exception& e) {
-        static_cast<HostServicesContext*>(context)->state_->record_worker_error(std::current_exception());
+        static_cast<HostServicesContext*>(context)->record_defect(std::current_exception());
         write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, copy_callback_error(e.what()));
     } catch (...) {
-        static_cast<HostServicesContext*>(context)->state_->record_worker_error(std::current_exception());
+        static_cast<HostServicesContext*>(context)->record_defect(std::current_exception());
         write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, "unknown host exception during http exchange");
     }
     return YADDNSC_STATUS_INTERNAL_ERROR;
@@ -172,11 +172,14 @@ yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request& re
     }
     call->request.content_type = std::string(detail::to_view(request.content_type));
 
-    call->cycle = state_;
+    call->session = session_;
     auto response = bridge_.exchange(call);
 
     if (!response) {
         const auto& error = response.error();
+        if (error.defect) {
+            record_defect(error.defect);
+        }
         // The bridge translates cancellation, transport failures and defects
         // into the existing ABI status vocabulary before fulfilling the promise.
         const yaddnsc_status status = error.code;

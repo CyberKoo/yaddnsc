@@ -1,7 +1,6 @@
 #ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_CATALOG_H
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_CATALOG_H
 
-#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -9,51 +8,43 @@
 #include <vector>
 
 #include "application/ports/driver_catalog.h"
-#include "infrastructure/plugin/plugin_loader.h"
 
-/// DriverCatalog — name → loaded-plugin registry (replaces DriverManager).
+namespace plugin {
+class PluginPackage;
+}
+
+/// Name-to-package registry. Loading lives in DriverLoader; the catalog only
+/// owns registration, lookup and translation to the application query port.
 ///
-/// Modules are held through shared_ptr so that an in-flight update keeps its
-/// module alive (a lease) even if the entry is concurrently removed from the
-/// catalog.
-///
-/// The application layer sees the catalog through the app::DriverCatalogPort
-/// interface (loaded_drivers / describe); load/unload stay on this class.
-///
-/// @note Not thread-safe for mutation: the catalog is populated during
-///       initialisation and read-only during the run loop.
+/// Thread safety: mutation is not thread-safe and is restricted to startup or
+/// teardown. register_package() and unload_driver() must be serialized with
+/// every lookup. Once the run loop starts, the catalog is read-only and all
+/// lookups are loop-thread only. A package lease extends the loaded image's
+/// lifetime; it does not synchronize access to the map itself.
 class DriverCatalog : public app::DriverCatalogPort {
 public:
-    /// Load a driver plugin from the given filesystem path.
-    /// A duplicate driver name is skipped with a warning.
-    /// @throws PluginLoadException  When the library fails to load or fails
-    ///                              the ABI checks.
-    void load_driver(const std::string& path);
+    DriverCatalog() = default;
+    explicit DriverCatalog(std::vector<std::shared_ptr<const plugin::PluginPackage>> packages);
 
-    /// Unload a previously loaded driver by name.
-    /// @throws DriverNotFoundException  If no driver with that name is loaded.
+    /// Register a validated package. A duplicate name keeps the first package.
+    void register_package(std::shared_ptr<const plugin::PluginPackage> package);
+
+    /// Remove a package from the registry. In-flight sessions retain a lease.
+    /// @throws DriverNotFoundException if no package has the given name.
     void unload_driver(const std::string& name);
 
-    /// Return the names of all currently loaded drivers (owned copies).
-    [[nodiscard]] std::vector<std::string> get_loaded_drivers() const;
+    /// Look up a loaded package; nullptr when absent.
+    [[nodiscard]] std::shared_ptr<const plugin::PluginPackage> find(std::string_view name) const;
 
-    /// Look up a loaded module by driver name; nullptr when absent.
-    [[nodiscard]] std::shared_ptr<const PluginModule> find(std::string_view name) const;
-
-    /// Look up a loaded driver's descriptor.
-    /// @throws DriverNotFoundException  If no driver with that name is loaded.
-    [[nodiscard]] const DriverDescriptor& get_descriptor(std::string_view name) const;
-
-    /// app::DriverCatalogPort: names of all currently loaded drivers.
+    /// Application port: names of all currently loaded packages.
     [[nodiscard]] std::vector<std::string> loaded_drivers() const override;
 
-    /// app::DriverCatalogPort: value-copy description of one loaded driver.
-    /// Failure: DriverError::NOT_FOUND when absent; allocation failures propagate.
+    /// Application port: a domain-facing description with no raw ABI state.
     [[nodiscard]] std::expected<app::DriverDescription, domain::DriverError> describe(
         std::string_view name) const override;
 
 private:
-    std::map<std::string, std::shared_ptr<const PluginModule>, std::less<>> modules_;
+    std::map<std::string, std::shared_ptr<const plugin::PluginPackage>, std::less<>> modules_;
 };
 
 #endif  // YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_CATALOG_H

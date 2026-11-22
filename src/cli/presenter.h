@@ -1,6 +1,7 @@
 #ifndef YADDNSC_CLI_PRESENTER_H
 #define YADDNSC_CLI_PRESENTER_H
 
+#include <cstdint>
 #include <exception>
 #include <expected>
 #include <optional>
@@ -18,7 +19,6 @@ struct DriverDescription;
 namespace domain {
 class InetAddress;
 struct DriverError;
-struct DnsServer;
 }  // namespace domain
 
 /// CLI presenter — maps command result objects to stdout/stderr text and
@@ -38,6 +38,24 @@ struct ConfigTestError {
 struct ConfigTestOutcome {
     bool quiet{false};
     std::optional<ConfigTestError> error;
+};
+
+/// Endpoint of a configured DNS server, reduced to the parts the presenter
+/// formats. Produced by the composition root, which owns URI parsing.
+struct DnsServerEndpoint {
+    std::string origin{};        ///< scheme://host[:port] of the parsed address
+    std::string host_literal{};  ///< host as hostname or IP-literal
+    std::string path{};          ///< path component; empty or "/" when absent
+    bool has_scheme{false};      ///< the address carried a URI scheme
+};
+
+/// Presentation view of one configured DNS server: the configured text
+/// plus the endpoint parsed from it. The endpoint is absent when the text
+/// is not a valid URI, so an invalid configuration stays inspectable.
+struct DnsServerView {
+    std::string original{};  ///< configured address, verbatim
+    std::uint16_t port{53};
+    std::optional<DnsServerEndpoint> endpoint{};
 };
 
 /// `driver list` — summary of every loaded driver.
@@ -61,7 +79,7 @@ struct ConfigTestOutcome {
 
 /// `dns resolver` — configured resolver details; endpoint formatting is owned here.
 [[nodiscard]] int present_dns_resolver(bool use_custom_servers, std::string_view strategy,
-                                       const std::vector<domain::DnsServer>& servers);
+                                       const std::vector<DnsServerView>& servers);
 
 /// `config show` — the parsed configuration as redacted JSON.
 [[nodiscard]] int present_config_show(std::string_view json);

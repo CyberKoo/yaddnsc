@@ -32,7 +32,6 @@
 #include "coro/scope.hpp"
 #include "infrastructure/http/client.h"
 #include "infrastructure/http/error.h"
-#include "infrastructure/plugin/detail/cycle.h"
 
 namespace plugin {
 
@@ -55,8 +54,8 @@ struct PromiseFulfil {
     }
 
     ~PromiseFulfil() noexcept {
-        if (call->cycle != nullptr) {
-            std::erase_if(call->cycle->calls, [&](const auto& tracked) { return tracked.lock() == call; });
+        if (call->session != nullptr) {
+            call->session->unregister_call(call);
         }
         if (!done) {
             done = true;
@@ -85,7 +84,7 @@ coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::s
         // moving `result`: GCC 15 at -O3 mis-reads the moved expected's union
         // storage in this coroutine frame as maybe-uninitialized.
         if (fulfil.call->cancelled.load(std::memory_order_acquire) ||
-            (fulfil.call->cycle && fulfil.call->cycle->cancelled.load(std::memory_order_acquire))) {
+            (fulfil.call->session && fulfil.call->session->cancelled())) {
             fulfil.set(std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, "the request was cancelled"}));
             co_return;
         }
@@ -118,7 +117,7 @@ coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::s
                 // Cancellation can land after the entry check but before this
                 // scope is published. Its earlier inbox lookup then saw null.
                 if (fulfil.call->cancelled.load(std::memory_order_acquire) ||
-                    (fulfil.call->cycle && fulfil.call->cycle->cancelled.load(std::memory_order_acquire))) {
+                    (fulfil.call->session && fulfil.call->session->cancelled())) {
                     call_scope.cancel();
                 }
                 call_scope.throw_if_cancelled();
@@ -158,15 +157,12 @@ coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::s
         result = std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, "the request was cancelled"});
     } catch (...) {
         // Preserve host defects for the cycle's result/root error boundary.
-        if (!fulfil.call->cycle) {
+        if (!fulfil.call->session) {
             fulfil.set(std::unexpected(BridgeError{YADDNSC_STATUS_INTERNAL_ERROR, {}}));
             throw;  // direct Bridge users retain their group's defect boundary
         }
-        if (fulfil.call->cycle && !fulfil.call->cycle->error) {
-            fulfil.call->cycle->error = std::current_exception();
-        }
-        result =
-            std::unexpected(BridgeError{YADDNSC_STATUS_INTERNAL_ERROR, "the request failed due to an internal error"});
+        result = std::unexpected(BridgeError{
+            YADDNSC_STATUS_INTERNAL_ERROR, "the request failed due to an internal error", 0, std::current_exception()});
     }
     fulfil.call->live_scope = nullptr;
     fulfil.set(std::move(result));
@@ -200,36 +196,32 @@ std::expected<http::Response, BridgeError> Bridge::exchange(std::shared_ptr<Brid
         loop->post([lifetime, state, call] {
             // Admission happens on the loop, where scope closure and posting
             // cannot race. The shared token survives the group it refers to.
-            const auto owner = call->cycle ? call->cycle->lifetime : lifetime;
+            const auto owner = call->session ? call->session->admission_token() : lifetime;
             auto* group = owner.get();
             if (group == nullptr || group->scope().cancelled() || call->cancelled.load(std::memory_order_acquire) ||
-                (call->cycle && call->cycle->cancelled.load(std::memory_order_acquire))) {
+                (call->session && call->session->cancelled())) {
                 call->cancelled.store(true, std::memory_order_release);
                 call->promise.set_value(std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, {}}));
                 return;
             }
             try {
-                if (call->cycle) {
-                    call->cycle->calls.push_back(call);
+                if (call->session) {
+                    call->session->register_call(call);
                 }
                 group->spawn_discard(detail::serve_exchange(state, call));
             } catch (...) {
-                if (call->cycle) {
-                    std::erase_if(call->cycle->calls, [&](const auto& tracked) { return tracked.lock() == call; });
-                    if (!call->cycle->error) {
-                        call->cycle->error = std::current_exception();
-                    }
+                if (call->session) {
+                    call->session->unregister_call(call);
                 }
                 // Starting a child may allocate; dispatch failure is a request
                 // failure, not an exception escaping the loop callback.
-                call->promise.set_value(std::unexpected(BridgeError{YADDNSC_STATUS_INTERNAL_ERROR, {}}));
+                call->promise.set_value(
+                    std::unexpected(BridgeError{YADDNSC_STATUS_INTERNAL_ERROR, {}, 0, std::current_exception()}));
             }
         });
     } catch (...) {
-        if (call->cycle) {
-            call->cycle->record_worker_error(std::current_exception());
-        }
-        return std::unexpected(BridgeError{YADDNSC_STATUS_INTERNAL_ERROR, "the request could not be dispatched"});
+        return std::unexpected(BridgeError{YADDNSC_STATUS_INTERNAL_ERROR, "the request could not be dispatched", 0,
+                                           std::current_exception()});
     }
 
     if (future.wait_until(call->worker_deadline) != std::future_status::ready) {

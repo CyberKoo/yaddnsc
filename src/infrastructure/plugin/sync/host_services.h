@@ -5,17 +5,17 @@
 #ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_SYNC_HOST_SERVICES_H
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_SYNC_HOST_SERVICES_H
 
-#include <atomic>
 #include <cstdint>
 #include <deque>
+#include <exception>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <yaddnsc/sdk/driver_abi.h>
 
-#include "infrastructure/plugin/detail/cycle.h"
 #include "infrastructure/plugin/sync/bridge.h"  // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
 
 namespace app {
@@ -29,18 +29,18 @@ namespace plugin {
 ///
 /// One context is constructed on the offload worker for every ABI cycle and
 /// bound to the Bridge and the logger. Cancellation is observed through the
-/// cycle owner's shared cancellation latch. It owns the response arena: every string and
-/// header array a plugin may borrow stays valid until the cycle returns, across
-/// multiple exchanges (the ABI memory rules).
+/// owning session's atomic latch. The context owns the response arena: every
+/// string and header array a plugin may borrow stays valid until the cycle
+/// returns, across multiple exchanges (the ABI memory rules).
 ///
 /// @note Single-threaded: one context serves exactly one ABI cycle, and the
 ///       whole cycle runs on one offload worker.
 class HostServicesContext {
 public:
-    /// @param bridge Host-service HTTP bridge, owned by the gateway.
+    /// @param bridge Host-service HTTP bridge, owned by the SyncDriverSession.
     /// @param logger Log port receiving plugin log records.
-    /// @param state  Per-call cancellation state, shared with the gateway.
-    HostServicesContext(Bridge& bridge, const app::LoggerPort& logger, std::shared_ptr<CallState> state);
+    /// @param session Per-session cancellation and bridge registration state.
+    HostServicesContext(Bridge& bridge, const app::LoggerPort& logger, std::shared_ptr<BridgeSession> session);
 
     /// Build the services table bound to this context. The returned table
     /// copies no state; it must not outlive the context.
@@ -89,11 +89,20 @@ public:
 
     /// 0 while this cycle is active; non-zero once it was cancelled (either the
     /// caller or root scope cancelled it). Operation timeouts remain separate.
-    [[nodiscard]] std::int32_t is_cancelled() const noexcept {
-        if (state_->cancelled.load(std::memory_order_acquire)) {
-            return 1;
+    [[nodiscard]] std::int32_t is_cancelled() const noexcept { return session_->cancelled() ? 1 : 0; }
+
+    /// Preserve a host defect inside this worker until the plugin entry has
+    /// returned and its handle can be destroyed safely.
+    void record_defect(std::exception_ptr defect) noexcept {
+        if (!defect_) {
+            defect_ = std::move(defect);
         }
-        return 0;
+    }
+
+    void rethrow_defect() const {
+        if (defect_) {
+            std::rethrow_exception(defect_);
+        }
     }
 
 private:
@@ -118,7 +127,8 @@ private:
     Phase phase_ = Phase::CREATE;
     Bridge& bridge_;
     const app::LoggerPort& logger_;
-    std::shared_ptr<CallState> state_;
+    std::shared_ptr<BridgeSession> session_;
+    std::exception_ptr defect_;
 
     // Arenas — std::deque never invalidates references on push_back.
     std::deque<std::string> string_arena_;

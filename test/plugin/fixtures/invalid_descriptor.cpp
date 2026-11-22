@@ -1,6 +1,6 @@
 //
 // Descriptor-view rejection fixture. CMake builds this source once per
-// invalid field so PluginModule::load is exercised through a real .so.
+// invalid field so PluginLoader::load is exercised through a real .so.
 //
 
 #include <cstdint>

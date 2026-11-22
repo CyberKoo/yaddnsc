@@ -9,13 +9,13 @@
 
 #include "application/environment_validator.h"
 
+#include <expected>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
-#include <expected>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -23,6 +23,7 @@
 #include "domain/config/ip_source_kind.h"
 #include "domain/config/runtime_config.h"
 #include "domain/dns/record_kind.h"
+#include "domain/driver/capabilities.h"
 #include "domain/error/error.h"
 #include "mocks/mock_ports.h"
 
@@ -59,7 +60,7 @@ namespace {
         .version = "1.0.0",
         .author = "test",
         .description = "test driver",
-        .supported_records = std::move(supported_records),
+        .capabilities = domain::DriverCapabilities(std::move(supported_records)),
         .supports_validate = true,
     };
 }
@@ -73,11 +74,10 @@ namespace {
 [[nodiscard]] std::unique_ptr<MockDriverCatalogPort> catalog_with(std::vector<std::string> drivers) {
     auto catalog = std::make_unique<MockDriverCatalogPort>();
     ON_CALL(*catalog, loaded_drivers()).WillByDefault(::testing::Return(std::move(drivers)));
-    ON_CALL(*catalog, describe(::testing::_))
-        .WillByDefault(::testing::Invoke([](std::string_view name) {
-            return std::expected<app::DriverDescription, domain::DriverError>{
-                descriptor(name, {domain::RecordKind::A, domain::RecordKind::AAAA})};
-        }));
+    ON_CALL(*catalog, describe(::testing::_)).WillByDefault(::testing::Invoke([](std::string_view name) {
+        return std::expected<app::DriverDescription, domain::DriverError>{
+            descriptor(name, {domain::RecordKind::A, domain::RecordKind::AAAA})};
+    }));
     return catalog;
 }
 

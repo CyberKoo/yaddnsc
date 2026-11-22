@@ -11,6 +11,8 @@
 //
 
 #include <chrono>
+#include <coroutine>
+#include <expected>
 #include <functional>
 #include <new>
 #include <optional>
@@ -19,12 +21,9 @@
 #include <string_view>
 #include <vector>
 
-#include <coroutine>
-
-#include <expected>
 #include <gtest/gtest.h>
 
-#include "application/ports/gateway.h"
+#include "application/ports/driver_update.h"
 #include "application/ports/ip_source.h"
 #include "application/ports/log.h"
 #include "application/ports/resolver.h"
@@ -89,19 +88,13 @@ public:
 
 /// Gateway double whose update() can answer with each driver-error code or
 /// throw; `throw_value` is thrown as-is so the coroutine's own exception arms
-/// decide what happens.
-class ScriptedGateway final : public app::GatewayPort {
+/// decide what happens. The update cycle never validates a driver's
+/// parameters, so the double implements the update port alone.
+class ScriptedGateway final : public app::DriverUpdatePort {
 public:
     std::optional<domain::DriverError> failure;
     std::function<void()> throw_value;
     std::vector<std::string> published;
-
-    [[nodiscard]] bool supports_validate(std::string_view) const override { return true; }
-
-    [[nodiscard]] coro::Task<std::expected<void, domain::DriverError>> validate_config(std::string,
-                                                                                       std::string) override {
-        co_return std::expected<void, domain::DriverError>{};
-    }
 
     [[nodiscard]] coro::Task<std::expected<void, domain::DriverError>> update(
         std::string, domain::DriverUpdateCommand cmd) override {

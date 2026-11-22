@@ -46,18 +46,21 @@
 #include "coro/coro.h"
 #include "coro/detail/execution_record.h"
 #include "coro/detail/nursery_join.hpp"
+#include "domain/dns/record_kind.h"
 #include "domain/error/error.h"
 #include "domain/network/inet_address.h"
 #include "domain/update/driver_update_command.h"
 #include "infrastructure/http/types.h"
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
-#include "infrastructure/plugin/detail/cycle.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_gateway.h"
+#include "infrastructure/plugin/plugin_loader.h"
+#include "infrastructure/plugin/plugin_package.h"
 #include "infrastructure/plugin/shared_library.h"
 #include "infrastructure/plugin/sync/bridge.h"
 #include "mocks/null_logger.h"
+#include "plugin/plugin_test_doubles.h"
 #include "support/fmt.hpp"
 #include "support/util/fd.hpp"
 #include "yaddnsc/sdk/driver_abi.h"
@@ -319,12 +322,19 @@ private:
 [[nodiscard]] domain::DriverUpdateCommand make_command(std::string driver_params) {
     return domain::DriverUpdateCommand{
         .driver_params = std::move(driver_params),
-        .ip_addr = "192.0.2.1",
-        .rd_type = "A",
+        .ip_address = domain::InetAddress::parse("192.0.2.1").value(),
+        .record_kind = domain::RecordKind::A,
         .domain = "example.com",
         .subdomain = "www",
         .fqdn = "www.example.com",
     };
+}
+
+/// Load one driver image and register it in the catalog.
+void register_driver(DriverCatalog& catalog, const std::string& path) {
+    auto loaded = PluginLoader::load(path);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+    catalog.register_package(*loaded);
 }
 
 [[nodiscard]] plugin::DriverGateway::Options default_options(std::chrono::milliseconds budget = 3000ms) {
@@ -346,7 +356,7 @@ void run_loop(coro::Loop& loop, Fn&& body) {
 /// Fixture: catalog with the whiteboard plugin and a recording logger.
 class CoroDriverGatewayTest : public ::testing::Test {
 protected:
-    void SetUp() override { ASSERT_NO_THROW(catalog_.load_driver(std::string(PLUGIN_PATH))); }
+    void SetUp() override { register_driver(catalog_, std::string(PLUGIN_PATH)); }
 
     DriverCatalog catalog_;
     NullLogger logger_;
@@ -780,7 +790,7 @@ TEST(Bridge, WorkerDeadline_CancelsAndDrainsWithoutAResponse) {
 
 TEST_F(CoroDriverGatewayTest, AsyncDriverCompletesThroughTheGateway) {
     LoopbackHttpServer server{0ms};
-    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_DRIVER_PATH)));
+    register_driver(catalog_, std::string(ASYNC_DRIVER_PATH));
     coro::Loop loop;
     std::expected<void, domain::DriverError> result;
 
@@ -805,7 +815,7 @@ TEST_F(CoroDriverGatewayTest, AsyncDriverCompletesThroughTheGateway) {
 TEST_F(CoroDriverGatewayTest, AsyncSdkDriverCancellationDrainsTheRequest) {
     PausedClock clock;
     HeldResponse held;
-    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_SDK_PATH)));
+    register_driver(catalog_, std::string(ASYNC_SDK_PATH));
     coro::Loop loop{clock};
     auto options = default_options(30s);
     options.http.factory = std::make_shared<HeldResponseFactory>(held);
@@ -841,7 +851,7 @@ TEST_F(CoroDriverGatewayTest, AsyncSdkDriverCancellationDrainsTheRequest) {
 }
 
 TEST_F(CoroDriverGatewayTest, AsyncWaitDoesNotBlockTheOnlyWorkerAndSyncModeCoexists) {
-    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_DRIVER_PATH)));
+    register_driver(catalog_, std::string(ASYNC_DRIVER_PATH));
     PausedClock clock;
     coro::Loop loop{clock};
     loop.set_offload_workers(1);
@@ -900,7 +910,7 @@ TEST_F(CoroDriverGatewayTest, CancellationStopsHttpBeforeSlowResumeReturnsAndDes
     ASSERT_NE(configure, nullptr);
     ASSERT_NE(release, nullptr);
     ASSERT_NE(get_state, nullptr);
-    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_SLOW_RESUME_PATH)));
+    register_driver(catalog_, std::string(ASYNC_SLOW_RESUME_PATH));
 
     PausedClock clock;
     coro::Loop loop{clock};
@@ -966,7 +976,7 @@ TEST_F(CoroDriverGatewayTest, CancellationStopsHttpBeforeSlowResumeReturnsAndDes
 
 TEST_F(CoroDriverGatewayTest, AsyncStartCancelInOneStepDoesNotSend) {
     LoopbackHttpServer server{0ms};
-    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_DRIVER_PATH)));
+    register_driver(catalog_, std::string(ASYNC_DRIVER_PATH));
     coro::Loop loop;
     std::expected<void, domain::DriverError> result;
     const std::string params = fmt::format("http://127.0.0.1:{}|cancel", server.port());
@@ -990,7 +1000,7 @@ TEST_F(CoroDriverGatewayTest, AsyncStartCancelInOneStepDoesNotSend) {
 
 TEST_F(CoroDriverGatewayTest, AsyncSdkDriverCompletesThroughTheGateway) {
     LoopbackHttpServer server{0ms};
-    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_SDK_PATH)));
+    register_driver(catalog_, std::string(ASYNC_SDK_PATH));
     coro::Loop loop;
     std::expected<void, domain::DriverError> update_result;
     std::expected<void, domain::DriverError> valid;
@@ -1020,7 +1030,7 @@ TEST_F(CoroDriverGatewayTest, AsyncSdkDriverCompletesThroughTheGateway) {
 
 TEST_F(CoroDriverGatewayTest, AsyncSdkDriverWhenAllRunsRequestsConcurrently) {
     LoopbackHttpServer server{LoopbackHttpServer::Barrier{.count = 2, .give_up = 10s}};
-    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_SDK_PATH)));
+    register_driver(catalog_, std::string(ASYNC_SDK_PATH));
     coro::Loop loop;
     std::expected<void, domain::DriverError> result;
 
@@ -1047,7 +1057,7 @@ TEST_F(CoroDriverGatewayTest, AsyncSdkDriverWhenAllRunsRequestsConcurrently) {
 TEST_F(CoroDriverGatewayTest, AsyncSdkDriverWhenAllCancellationDrainsRequests) {
     PausedClock clock;
     HeldResponse held;
-    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_SDK_PATH)));
+    register_driver(catalog_, std::string(ASYNC_SDK_PATH));
     coro::Loop loop{clock};
     auto options = default_options(30s);
     options.http.factory = std::make_shared<HeldResponseFactory>(held);
@@ -1085,7 +1095,7 @@ TEST_F(CoroDriverGatewayTest, AsyncSdkDriverWhenAllCancellationDrainsRequests) {
 TEST_F(CoroDriverGatewayTest, AsyncSdkDriverWhenAnyCancelsAndDrainsLoser) {
     PausedClock clock;
     HeldResponse held;
-    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_SDK_PATH)));
+    register_driver(catalog_, std::string(ASYNC_SDK_PATH));
     coro::Loop loop{clock};
     auto options = default_options(30s);
     options.http.factory = std::make_shared<HeldResponseFactory>(held, true);
@@ -1113,7 +1123,7 @@ TEST_F(CoroDriverGatewayTest, AsyncSdkDriverWhenAnyCancelsAndDrainsLoser) {
 }
 
 TEST_F(CoroDriverGatewayTest, AsyncDriverPropagatesHttpFailure) {
-    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_DRIVER_PATH)));
+    register_driver(catalog_, std::string(ASYNC_DRIVER_PATH));
     coro::Loop loop;
     std::expected<void, domain::DriverError> result;
 
@@ -1135,7 +1145,7 @@ TEST_F(CoroDriverGatewayTest, AsyncDriverPropagatesHttpFailure) {
 }
 
 TEST_F(CoroDriverGatewayTest, AsyncDriverPreservesAndClampsRetryAfter) {
-    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_DRIVER_PATH)));
+    register_driver(catalog_, std::string(ASYNC_DRIVER_PATH));
     coro::Loop loop;
     std::expected<void, domain::DriverError> limited;
     std::expected<void, domain::DriverError> overflowing;
@@ -1163,7 +1173,7 @@ TEST_F(CoroDriverGatewayTest, AsyncDriverPreservesAndClampsRetryAfter) {
 }
 
 TEST_F(CoroDriverGatewayTest, AsyncDriverValidatesThroughTheGateway) {
-    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_DRIVER_PATH)));
+    register_driver(catalog_, std::string(ASYNC_DRIVER_PATH));
     coro::Loop loop;
     std::expected<void, domain::DriverError> valid;
     std::expected<void, domain::DriverError> invalid;
@@ -1187,7 +1197,7 @@ TEST_F(CoroDriverGatewayTest, AsyncDriverValidatesThroughTheGateway) {
 }
 
 TEST_F(CoroDriverGatewayTest, AsyncValidatePublishesCreateFailureWithoutHanging) {
-    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_CREATE_FAILS_PATH)));
+    register_driver(catalog_, std::string(ASYNC_CREATE_FAILS_PATH));
     coro::Loop loop;
     std::expected<void, domain::DriverError> result;
     bool completed = false;
@@ -1214,7 +1224,7 @@ TEST_F(CoroDriverGatewayTest, AsyncValidatePublishesCreateFailureWithoutHanging)
 TEST_F(CoroDriverGatewayTest, AsyncDriverCancellationDrainsTheRequest) {
     PausedClock clock;
     HeldResponse held;
-    ASSERT_NO_THROW(catalog_.load_driver(std::string(ASYNC_DRIVER_PATH)));
+    register_driver(catalog_, std::string(ASYNC_DRIVER_PATH));
     coro::Loop loop{clock};
     auto options = default_options(30s);
     options.http.factory = std::make_shared<HeldResponseFactory>(held);
@@ -1544,7 +1554,7 @@ TEST_F(CoroDriverGatewayTest, AbandonedQueuedCycle_DoesNotEnterTheDriver) {
 
 TEST(CoroDriverGatewayFirewall, EntryPointExceptionsBecomeDriverErrors) {
     DriverCatalog catalog;
-    ASSERT_NO_THROW(catalog.load_driver(std::string(THROWING_FIXTURE)));
+    register_driver(catalog, std::string(THROWING_FIXTURE));
     NullLogger logger;
 
     coro::Loop loop;
@@ -1663,7 +1673,7 @@ TEST_F(CoroDriverGatewayTest, ValidationCancelledStatus_IsFailureValueWithoutCan
 
 TEST(CoroDriverGatewayValidate, MissingValidateEntryFailsConfigTest) {
     DriverCatalog catalog;
-    ASSERT_NO_THROW(catalog.load_driver(std::string(NO_VALIDATE_FIXTURE)));
+    register_driver(catalog, std::string(NO_VALIDATE_FIXTURE));
     NullLogger logger;
 
     coro::Loop loop;
@@ -1752,7 +1762,9 @@ TEST(Bridge, UnboundCycle_RejectsWithoutStartingHttp) {
         co_await coro::with_nursery([&](coro::Nursery& group) -> coro::Task<void> {
             auto bridge = std::make_shared<plugin::Bridge>(loop, group, http::Options{}, 100ms);
             auto call = std::make_shared<plugin::BridgeCall>();
-            call->cycle = std::make_shared<plugin::CallState>();
+            // A session that was never bound to a nursery: its admission token
+            // resolves to no group, so the call must be rejected on the loop.
+            call->session = std::make_shared<test::TestBridgeSession>();
             call->url = "http://127.0.0.1:1/never-admit";
             auto response = co_await coro::offload_joined([bridge, call] { return bridge->exchange(call); });
             EXPECT_FALSE(response.has_value());
@@ -1941,15 +1953,15 @@ TEST(Bridge, WithoutCycle_HostDefectIsReportedToGroupAndWorker) {
     EXPECT_EQ(status, YADDNSC_STATUS_INTERNAL_ERROR);
 }
 
-TEST(Bridge, CycleLiveSet_DoesNotKeepRequestOrOwnerAliveWithoutRetirementErase) {
-    auto cycle = std::make_shared<plugin::CallState>();
+TEST(Bridge, SessionLiveSet_DoesNotKeepRequestOrSessionAliveWithoutRetirementErase) {
+    auto session = std::make_shared<test::TestBridgeSession>();
     auto call = std::make_shared<plugin::BridgeCall>();
-    call->cycle = cycle;
-    cycle->calls.push_back(call);
-    const std::weak_ptr<plugin::CallState> owner = cycle;
+    call->session = session;
+    session->register_call(call);
+    const std::weak_ptr<test::TestBridgeSession> owner = session;
     const std::weak_ptr<plugin::BridgeCall> request = call;
-    cycle.reset();
-    EXPECT_FALSE(owner.expired());  // a live request still keeps its owner
+    session.reset();
+    EXPECT_FALSE(owner.expired());  // a live request still keeps its session
     call.reset();
     EXPECT_TRUE(request.expired());
     EXPECT_TRUE(owner.expired());
@@ -1958,7 +1970,7 @@ TEST(Bridge, CycleLiveSet_DoesNotKeepRequestOrOwnerAliveWithoutRetirementErase) 
 TEST(CoroDriverGatewayPhases, SavedServicesRejectHttpDuringCreateValidateDestroyAndAcceptOptionalErrors) {
     DriverCatalog catalog;
     NullLogger logger;
-    ASSERT_NO_THROW(catalog.load_driver(PHASE_HTTP_FIXTURE));
+    register_driver(catalog, std::string(PHASE_HTTP_FIXTURE));
     auto library = SharedLibrary::open(PHASE_HTTP_FIXTURE);
     ASSERT_TRUE(library);
     const auto destroy_status = reinterpret_cast<yaddnsc_status (*)()>(library->resolve("test_destroy_http_status"));

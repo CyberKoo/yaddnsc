@@ -24,11 +24,11 @@
 // promise is written on the loop and read on the worker, so the loop cannot
 // deadlock against it.
 //
-// Cancellation and lifetime: gateway cycles own a shielded group containing
-// joined worker work and all live/retiring HTTP children. The root owns the
-// cycle, and an independent loop controller handles cancellation while the
-// worker waits. Sticky cycle cancellation participates in loop admission, so
-// a late worker publication cannot start an exchange after caller cancellation.
+// Cancellation and lifetime: a SyncDriverSession owns the shielded nursery
+// containing joined worker work and all live/retiring HTTP children. The
+// CycleRunner owns delivery and cancellation observation while the worker
+// waits. Sticky session cancellation participates in loop admission, so a late
+// worker publication cannot start an exchange after caller cancellation.
 // Standalone Bridge calls use the supplied root group directly.
 //
 // Admission uses a shared group lifetime token, checked only on the loop.
@@ -53,7 +53,6 @@
 #include <memory>
 #include <string>
 #include <utility>  // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
-#include <vector>   // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
 
 #include <yaddnsc/sdk/driver_abi.h>
 
@@ -71,27 +70,42 @@ class CancelScope;
 namespace plugin {
 
 /// Coarse host-service ABI result; cancellation stays a value for the worker.
+/// defect preserves an unexpected host failure for the owning session instead
+/// of writing it into shared delivery state.
 struct BridgeError {
     yaddnsc_status code;
     std::string message;
     uint32_t retry_after_seconds = 0;
+    std::exception_ptr defect{};
 };
 
-struct CallState;
+struct BridgeCall;
+
+/// Narrow admission and registration surface between one SyncDriverSession
+/// and its bridge calls. All methods except cancelled() are loop-thread only.
+class BridgeSession {
+public:
+    virtual ~BridgeSession() = default;
+
+    [[nodiscard]] virtual coro::NurseryToken admission_token() const = 0;
+    [[nodiscard]] virtual bool cancelled() const noexcept = 0;
+    virtual void register_call(const std::shared_ptr<BridgeCall>& call) = 0;
+    virtual void unregister_call(const std::shared_ptr<BridgeCall>& call) noexcept = 0;
+};
 
 /// One bridged exchange: everything the loop side needs, plus the shared cell
 /// the worker waits on.
 ///
 /// Ownership: held by std::shared_ptr; the worker, the posted spawn closure and
 /// the loop-side coroutine each hold a share, so an abandoned wait never leaves
-/// the loop side with a dangling promise. cycle optionally retains its owner;
-/// the loop removes the call from that owner's weak live set on completion.
+/// the loop side with a dangling promise. session optionally retains its
+/// registration owner; the loop unregisters the call on completion.
 /// Thread safety: `cancelled` is atomic, worker_deadline/request are immutable after
 /// posting, and the promise synchronizes result delivery. `live_scope` is
 /// loop-thread only: serve_exchange publishes and clears it, and Bridge::cancel
 /// reads it from a lambda posted onto the loop.
 struct BridgeCall {
-    std::shared_ptr<CallState> cycle;
+    std::shared_ptr<BridgeSession> session;
     std::string url;
     http::Request request;
     /// Fulfilled exactly once by the loop-side coroutine, on every path.

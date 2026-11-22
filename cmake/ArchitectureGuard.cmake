@@ -552,10 +552,33 @@ foreach (f ${cxx_translation_units})
 endforeach ()
 
 # ------------------------------------------------------------------------------
+# 14. The CLI layer is presentation: it formats values that were already
+#     prepared for it. The URI codec, the configuration module and the plugin
+#     host are infrastructure, so the CLI reaches none of them — the
+#     composition root parses and hands over a view.
+# ------------------------------------------------------------------------------
+guard_check("the CLI layer must not include infrastructure/ (parse in the composition root)"
+    "${INC_RE}[<\"]infrastructure/"
+    ${PROJECT_SOURCE_DIR}/src/cli/*.h
+    ${PROJECT_SOURCE_DIR}/src/cli/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/cli/*.cpp)
+
+# ------------------------------------------------------------------------------
+# 15. The plugin host does not read or validate the configuration file: it is
+#     handed its settings. Depending on the configuration module would let
+#     the plugin layer grow a second configuration path.
+# ------------------------------------------------------------------------------
+guard_check("the plugin host must not include the configuration module (it is handed its settings)"
+    "${INC_RE}[<\"]infrastructure/config/"
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/plugin/*.h
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/plugin/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/plugin/*.cpp)
+
+# ------------------------------------------------------------------------------
 # Verdict
 # ------------------------------------------------------------------------------
 if (violations)
     message(FATAL_ERROR "Architecture guard violations:${violations}\n")
 endif ()
 
-message(STATUS "Architecture guard: OK (domain/coro/application/plugin/SDK/layering/concurrency/token/rules/logging/deprecated-C-header checks passed)")
+message(STATUS "Architecture guard: OK (domain/coro/application/plugin/SDK/layering/concurrency/token/rules/logging/deprecated-C-header/cli-boundary/plugin-config checks passed)")

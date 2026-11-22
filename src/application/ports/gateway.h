@@ -1,41 +1,26 @@
 #ifndef YADDNSC_APPLICATION_PORTS_GATEWAY_H
 #define YADDNSC_APPLICATION_PORTS_GATEWAY_H
 
-#include <string>
-#include <string_view>
-
-#include <expected>
-
-#include "domain/error/error.h"
-#include "domain/update/driver_update_command.h"
+#include "application/ports/driver_update.h"
+#include "application/ports/driver_validation.h"
 #include "coro/task.hpp"
 
 namespace app {
 
-/// Driver updates and one-shot configuration diagnostics.
+/// The composed driver port: publishing updates and validating configuration.
+///
+/// The two halves are separate ports because the run path needs the update
+/// side and the configuration sweep needs the validation side. A driver host
+/// implements both, so the composition root keeps them together in one
+/// object behind this composed port.
 ///
 /// Failure: DriverError values. Cancellation propagates as `coro::Cancelled`:
 /// the await is an abandon point. A driver cycle that already started runs to
 /// completion; a cycle not yet started never enters the driver.
 /// The port must outlive the task. Thread safety: loop-thread only.
-class GatewayPort {
+class GatewayPort : public DriverUpdatePort, public DriverValidationPort {
 public:
-    virtual ~GatewayPort() = default;
-
-    /// Whether this driver can have its parameters checked through
-    /// validate_config. False when the plugin does not export the optional
-    /// validation entry: the driver still loads and updates, but the host
-    /// cannot confirm its configuration.
-    [[nodiscard]] virtual bool supports_validate(std::string_view driver_name) const = 0;
-
-    /// Diagnostic path for `config test`, outside the update-loop lifecycle.
-    /// Validate driver parameters without updating. A missing validation entry
-    /// returns DriverError; cancellation propagates.
-    [[nodiscard]] virtual coro::Task<std::expected<void, domain::DriverError>> validate_config(
-        std::string driver_name, std::string driver_param_json) = 0;
-
-    [[nodiscard]] virtual coro::Task<std::expected<void, domain::DriverError>> update(
-        std::string driver_name, domain::DriverUpdateCommand command) = 0;
+    ~GatewayPort() override = default;
 };
 
 }  // namespace app

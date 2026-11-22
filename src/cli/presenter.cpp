@@ -14,13 +14,11 @@
 
 #include "application/diagnostics.h"
 #include "application/ports/driver_catalog.h"
-#include "domain/config/dns_config.h"
 #include "domain/dns/record_kind.h"  // IWYU pragma: keep — magic_enum::enum_names needs the definition
 #include "domain/error/dns_error_info.h"
 #include "domain/error/error.h"
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
-#include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
 
 #include "build_id.hpp"
@@ -140,27 +138,26 @@ int Cli::present_dns_resolve(const app::DnsResolveOutcome& outcome) {
 }
 
 namespace {
-[[nodiscard]] std::string format_resolver_server(const domain::DnsServer& server) {
-    const auto uri = Uri::parse(server.address);
-    if (!uri.has_value()) {
+[[nodiscard]] std::string format_resolver_server(const Cli::DnsServerView& server) {
+    if (!server.endpoint.has_value()) {
         // Display helper must never fail: show the raw address as-is.
-        return server.address;
+        return server.original;
     }
-    if (!uri->get_schema().empty()) {
-        std::string display = uri->get_origin();
-        const auto path = uri->get_path();
-        if (!path.empty() && path != "/") {
-            display += path;
+    const auto& endpoint = *server.endpoint;
+    if (endpoint.has_scheme) {
+        std::string display = endpoint.origin;
+        if (!endpoint.path.empty() && endpoint.path != "/") {
+            display += endpoint.path;
         }
         return display;
     }
-    return fmt::format("{}:{}", uri->get_host_literal(), server.port);
+    return fmt::format("{}:{}", endpoint.host_literal, server.port);
 }
 
 }  // namespace
 
 int Cli::present_dns_resolver(const bool use_custom_servers, const std::string_view strategy,
-                              const std::vector<domain::DnsServer>& servers) {
+                              const std::vector<DnsServerView>& servers) {
     std::println(
         "DNS resolver configuration:\n"
         "  Custom server: {}\n"

@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <expected>
 #include <initializer_list>
 #include <map>
 #include <memory>
@@ -25,7 +26,6 @@
 #include <utility>
 #include <vector>
 
-#include <expected>
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
@@ -33,6 +33,7 @@
 #include "infrastructure/plugin/plugin_error.h"
 #include "infrastructure/plugin/plugin_loader.h"
 #include "infrastructure/plugin/shared_library.h"
+#include "infrastructure/plugin/sync/package.h"
 #include "mocks/recording_logger.h"
 #include "plugin/plugin_test_doubles.h"
 
@@ -94,7 +95,7 @@ void expect_error_untouched(const yaddnsc_error& actual, const yaddnsc_error& re
 }
 
 /// The four raw entry points, resolved by hand so NULL arguments can be
-/// passed (the PluginModule trampolines take references).
+/// passed (the package trampolines take references).
 struct RawPlugin {
     SharedLibrary library;
     decltype(&yaddnsc_driver_get_descriptor) get_descriptor = nullptr;
@@ -121,13 +122,13 @@ struct RawPlugin {
     return raw;
 }
 
-[[nodiscard]] std::shared_ptr<const PluginModule> load_module() {
-    auto module = PluginModule::load(std::string(PLUGIN_PATH));
+[[nodiscard]] std::shared_ptr<const plugin::SyncPluginPackage> load_module() {
+    auto module = test::load_sync_package(std::string(PLUGIN_PATH));
     EXPECT_TRUE(module.has_value()) << module.error().message;
     if (!module) {
         return nullptr;
     }
-    return std::make_shared<const PluginModule>(std::move(*module));
+    return *module;
 }
 
 }  // namespace
@@ -841,7 +842,7 @@ TEST(DriverAbiContract, PluginReceivesUpdateParameters) {
 
     HostUpdateContext host;
     const auto services = host.context.make_services();
-    const auto result = run_module_cycle(*module, services, R"({"op":"echo_params"})");
+    const auto result = run_sync_cycle(*module, services, R"({"op":"echo_params"})");
 
     ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
     EXPECT_EQ(result.update_status, YADDNSC_STATUS_OK) << result.error_message;
@@ -858,7 +859,7 @@ TEST(DriverAbiContract, SdkLogMacroDeliversCallSiteLocation) {
 
     HostUpdateContext host;
     const auto services = host.context.make_services();
-    const auto result = run_module_cycle(*module, services, R"({"op":"log_macro","message":"via sdk"})");
+    const auto result = run_sync_cycle(*module, services, R"({"op":"log_macro","message":"via sdk"})");
     ASSERT_EQ(result.update_status, YADDNSC_STATUS_OK) << result.error_message;
 
     const auto records = host.logger.records();
@@ -877,7 +878,7 @@ TEST(DriverAbiContract, PluginRawLogViolationsDoNotFailUpdate) {
 
     HostUpdateContext host;
     const auto services = host.context.make_services();
-    const auto result = run_module_cycle(*module, services, R"({"op":"log_raw"})");
+    const auto result = run_sync_cycle(*module, services, R"({"op":"log_raw"})");
 
     // Broken hand-written locations never turn the update into a failure.
     EXPECT_EQ(result.update_status, YADDNSC_STATUS_OK) << result.error_message;
@@ -906,7 +907,7 @@ TEST(DriverAbiContract, PluginResponseViewsSurviveMultipleExchanges) {
     host.client.queue_response(202, "body-2", {{"X-Reply", "reply-2"}});
 
     const auto services = host.context.make_services();
-    const auto result = run_module_cycle(*module, services, R"({"op":"exchange","http_count":3})");
+    const auto result = run_sync_cycle(*module, services, R"({"op":"exchange","http_count":3})");
 
     // The plugin itself re-verified every earlier view after each exchange.
     EXPECT_EQ(result.update_status, YADDNSC_STATUS_OK) << result.error_message;
@@ -921,7 +922,7 @@ TEST(DriverAbiContract, OperationCancellationIsVisibleToThePlugin) {
     HostUpdateContext host;
     host.context.cancelled = true;
     const auto services = host.context.make_services();
-    const auto result = run_module_cycle(*module, services, R"({"op":"check_cancel","expect_cancelled":true})");
+    const auto result = run_sync_cycle(*module, services, R"({"op":"check_cancel","expect_cancelled":true})");
     EXPECT_EQ(result.update_status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
@@ -931,7 +932,7 @@ TEST(DriverAbiContract, ErrorReportIsCopiedSynchronously) {
 
     HostUpdateContext host;
     const auto services = host.context.make_services();
-    const auto result = run_module_cycle(
+    const auto result = run_sync_cycle(
         *module, services, R"({"op":"fail","status":"rate_limited","message":"slow down","retry_after":123})");
 
     EXPECT_EQ(result.update_status, YADDNSC_STATUS_RATE_LIMITED);
@@ -945,7 +946,7 @@ TEST(DriverAbiContract, ConcurrentUpdateErrorsAreIsolated) {
 
     // Two instances of the same module, updated on two threads with distinct
     // failure messages: neither message may leak into the other instance.
-    std::array<ModuleCycleResult, 2> results{};
+    std::array<SyncCycleResult, 2> results{};
     std::array<std::string, 2> params = {R"({"op":"fail","status":"network_error","message":"thread-a-error"})",
                                          R"({"op":"fail","status":"network_error","message":"thread-b-error"})"};
 
@@ -954,7 +955,7 @@ TEST(DriverAbiContract, ConcurrentUpdateErrorsAreIsolated) {
         threads[i] = std::thread([&, i] {
             HostUpdateContext host;
             const auto services = host.context.make_services();
-            results[i] = run_module_cycle(*module, services, params[i]);
+            results[i] = run_sync_cycle(*module, services, params[i]);
         });
     }
     for (auto& thread : threads) {

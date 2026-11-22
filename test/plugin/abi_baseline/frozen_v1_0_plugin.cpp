@@ -3,7 +3,7 @@
 /// abi_baseline/v1_0/, never the live include/ tree (see CMakeLists.txt).
 ///
 /// It is the cross-version freeze tripwire: the abi_freeze_compat test
-/// dlopens this plugin through the production PluginModule and drives a full
+/// dlopens this plugin through the production plugin package and synchronous session and drives a full
 /// create → update → destroy plus validate cycle. A host-side change that
 /// breaks ABI 1.0 compatibility turns that test red.
 ///

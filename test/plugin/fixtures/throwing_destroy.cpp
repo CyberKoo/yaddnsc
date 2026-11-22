@@ -2,10 +2,10 @@
 /// C ABI — the shape of a misbehaving third-party plugin hitting the
 /// catch-all arm of the host's destroy firewall (the std::exception arm is
 /// covered by the `throwing` fixture). The ABI forbids exceptions, so the
-/// host's PluginModule::destroy() must swallow the escape: log only, no
+/// host's SyncPluginPackage::destroy() must swallow the escape: log only, no
 /// retry, no terminate, and the module lease is still released afterwards.
 ///
-/// get_descriptor/create/update succeed so PluginModule::load() accepts the
+/// get_descriptor/create/update succeed so PluginLoader::load() accepts the
 /// library and a full instance cycle reaches destroy().
 
 #include <yaddnsc/sdk/driver_abi.h>

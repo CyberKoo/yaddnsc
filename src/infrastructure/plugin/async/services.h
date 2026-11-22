@@ -14,13 +14,18 @@
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "infrastructure/http/types.h"
-#include "infrastructure/plugin/detail/cycle.h"  // IWYU pragma: keep — compiled standalone as a header check, so the include must stay
 
 namespace app {
 class LoggerPort;
 }
 
 namespace plugin {
+
+class AsyncCancellation {
+public:
+    virtual ~AsyncCancellation() = default;
+    [[nodiscard]] virtual bool cancelled() const noexcept = 0;
+};
 
 /// One accepted HTTP command. The worker copies every borrowed view before
 /// returning; the loop starts the request only after the step has returned.
@@ -52,7 +57,7 @@ class HostAsyncServicesContext {
 public:
     enum class Phase { CREATE, BEGIN, RESUME, VALIDATE, DESTROY };
 
-    HostAsyncServicesContext(const app::LoggerPort& logger, std::shared_ptr<CallState> state);
+    HostAsyncServicesContext(const app::LoggerPort& logger, std::shared_ptr<AsyncCancellation> cancellation);
 
     HostAsyncServicesContext(const HostAsyncServicesContext&) = delete;
     HostAsyncServicesContext& operator=(const HostAsyncServicesContext&) = delete;
@@ -87,7 +92,7 @@ private:
     static yaddnsc_status http_cancel_entry(void* context, uint64_t op_id, yaddnsc_error* out_error) noexcept;
 
     const app::LoggerPort& logger_;
-    std::shared_ptr<CallState> state_;
+    std::shared_ptr<AsyncCancellation> cancellation_;
     yaddnsc_async_services services_{};
     Phase phase_ = Phase::CREATE;
     AsyncStepCommands* commands_ = nullptr;

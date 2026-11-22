@@ -30,10 +30,14 @@
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
+#include "domain/dns/record_kind.h"
 #include "domain/error/error.h"
+#include "domain/network/inet_address.h"
 #include "domain/update/driver_update_command.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_gateway.h"
+#include "infrastructure/plugin/plugin_loader.h"
+#include "infrastructure/plugin/plugin_package.h"
 #include "infrastructure/plugin/shared_library.h"
 #include "mocks/null_logger.h"
 
@@ -70,7 +74,7 @@ public:
         library_ = std::move(*library);
         set_mode_ = reinterpret_cast<int (*)(const char*)>(library_.resolve("abi_misbehave_set_mode"));  // NOLINT
         reset_ = reinterpret_cast<void (*)()>(library_.resolve("abi_misbehave_reset_state"));            // NOLINT
-        get_state_ = reinterpret_cast<GetState>(library_.resolve("abi_misbehave_get_state"));             // NOLINT
+        get_state_ = reinterpret_cast<GetState>(library_.resolve("abi_misbehave_get_state"));            // NOLINT
     }
 
     /// Whether every test-only export resolved — a false here would silently
@@ -100,8 +104,8 @@ private:
 [[nodiscard]] domain::DriverUpdateCommand make_command() {
     return domain::DriverUpdateCommand{
         .driver_params = R"({"op":"noop"})",
-        .ip_addr = "192.0.2.1",
-        .rd_type = "A",
+        .ip_address = domain::InetAddress::parse("192.0.2.1").value(),
+        .record_kind = domain::RecordKind::A,
         .domain = "example.com",
         .subdomain = "www",
         .fqdn = "www.example.com",
@@ -151,7 +155,9 @@ void run_validate(const DriverCatalog& catalog, const app::LoggerPort& logger,
 class GatewayAbiContractTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        ASSERT_NO_THROW(catalog_.load_driver(std::string(PLUGIN_PATH)));
+        auto loaded = PluginLoader::load(std::string(PLUGIN_PATH));
+        ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+        catalog_.register_package(*loaded);
         control_ = std::make_unique<MisbehaveControl>(std::string(PLUGIN_PATH));
         ASSERT_TRUE(control_->ready()) << "fixture test-only exports did not resolve";
         control_->reset();
@@ -206,8 +212,7 @@ TEST_F(GatewayAbiContractTest, CreateReturnsOkWithoutAHandle_IsAnInvalidAbiResul
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
-    EXPECT_NE(result.error().message.find("create"), std::string::npos)
-        << result.error().message;
+    EXPECT_NE(result.error().message.find("create"), std::string::npos) << result.error().message;
     // The host must never destroy an instance it never received.
     const auto counts = control_->state();
     EXPECT_EQ(counts.creates, 1U);
@@ -222,8 +227,7 @@ TEST_F(GatewayAbiContractTest, CreateFailsWithoutAnErrorReport_IsAnInvalidAbiRes
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
-    EXPECT_NE(result.error().message.find("invalid"), std::string::npos)
-        << result.error().message;
+    EXPECT_NE(result.error().message.find("invalid"), std::string::npos) << result.error().message;
 }
 
 TEST_F(GatewayAbiContractTest, CreateReportStatusDisagreesWithTheReturnValue_IsAnInvalidAbiResult) {
@@ -234,8 +238,7 @@ TEST_F(GatewayAbiContractTest, CreateReportStatusDisagreesWithTheReturnValue_IsA
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
-    EXPECT_NE(result.error().message.find("create"), std::string::npos)
-        << result.error().message;
+    EXPECT_NE(result.error().message.find("create"), std::string::npos) << result.error().message;
 }
 
 TEST_F(GatewayAbiContractTest, CreateReportsAFailureWithNoMessage_TheHostSynthesisesOne) {
@@ -248,10 +251,8 @@ TEST_F(GatewayAbiContractTest, CreateReportsAFailureWithNoMessage_TheHostSynthes
     // An empty message is a legal report, so this is a mapped failure rather
     // than an invalid one — and the host still has to produce readable text.
     EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
-    EXPECT_NE(result.error().message.find(DRIVER_NAME), std::string::npos)
-        << result.error().message;
-    EXPECT_NE(result.error().message.find("www.example.com"), std::string::npos)
-        << result.error().message;
+    EXPECT_NE(result.error().message.find(DRIVER_NAME), std::string::npos) << result.error().message;
+    EXPECT_NE(result.error().message.find("www.example.com"), std::string::npos) << result.error().message;
 }
 
 TEST_F(GatewayAbiContractTest, CreateReportsRateLimited_MapsToRateLimitedAndClampsRetryAfter) {
@@ -279,8 +280,7 @@ TEST_F(GatewayAbiContractTest, UpdateFailsWithoutAnErrorReport_IsAnInvalidAbiRes
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
-    EXPECT_NE(result.error().message.find("update"), std::string::npos)
-        << result.error().message;
+    EXPECT_NE(result.error().message.find("update"), std::string::npos) << result.error().message;
     // A refused report still leaves the instance owned by the host: destroy ran.
     const auto counts = control_->state();
     EXPECT_EQ(counts.updates, 1U);
@@ -337,8 +337,7 @@ TEST_F(GatewayAbiContractTest, ValidateFailsWithoutAnErrorReport_IsAnInvalidAbiR
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
-    EXPECT_NE(result.error().message.find("validate"), std::string::npos)
-        << result.error().message;
+    EXPECT_NE(result.error().message.find("validate"), std::string::npos) << result.error().message;
     const auto counts = control_->state();
     EXPECT_EQ(counts.validates, 1U);
     EXPECT_EQ(counts.destroys, 1U);

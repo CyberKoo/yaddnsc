@@ -216,10 +216,11 @@ unchanged.
 (`status_code`, `headers`, `body`), whose header/body views borrow the host
 arena until `yaddnsc_driver_update` returns; there is no shared owner or
 conversion between the two response types. An exception from
-`yaddnsc_driver_async_destroy` is a fatal host cleanup failure: the host
-cannot prove the instance was released and will not release the module or
-services. The bundled drivers use the async SDK and therefore require ABI
-1.1; their provider configuration is unchanged.
+`yaddnsc_driver_async_destroy`, or a destroy step that produces no completion
+result, is a fatal host cleanup failure: the host cannot prove the instance was
+released and will not release the module or services. The bundled drivers use
+the async SDK and therefore require ABI 1.1; their provider configuration is
+unchanged.
 
 ## Recommended build
 

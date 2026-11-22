@@ -11,11 +11,16 @@
 // already been joined, so a case that wrongly reached the bridge would be
 // rejected instead of issuing a request. The few cases that need a host
 // defect arm a test-local allocator fault for exactly one allocation.
+//
+// The per-cycle state is a BridgeSession: it answers the cancellation
+// question the context asks, and it keeps the host defect the C-frame
+// firewall records until the cycle can report it.
 // =============================================================================
 
 #include "infrastructure/plugin/sync/host_services.h"
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <coroutine>
 #include <cstddef>
@@ -34,12 +39,12 @@
 #include "application/ports/log.h"
 #include "coro/cancel_scope.h"
 #include "coro/fwd.h"
+#include "coro/host.hpp"
 #include "coro/loop.h"
 #include "coro/run.hpp"
 #include "coro/task.hpp"
 #include "coro/with_nursery.hpp"
 #include "infrastructure/http/types.h"
-#include "infrastructure/plugin/detail/cycle.h"
 #include "infrastructure/plugin/sync/bridge.h"
 #include "mocks/allocation_fault.h"
 #include "yaddnsc/sdk/driver_abi.h"
@@ -131,6 +136,38 @@ constexpr yaddnsc_http_header kValidHeaders[]{
 /// boundary must reject it before any string_view is built from it.
 constexpr yaddnsc_http_header kInvalidHeaders[]{
     {{"X-Token", 7}, {nullptr, 4}},
+};
+
+/// The per-cycle session the host context borrows: it answers the
+/// cancellation question and registers the calls that are in flight.
+class FakeBridgeSession final : public plugin::BridgeSession {
+public:
+    [[nodiscard]] coro::NurseryToken admission_token() const override { return token_; }
+
+    [[nodiscard]] bool cancelled() const noexcept override { return cancelled_.load(std::memory_order_acquire); }
+
+    void register_call(const std::shared_ptr<plugin::BridgeCall>& call) override {
+        ++registered;
+        calls.push_back(call);
+    }
+
+    void unregister_call(const std::shared_ptr<plugin::BridgeCall>& call) noexcept override {
+        ++unregistered;
+        for (auto it = calls.begin(); it != calls.end(); ++it) {
+            if (*it == call) {
+                calls.erase(it);
+                break;
+            }
+        }
+    }
+
+    void cancel() noexcept { cancelled_.store(true, std::memory_order_release); }
+
+    coro::NurseryToken token_{};
+    std::atomic<bool> cancelled_{false};
+    std::size_t registered{0};
+    std::size_t unregistered{0};
+    std::vector<std::shared_ptr<plugin::BridgeCall>> calls;
 };
 
 /// A request that passes every host boundary check.
@@ -230,15 +267,15 @@ class HostServicesTest : public ::testing::Test {
 protected:
     void SetUp() override {
         bridge_ = make_closed_bridge(loop_);
-        state_ = std::make_shared<plugin::CallState>();
-        context_ = std::make_unique<plugin::HostServicesContext>(*bridge_, logger_, state_);
+        session_ = std::make_shared<FakeBridgeSession>();
+        context_ = std::make_unique<plugin::HostServicesContext>(*bridge_, logger_, session_);
         context_->set_phase(plugin::HostServicesContext::Phase::UPDATE);
     }
 
     coro::Loop loop_;
     std::unique_ptr<plugin::Bridge> bridge_;
     ArmedRecordingLogger logger_;
-    std::shared_ptr<plugin::CallState> state_;
+    std::shared_ptr<FakeBridgeSession> session_;
     std::unique_ptr<plugin::HostServicesContext> context_;
 };
 
@@ -412,7 +449,7 @@ TEST_F(HostServicesTest, Exchange_RejectsNullContextRequestAndOutResponse) {
     }
     {  // null out_error: the returned status stays authoritative, and the
         // error struct is left untouched because there is none.
-        state_->cancelled.store(true);
+        session_->cancel();
         auto response = sized_response();
         EXPECT_EQ(services.http_exchange(services.context, &request, &response, nullptr), YADDNSC_STATUS_CANCELLED);
         EXPECT_EQ(response.status_code, 0u);
@@ -443,7 +480,7 @@ TEST_F(HostServicesTest, Exchange_RejectsUndersizedResponseStruct) {
 }
 
 TEST_F(HostServicesTest, Exchange_AcceptsUndersizedErrorStructAndLeavesItUnchanged) {
-    state_->cancelled.store(true);
+    session_->cancel();
     const auto services = context_->make_services();
     const auto request = valid_request();
     auto response = sized_response();
@@ -538,7 +575,7 @@ TEST_F(HostServicesTest, Exchange_AcceptsEveryAbiMethodBeforeValidatingTheRest) 
 
 TEST_F(HostServicesTest, Exchange_WhenCycleIsCancelled_FailsWithoutPosting) {
     const auto services = context_->make_services();
-    state_->cancelled.store(true, std::memory_order_release);
+    session_->cancel();
     EXPECT_EQ(services.is_cancelled(services.context), 1);
 
     const auto request = valid_request();
@@ -551,6 +588,8 @@ TEST_F(HostServicesTest, Exchange_WhenCycleIsCancelled_FailsWithoutPosting) {
     EXPECT_EQ(message_of(error), "the request was cancelled");
     EXPECT_EQ(response.status_code, 0u);
     EXPECT_EQ(response.headers, nullptr);
+    // The cancelled cycle never reached the bridge, so no call was made.
+    EXPECT_EQ(session_->registered, 0u);
 }
 
 // ===========================================================================
@@ -573,7 +612,7 @@ TEST_F(HostServicesTest, Exchange_HostException_BecomesInternalErrorAndIsPreserv
     EXPECT_EQ(message_of(error), "injected host defect");
     EXPECT_EQ(response.status_code, 0u);
     // The first host defect survives on the cycle for the gateway's boundary.
-    EXPECT_TRUE(state_->worker_error);
+    EXPECT_THROW(context_->rethrow_defect(), std::runtime_error);
 }
 
 TEST_F(HostServicesTest, Exchange_LongHostExceptionMessage_IsClampedToTheCallbackBuffer) {
@@ -590,7 +629,7 @@ TEST_F(HostServicesTest, Exchange_LongHostExceptionMessage_IsClampedToTheCallbac
     EXPECT_EQ(status, YADDNSC_STATUS_INTERNAL_ERROR);
     EXPECT_EQ(message_of(error).size(), kCallbackBufferCapacity - 1);
     EXPECT_EQ(std::string(message_of(error)), std::string(kCallbackBufferCapacity - 1, 'x'));
-    EXPECT_TRUE(state_->worker_error);
+    EXPECT_THROW(context_->rethrow_defect(), std::runtime_error);
 }
 
 TEST_F(HostServicesTest, Exchange_CancelledException_BecomesCancelledStatus) {
@@ -614,7 +653,7 @@ TEST_F(HostServicesTest, Exchange_CancelledException_BecomesCancelledStatus) {
     EXPECT_EQ(message_of(error), "the request was cancelled");
     // Cancellation is control flow, not a host defect: it must not be
     // recorded as one.
-    EXPECT_FALSE(state_->worker_error);
+    EXPECT_NO_THROW(context_->rethrow_defect());
 }
 
 TEST_F(HostServicesTest, Exchange_UnknownException_BecomesGenericInternalError) {
@@ -631,13 +670,22 @@ TEST_F(HostServicesTest, Exchange_UnknownException_BecomesGenericInternalError) 
     EXPECT_EQ(status, YADDNSC_STATUS_INTERNAL_ERROR);
     EXPECT_EQ(error.status, YADDNSC_STATUS_INTERNAL_ERROR);
     EXPECT_EQ(message_of(error), "unknown host exception during http exchange");
-    EXPECT_TRUE(state_->worker_error);
+    EXPECT_THROW(context_->rethrow_defect(), HostDefect);
 }
 
 TEST_F(HostServicesTest, Exchange_RepeatedHostDefects_PreserveOnlyTheFirstOne) {
     const auto services = context_->make_services();
     const auto request = valid_request();
-    for (int attempt = 0; attempt < 2; ++attempt) {
+    {
+        auto response = sized_response();
+        auto error = sized_error();
+        {
+            const InjectFault fault{Fault::std_exception};
+            EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error),
+                      YADDNSC_STATUS_INTERNAL_ERROR);
+        }
+    }
+    {
         auto response = sized_response();
         auto error = sized_error();
         {
@@ -646,7 +694,9 @@ TEST_F(HostServicesTest, Exchange_RepeatedHostDefects_PreserveOnlyTheFirstOne) {
                       YADDNSC_STATUS_INTERNAL_ERROR);
         }
     }
-    EXPECT_TRUE(state_->worker_error);
+    // The first defect is the one that survives for the cycle's boundary: the
+    // later one must not replace it.
+    EXPECT_THROW(context_->rethrow_defect(), std::runtime_error);
 }
 
 }  // namespace
@@ -662,9 +712,9 @@ TEST_F(HostServicesTest, SavedServicesTableChecksEveryCurrentPhase) {
         EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error),
                   YADDNSC_STATUS_INVALID_ARGUMENT);
         EXPECT_EQ(message_of(error), "http_exchange is only available during yaddnsc_driver_update");
-        EXPECT_FALSE(state_->worker_error);
+        EXPECT_NO_THROW(context_->rethrow_defect());
     }
     context_->set_phase(plugin::HostServicesContext::Phase::UPDATE);
-    state_->cancelled.store(true);
+    session_->cancel();
     EXPECT_EQ(services.http_exchange(services.context, &request, &response, nullptr), YADDNSC_STATUS_CANCELLED);
 }
