@@ -39,8 +39,9 @@ by `ci.yml` path filters.
 - `native-packages` — x86_64 package generation on Debian 13, Ubuntu
   24.04/26.04, Fedora 43, openSUSE Leap 16.0 / Tumbleweed, and Alpine;
 - `native-packages-arm64` — representative AArch64 package generation on
-  Debian 13, Fedora 43, and Alpine. Both matrices run installation, SDK consumer,
-  and configuration-upgrade checks before exporting packages;
+  Debian 13, Fedora 43, openSUSE Leap 16.0 / Tumbleweed, and Alpine. Both matrices
+  run installation, SDK consumer, and configuration-upgrade checks before
+  exporting packages;
 - `nightly-release` — after the complete nightly test, lint, and package matrix
   passes, updates the same `nightly` pre-release in place with the pinned commit,
   notes, and x86_64 / AArch64 assets. Fixed asset names replace the previous

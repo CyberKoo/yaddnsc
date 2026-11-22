@@ -223,6 +223,12 @@ jobs:
           - id: fedora-43-arm64
             target: fedora:43
             builder: rpm
+          - id: opensuse-leap-16.0-arm64
+            target: opensuse/leap:16.0
+            builder: rpm
+          - id: opensuse-tumbleweed-arm64
+            target: opensuse/tumbleweed:latest
+            builder: rpm
           - id: alpine-3-arm64
             target: alpine:3
             builder: apk
