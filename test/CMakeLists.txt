@@ -244,6 +244,17 @@ add_test(NAME architecture_guard
         -P ${PROJECT_SOURCE_DIR}/cmake/ArchitectureGuard.cmake
 )
 
+find_package(Git QUIET)
+if(Git_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
+    add_test(NAME git_version
+        COMMAND ${CMAKE_COMMAND}
+            -DPROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+            -DPROJECT_VERSION=${PROJECT_VERSION}
+            -DWORK_DIR=${PROJECT_BINARY_DIR}/test/git-version-no-refs
+            -P ${PROJECT_SOURCE_DIR}/test/version/verify-git-version.cmake
+    )
+endif()
+
 find_program(NIGHTLY_ASSETS_BASH_EXECUTABLE NAMES bash)
 if(NIGHTLY_ASSETS_BASH_EXECUTABLE)
     add_test(NAME nightly_package_assets

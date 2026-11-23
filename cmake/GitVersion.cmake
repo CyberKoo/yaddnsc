@@ -45,11 +45,19 @@ else ()
     set(GIT_PRERELEASE "")
 endif ()
 
-# Get describe string for dev builds — e.g. "heads/main-0-gabc1234-dirty"
-execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} describe --all --long --dirty
+# Get describe string for dev builds — e.g. "heads/main-0-gabc1234-dirty".
+# A detached checkout without any refs falls back to the abbreviated commit.
+execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} describe --all --long --dirty --always
         OUTPUT_VARIABLE GIT_RAW
         OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE GIT_DESCRIBE_STATUS
         ERROR_QUIET)
+if (GIT_DESCRIBE_STATUS EQUAL 0 AND NOT GIT_RAW STREQUAL "")
+    set(GIT_AVAILABLE TRUE)
+else ()
+    set(GIT_AVAILABLE FALSE)
+    set(GIT_RAW "unknown")
+endif ()
 
 # Transform "<ref-path>-0-g<sha>" → "<name>~g<sha>", keeping only the ref's
 # final path segment. A PR checkout is a detached HEAD at
@@ -57,6 +65,9 @@ execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} describe --all 
 # "remotes/pull/1/merge-0-g4159b7f"; the full path would put '/' into the
 # package version, which both dpkg and the CPack DEB file name reject.
 string(REGEX REPLACE "^([^ ]*/)?([^/]*)-0-(g.*)$" "\\2~\\3" GIT_DESCRIBE "${GIT_RAW}")
+if (GIT_DESCRIBE MATCHES "^[0-9a-fA-F]+(-dirty)?$")
+    string(PREPEND GIT_DESCRIBE "g")
+endif ()
 
 # Determine dirty status
 if (GIT_DESCRIBE MATCHES "-dirty$")

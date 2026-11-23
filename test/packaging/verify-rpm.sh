@@ -66,7 +66,9 @@ fi
 install_packages gcc-c++ cmake make /packages/*.rpm
 
 rpm -q yaddnsc yaddnsc-devel
-yaddnsc --version
+version="$(yaddnsc --version)"
+printf '%s\n' "${version}"
+[[ "${version}" =~ ^yaddnsc/[0-9]+\.[0-9]+\.[0-9]+-.+ ]]
 for driver in \
     alibaba_cloud cloudflare digital_ocean dnspod duckdns godaddy \
     linode namecheap porkbun route53 simple vultr; do

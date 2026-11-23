@@ -32,7 +32,8 @@ beside the features they gate (see [Documentation](#documentation) and
 
 - `YADDNSC_BUILD_TESTS` (default `OFF`) adds `test/` and enables CTest;
 - `YADDNSC_DEVELOPMENT` (default `ON`) embeds `git describe` version info in
-  the binary; `OFF` forces `RELEASE`;
+  the binary, falling back to the commit hash when no branch or tag ref is
+  available; `OFF` forces `RELEASE`;
 - `YADDNSC_SANITIZE_DEBUG` (default `ON`) adds ASan/UBSan in `Debug`;
 - `YADDNSC_ENABLE_TRACE` (default `OFF`) compiles trace-level logging in;
 - `YADDNSC_USE_SYSTEM_SPDLOG` (default `OFF`) uses the system spdlog instead of

@@ -24,6 +24,11 @@ section here.
 - Alpine APK packages with optional OpenRC integration and upgrade checks.
 - A continuously updated `nightly` pre-release with x86_64 and AArch64 packages.
 
+### Fixed
+
+- Development binaries built from detached checkouts without branch or tag refs
+  now embed the commit hash instead of an empty version suffix.
+
 ## [1.1.0] - 2026-11-21
 
 The host now implements plugin ABI 1.1; ABI 1.0 remains frozen and loadable.
