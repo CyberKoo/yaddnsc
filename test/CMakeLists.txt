@@ -244,6 +244,15 @@ add_test(NAME architecture_guard
         -P ${PROJECT_SOURCE_DIR}/cmake/ArchitectureGuard.cmake
 )
 
+find_program(NIGHTLY_ASSETS_BASH_EXECUTABLE NAMES bash)
+if(NIGHTLY_ASSETS_BASH_EXECUTABLE)
+    add_test(NAME nightly_package_assets
+        COMMAND ${NIGHTLY_ASSETS_BASH_EXECUTABLE}
+            ${PROJECT_SOURCE_DIR}/test/packaging/verify-nightly-assets.sh
+            ${PROJECT_SOURCE_DIR}
+    )
+endif()
+
 # ============================================================================
 # tests  —  top-level convenience target to build all test executables
 #           without building the main yaddnsc binary.

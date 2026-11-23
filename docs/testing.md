@@ -387,6 +387,10 @@ and bundled drivers, validates the configuration, and runs the installed SDK
 consumer checks. It also upgrades from `pkgrel` 0 to 1 and verifies that a
 modified `config.json` remains byte-for-byte unchanged.
 
+The `nightly_package_assets` CTest checks the required AArch64 matrix entries,
+release-asset naming for all three package formats, and error handling for
+missing, unrecognized, and duplicate packages.
+
 ## Coverage
 
 The CI `coverage` job (see [ci.md](ci.md#ci-and-warning-gates)) runs this

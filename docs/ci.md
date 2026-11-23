@@ -38,14 +38,16 @@ by `ci.yml` path filters.
   disabled), and the dedicated `Sanitizer` build/tests;
 - `native-packages` — x86_64 package generation on Debian 13, Ubuntu
   24.04/26.04, Fedora 43, openSUSE Leap 16.0 / Tumbleweed, and Alpine;
-- `native-packages-arm64` — representative AArch64 package generation on
-  Debian 13, Fedora 43, openSUSE Leap 16.0 / Tumbleweed, and Alpine. Both matrices
-  run installation, SDK consumer, and configuration-upgrade checks before
-  exporting packages;
+- `native-packages-arm64` — AArch64 package generation on Debian 13, Ubuntu
+  24.04/26.04, Fedora 43, openSUSE Leap 16.0 / Tumbleweed, and Alpine. Both
+  matrices run installation, SDK consumer, and configuration-upgrade checks
+  before exporting packages;
 - `nightly-release` — after the complete nightly test, lint, and package matrix
   passes, updates the same `nightly` pre-release in place with the pinned commit,
   notes, and x86_64 / AArch64 assets. Fixed asset names replace the previous
-  build, and stale assets are removed after the new upload succeeds;
+  build, and stale assets are removed after the new upload succeeds. Asset names
+  start with `yaddnsc-` and include the distribution and architecture, for
+  example `yaddnsc-ubuntu-24.04-arm64_arm64.deb`;
 - `docker-hub` — after the same complete matrix passes, builds the Alpine-based
   image for `linux/amd64` and `linux/arm64` and pushes it as
   `cyberkoo/yaddnsc:nightly`;

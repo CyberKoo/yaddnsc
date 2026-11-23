@@ -51,7 +51,7 @@ for package in "${packages[@]}"; do
             ;;
     esac
 
-    destination="${OUTPUT_DIR}/${MATRIX_ID}-${asset}"
+    destination="${OUTPUT_DIR}/yaddnsc-${MATRIX_ID}${asset#yaddnsc}"
     if [[ -e "${destination}" ]]; then
         echo "Duplicate release asset: ${destination}" >&2
         exit 1

@@ -220,6 +220,12 @@ jobs:
           - id: debian-13-arm64
             target: debian:13
             builder: deb
+          - id: ubuntu-24.04-arm64
+            target: ubuntu:24.04
+            builder: deb
+          - id: ubuntu-26.04-arm64
+            target: ubuntu:26.04
+            builder: deb
           - id: fedora-43-arm64
             target: fedora:43
             builder: rpm
